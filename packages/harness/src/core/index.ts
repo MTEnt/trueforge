@@ -111,10 +111,6 @@ export { Sandbox } from './sandbox/Sandbox';
 export * from './llm/LLMTypes';
 export * from './llm/openaiSchemas';
 
-// util
-export { onSignalAbort } from './util/abort';
-export { PromiseTimeoutError, withTimeout } from './util/promiseUtils';
-
 // runtime/contextUtils
 export {
   SYSTEM_TAG_START,
