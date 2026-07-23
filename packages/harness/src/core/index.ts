@@ -56,7 +56,6 @@ export { ToolSet } from './mcp/ToolSet';
 
 // LLM contracts
 export type { ILLM } from './llm/ILLM';
-export type { CompletionUsage, LLMUserMessage } from './llm/LLMTypes';
 export { OpenAILLM } from './llm/OpenAILLM';
 export { ResponseFormatSchema, toOpenAIResponseFormat } from './llm/responseFormat';
 export type { ResponseFormat } from './llm/responseFormat';
@@ -104,3 +103,83 @@ export { DaytonaSandboxProvider } from './sandbox/provider/DaytonaProvider';
 export type { SandboxProvider } from './sandbox/provider/Provider';
 export { TFYSandboxProvider } from './sandbox/provider/TFYSandboxProvider';
 export { Sandbox } from './sandbox/Sandbox';
+
+// --- Gateway compatibility exports. TODO(oss): re-curate before public release. ---
+
+// Whole modules the gateway re-exports via `export *` (covers CompletionUsage
+// and LLMUserMessage, formerly explicit exports above).
+export * from './llm/LLMTypes';
+export * from './llm/openaiSchemas';
+
+// util
+export { onSignalAbort } from './util/abort';
+export { PromiseTimeoutError, withTimeout } from './util/promiseUtils';
+
+// runtime/contextUtils
+export {
+  SYSTEM_TAG_START,
+  internalSystemMessage,
+  isApprovalDecisionMessage,
+  isClientSideToolResponseMessage,
+} from './runtime/contextUtils';
+
+// runtime/AgentThread.types
+export type {
+  AgentSendInput,
+  AgentThreadAppendContext,
+  AgentThreadCreateSubAgent,
+  AgentThreadEvent,
+  AgentThreadExecutionEvent,
+  AgentThreadExecutionResult,
+  InternalMCPAuthRequiredEvent,
+  InternalMCPServerAuthInfo,
+  InternalThreadDoneEvent,
+  LLMContextMessage,
+  SubAgentCompletionMarker,
+} from './runtime/AgentThread.types';
+
+// events/eventSchemas
+export {
+  ActionRequiredEventSchema,
+  AgentInputUserMessageSchema,
+  EventIdSchema,
+  ThreadOverwriteContextEventSchema,
+  UserToolApprovalMessageSchema,
+  UserToolResponseMessageSchema,
+} from './events/eventSchemas';
+export type {
+  AgentOutputEvent,
+  MCPAuthRequiredEvent,
+  MCPServerAuthInfo,
+  MCPServerInitInfo,
+  ThreadDoneEvent,
+  ThreadOverwriteContextEvent,
+} from './events/eventSchemas';
+
+// llm
+export type { AgentMetadata } from './llm/ILLM';
+export type { AgentThreadMetrics } from './llm/metrics';
+
+// mcp/toolSelectors
+export {
+  DEFAULT_DISABLE_TOOLS,
+  DEFAULT_ENABLE_TOOLS,
+  DEFAULT_PRELOAD_TOOLS,
+  DEFAULT_REQUIRE_APPROVAL_FOR_TOOLS,
+  REQUIRE_APPROVAL_TOOLS_SELECTOR_TAGS,
+  TOOLS_SELECTOR_TAGS,
+} from './mcp/toolSelectors';
+
+// capability builtin defaults
+export { DEFAULT_CONTEXT_COMPACTION_THRESHOLD_TOKENS } from './capabilities/builtins/ContextCompaction';
+export {
+  DEFAULT_INDIVIDUAL_TOOL_TOKEN_THRESHOLD,
+  DEFAULT_PREVIEW_NUMBER_OF_CHARACTERS,
+  DEFAULT_TOTAL_TOOL_TOKEN_THRESHOLD,
+} from './capabilities/builtins/LargeToolResponse';
+
+// sandbox
+export { SANDBOX_NATS_WS_PORT } from './sandbox/constants';
+export type { DaytonaSandboxSettings } from './sandbox/provider/DaytonaProvider';
+export type { MountedSkill } from './sandbox/Sandbox';
+export { SandboxError, validateNoPathTraversal, validateSandboxOwnedByTenant } from './sandbox/SandboxErrors';

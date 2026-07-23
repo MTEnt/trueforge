@@ -4,7 +4,9 @@
     "noEmit": false,
     "emitDeclarationOnly": true,
     "declaration": true,
-    "declarationMap": true,
+    // No declaration maps in the published tarball: they point into src/,
+    // which does not ship. TODO(oss): revisit if we ever ship sources.
+    "declarationMap": false,
     "rootDir": "./src",
     "outDir": "./dist",
     "types": ["node"]
