@@ -21,9 +21,9 @@
       "require": "./dist/core/index.cjs"
     },
     "./agent-session": {
-      "types": "./dist/agentSession/index.d.ts",
-      "import": "./dist/agentSession/index.js",
-      "require": "./dist/agentSession/index.cjs"
+      "types": "./dist/agent-session/index.d.ts",
+      "import": "./dist/agent-session/index.js",
+      "require": "./dist/agent-session/index.cjs"
     },
     "./package.json": "./package.json"
   },
@@ -33,7 +33,7 @@
         "./dist/core/index.d.ts"
       ],
       "agent-session": [
-        "./dist/agentSession/index.d.ts"
+        "./dist/agent-session/index.d.ts"
       ]
     }
   },

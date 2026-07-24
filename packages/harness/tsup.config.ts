@@ -4,7 +4,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'core/index': 'src/core/index.ts',
-    'agentSession/index': 'src/agentSession/index.ts',
+    'agent-session/index': 'src/agent-session/index.ts',
   },
   // CJS output exists for consumers whose test toolchains transpile to CommonJS
   // (e.g. the gateway's Jest); ESM remains the primary format.
