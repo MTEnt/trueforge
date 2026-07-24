@@ -44,14 +44,15 @@
     "dist"
   ],
   "scripts": {
-    "build": "pnpm run build:gen && pnpm run build:js && pnpm run build:dts",
+    "build": "pnpm run build:gen && pnpm run build:js && pnpm run build:dts && pnpm run build:pkg && pnpm run build:check",
     "build:gen": "node scripts/generate-sandbox-scripts.mjs",
     "build:js": "tsup",
     "build:dts": "tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "build:pkg": "node scripts/make-dist-package-json.mjs",
+    "build:check": "node scripts/check-dist.mjs",
     "typecheck": "pnpm run build:gen && tsc --noEmit",
     "test": "pnpm run build:gen && jest --config jest.config.cjs --forceExit",
-    "pack:dry": "pnpm pack --dry-run",
-    "prepack": "node -e \"const fs=require('node:fs'); for (const f of fs.readdirSync('.')) { if (/^readme(\\.(md|txt|markdown))?$/i.test(f)) { console.error('Refusing to pack: remove '+f+' so the npm page has no README'); process.exit(1); } }\""
+    "pack:dry": "cd dist && pnpm pack --dry-run"
   },
   "dependencies": {
     "@daytona/sdk": "^0.190.0",
