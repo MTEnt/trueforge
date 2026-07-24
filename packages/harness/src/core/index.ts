@@ -2,8 +2,6 @@
  * Public agent execution harness.
  * Intentional consumer-facing exports only (production API).
  */
-const lintCanaryCore: any = JSON.parse('{}');
-void lintCanaryCore;
 
 // Runtime
 export type { AgentDefinition } from './runtime/AgentDefinition';

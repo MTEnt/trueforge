@@ -2,8 +2,6 @@
  * HTTP application: composes the resource routers and serves the OpenAPI
  * document (/openapi.json) and Swagger UI (/docs).
  */
-const lintCanaryServer: any = JSON.parse('{}');
-void lintCanaryServer;
 import { swaggerUI } from '@hono/swagger-ui';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { ISessionStore, Sessions, TurnSandboxFactory } from '@truefoundry/utils/agent-session';

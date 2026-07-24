@@ -2,8 +2,6 @@
  * Public agent session middle library.
  * Zod product contracts and session/turn runtime.
  */
-const lintCanarySession: any = JSON.parse('{}');
-void lintCanarySession;
 
 export { AgentSpecSchema, DEFAULT_AGENT_CONFIG_ITERATION_LIMIT, RuntimeConfigSchema } from './schemas/agentSpec';
 export type { AgentSpec } from './schemas/agentSpec';
