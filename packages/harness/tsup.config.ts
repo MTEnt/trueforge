@@ -13,8 +13,7 @@ export default defineConfig({
   dts: false,
   splitting: false,
   // TODO(oss): revisit sourcemaps at the public release — with sourcesContent
-  // they embed the full TS source in the published tarball.
-  sourcemap: false,
+  sourcemap: true,
   clean: true,
   target: 'esnext',
   outDir: 'dist',
