@@ -17,6 +17,7 @@ import type {
 import { SUB_AGENT_IDENTITY } from '../capabilities/builtins/DynamicSubAgents';
 import type { ToolResponseProcessor } from '../capabilities/ToolResponseProcessor';
 import { AgentHarnessError, InvalidAgentSendInputError } from '../errors';
+import type { RegisteredPassthroughEvent } from '../events/PassthroughEvents';
 import {
   EventType,
   newEventId,
@@ -36,8 +37,7 @@ import {
   type ToolResponseRequiredEvent,
   type UserToolApprovalMessage,
   type UserToolResponseMessage,
-} from '../events/eventSchemas';
-import type { RegisteredPassthroughEvent } from '../events/PassthroughEvents';
+} from '../events/schema';
 import { InstructionBuilder, ROOT_AGENT_IDENTITY } from '../InstructionBuilder';
 import {
   getEmptyUsage,
@@ -50,7 +50,6 @@ import {
   type LLMUserMessage,
   type RawAssistantMessage,
 } from '../llm/LLMTypes';
-import type { AgentThreadMetric } from '../llm/metrics';
 import { toOpenAIResponseFormat } from '../llm/responseFormat';
 import { toOpenAIChatMessage } from '../llm/toOpenAIChatMessage';
 import { estimateTokensForString, mergeUsage } from '../llm/usage';
@@ -91,6 +90,7 @@ import {
   toToolCallInfo,
 } from './contextUtils';
 import { DeferredTool } from './DeferredTool';
+import type { AgentThreadMetrics } from './metrics';
 import { getClosableOpenToolCallIds, OpenToolCallCloser } from './OpenToolCallCloser';
 import { isEmptyMessageContent, processAgentUserInput, type AgentInputUserMessage } from './UserInputMessage';
 
@@ -231,7 +231,7 @@ function buildModelMessageEvent({
   void thinking_blocks;
   const event: ModelMessageEvent = {
     ...rest,
-    ...(tool_calls !== undefined ? { tool_calls: tool_calls.map(toEnrichedToolCall) } : {}),
+    tool_calls: tool_calls?.map(toEnrichedToolCall),
     type: EventType.MODEL_MESSAGE,
     id,
     created_at: new Date().toISOString(),
@@ -751,7 +751,7 @@ export class AgentThread {
     return base;
   }
 
-  public getAgentThreadMetrics(): AgentThreadMetric {
+  public getAgentThreadMetrics(): AgentThreadMetrics {
     return {
       iterations: this._iterations,
       total_tool_calls: this._totalToolCalls,

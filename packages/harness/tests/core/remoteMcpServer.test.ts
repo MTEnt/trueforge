@@ -154,7 +154,7 @@ describe('RemoteMCP + ToolSet', () => {
     await server.listTools();
     const firstCall = mockConnect.mock.calls[0];
     expect(firstCall).toBeDefined();
-    expect(firstCall?.[0]).not.toHaveProperty('knownTransportType');
+    expect(firstCall?.[0]?.knownTransportType).toBeUndefined();
   });
 
   it('applies enable/disable selectors and preload annotation', async () => {

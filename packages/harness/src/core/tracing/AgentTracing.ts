@@ -1,10 +1,10 @@
-import type { AgentThreadMetric } from '../llm/metrics';
+import type { AgentThreadMetrics } from '../runtime/metrics';
 
 export interface AgentExecutionTrace {
   runInContext<T>(operation: () => T): T;
   startSubAgent(name: string, input: string): AgentExecutionTrace;
   setOutput(output: string): void;
-  setMetrics(metrics: AgentThreadMetric): void;
+  setMetrics(metrics: AgentThreadMetrics): void;
   setError(error: unknown): void;
   setSuccess(): void;
   end(): void;

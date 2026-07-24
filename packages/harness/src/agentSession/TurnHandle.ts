@@ -1,11 +1,9 @@
 /**
  * Durable turn handle. {@link TurnHandle.stream} is execute-once (persist-before-yield).
  */
-import type { MCPAuthRequiredEvent, ModelMessageDeltaEvent, ThreadDoneEvent } from '../core/events/eventSchemas';
-import { EventType as HarnessEventType, newEventId } from '../core/events/eventSchemas';
-import type { WithRegisteredPassthrough } from '../core/events/PassthroughEvents';
+import type { MCPAuthRequiredEvent, ModelMessageDeltaEvent, ThreadDoneEvent } from '../core/events/schema';
+import { EventType as HarnessEventType, newEventId } from '../core/events/schema';
 import { getEmptyUsage } from '../core/llm/LLMTypes';
-import { getEmptyMetric } from '../core/llm/metrics';
 import {
   InternalEventType,
   type AgentThreadExecutionEvent,
@@ -14,17 +12,16 @@ import {
   type InternalThreadDoneEvent,
 } from '../core/runtime/AgentThread.types';
 import type { AgentThreadOrchestrator } from '../core/runtime/AgentThreadOrchestrator';
+import { createEmptyAgentThreadMetrics } from '../core/runtime/metrics';
 import type { ITurnResourceResolver } from './ITurnResourceResolver';
 import type { TurnRecord } from './models/TurnRecord';
-import { EventType, type TurnCreatedEvent, type TurnDoneEvent, type TurnEvent } from './schemas/events';
+import { EventType, type PersistedTurnEvent, type TurnCreatedEvent, type TurnDoneEvent } from './schemas/events';
 import type { TokenPagination } from './schemas/pagination';
 import { CancellationReason, type TerminalTurnState, type TurnInputItem, type TurnState } from './schemas/turn';
 import type { ISessionStore } from './store/ISessionStore';
 
 /** Streaming yield union — deltas pass through; never persisted. No sequence_number. */
-export type TurnStreamingEvent = WithRegisteredPassthrough<
-  TurnCreatedEvent | TurnDoneEvent | TurnEvent | ModelMessageDeltaEvent
->;
+export type TurnStreamingEvent = PersistedTurnEvent | ModelMessageDeltaEvent;
 
 function cancellationReasonFromAbortReason(abortReason: unknown): CancellationReason {
   if (abortReason === CancellationReason.ServerExecutionTimeout) {
@@ -214,7 +211,7 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
         const emptyResult: AgentThreadExecutionResult = {
           output: null,
           required_actions: [],
-          metrics: { total: getEmptyMetric() },
+          metrics: { total: createEmptyAgentThreadMetrics() },
         };
         await generator.return(emptyResult);
       }
@@ -296,8 +293,12 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
   }
 
   /** Paginated read of this turn's persisted events. */
-  async listEvents(input: { limit: number; page_token?: string; order?: 'asc' | 'desc' }): Promise<{
-    data: WithRegisteredPassthrough<TurnEvent | TurnCreatedEvent | TurnDoneEvent>[];
+  async listEvents(input: {
+    limit: number;
+    page_token?: string | undefined;
+    order?: 'asc' | 'desc' | undefined;
+  }): Promise<{
+    data: PersistedTurnEvent[];
     pagination: TokenPagination;
   }> {
     return this.store.listTurnEvents({

@@ -6,7 +6,7 @@ import {
   ModelMessageEventSchema,
   UserToolApprovalMessageSchema,
   UserToolResponseMessageSchema,
-} from '../../core/events/eventSchemas';
+} from '../../core/events/schema';
 
 export enum CancellationReason {
   // AbortController.abort() reason for the max-execution timer.

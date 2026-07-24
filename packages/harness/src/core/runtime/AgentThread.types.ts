@@ -24,17 +24,17 @@ import type {
   ToolResponseRequiredEvent,
   UserToolApprovalMessage,
   UserToolResponseMessage,
-} from '../events/eventSchemas';
+} from '../events/schema';
 import type {
   CompletionUsage,
   InternalEnrichedAssistantMessage,
   LLMToolMessage,
   LLMUserMessage,
 } from '../llm/LLMTypes';
-import type { AgentThreadMetrics } from '../llm/metrics';
 import type { Sandbox } from '../sandbox/Sandbox';
 import type { AgentTracing } from '../tracing/AgentTracing';
 import type { AgentDefinition } from './AgentDefinition';
+import type { AgentThreadMetrics } from './metrics';
 
 export type { AgentInfo, AgentParent };
 
@@ -141,7 +141,7 @@ export interface AgentThreadExecutionResult {
   output: ModelMessageEvent | null;
   required_actions: ActionRequiredEvent[];
   root_agent_error?: Pick<ThreadStateError, 'error' | 'output'> | undefined;
-  metrics: AgentThreadMetrics;
+  metrics: { total: AgentThreadMetrics };
 }
 
 /** Public send items plus internal LLM tool messages (child→parent delivery). */

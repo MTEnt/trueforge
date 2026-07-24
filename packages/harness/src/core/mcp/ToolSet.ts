@@ -1,6 +1,6 @@
 import type { CallToolRequest, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { McpConnectionError } from '../errors';
-import type { ApprovalDecision } from '../events/eventSchemas';
+import type { ApprovalDecision } from '../events/schema';
 import type { InternalToolCallInfo } from '../llm/LLMTypes';
 import {
   isAuthRequired,

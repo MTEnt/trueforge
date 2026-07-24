@@ -1,7 +1,7 @@
 import type { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { Logger } from 'winston';
 import { McpConnectionError } from '../errors';
-import type { MCPServerInitInfo } from '../events/eventSchemas';
+import type { MCPServerInitInfo } from '../events/schema';
 import type { InternalToolCallInfo } from '../llm/LLMTypes';
 import type { AgentTracing } from '../tracing/AgentTracing';
 import { NOOP_AGENT_TRACING } from '../tracing/NoopAgentTracing';
@@ -158,7 +158,7 @@ export class RemoteMCP implements ToolSource {
         const tools = await paginateWithCursorGuard(
           async cursor => {
             const page = await this.connection.listTools(cursor);
-            return { items: page.tools, ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}) };
+            return { items: page.tools, nextCursor: page.nextCursor };
           },
           this.name,
           this.logger,
@@ -230,14 +230,13 @@ export class RemoteMCP implements ToolSource {
         connection = await this.tracing.withRemoteMcpToolSpan(
           { method: 'initialize', serverName: this.name, serverId: this.id, serverUrl: this.traceUrl, enabled: true },
           async span => {
-            const sessionIdValue = this.sessionId ?? undefined;
             const conn = await connectRemoteMcp({
               url: this.url,
               headers,
-              ...(sessionIdValue !== undefined ? { sessionId: sessionIdValue } : {}),
+              sessionId: this.sessionId ?? undefined,
               // Hint from a prior connect
-              ...(this.resolvedTransportType !== undefined ? { knownTransportType: this.resolvedTransportType } : {}),
-              ...(this.connectTimeoutMs !== undefined ? { connectTimeoutMs: this.connectTimeoutMs } : {}),
+              knownTransportType: this.resolvedTransportType,
+              connectTimeoutMs: this.connectTimeoutMs,
               signal: this.signal,
               onClose: () => {
                 this.isConnected = false;

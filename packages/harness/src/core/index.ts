@@ -30,7 +30,7 @@ export { largeToolResponse } from './capabilities/builtins/LargeToolResponse';
 export { openUI } from './capabilities/builtins/OpenUI';
 
 // MCP contracts
-export type { ApprovalDecision } from './events/eventSchemas';
+export type { ApprovalDecision } from './events/schema';
 export { ClientSideTool } from './mcp/ClientSideTool';
 export { isAuthRequired, toolResultResponse } from './mcp/IMCPServer';
 export type {
@@ -74,10 +74,10 @@ export {
   ToolResponseEventSchema,
   ToolResponseRequiredEventSchema,
   newEventId,
-} from './events/eventSchemas';
-export type { AgentThreadMetric } from './llm/metrics';
+} from './events/schema';
 export { InternalEventType } from './runtime/AgentThread.types';
 export type { AgentThreadSendBatch, ContextMessage } from './runtime/AgentThread.types';
+export type { AgentThreadMetrics } from './runtime/metrics';
 export type { SandboxInfo } from './sandbox/Sandbox';
 
 // Tracing

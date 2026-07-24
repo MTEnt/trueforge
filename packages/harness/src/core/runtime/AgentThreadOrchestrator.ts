@@ -8,8 +8,7 @@ import {
   type ToolResponseEvent,
   type UserToolApprovalMessage,
   type UserToolResponseMessage,
-} from '../events/eventSchemas';
-import { addMetrics, getEmptyMetric } from '../llm/metrics';
+} from '../events/schema';
 import type { AgentExecutionTrace, AgentTracing } from '../tracing/AgentTracing';
 import { onSignalAbort } from '../util/abort';
 import { mergeAsyncGenerators } from '../util/promiseUtils';
@@ -33,6 +32,7 @@ import {
   isInternalThreadDoneError,
 } from './contextUtils';
 import type { CreateDynamicSubAgentThread } from './CreateDynamicSubAgentThread';
+import { addAgentThreadMetrics, createEmptyAgentThreadMetrics } from './metrics';
 
 const MAX_PARALLEL_SUB_AGENTS = 5;
 
@@ -400,7 +400,7 @@ export class AgentThreadOrchestrator {
     const requiredActions: ActionRequiredEvent[] = [];
     let rootAgentError: AgentThreadExecutionResult['root_agent_error'];
     const pendingAuthEvents: InternalMCPAuthRequiredEvent[] = [];
-    const totalMetrics = getEmptyMetric();
+    const totalMetrics = createEmptyAgentThreadMetrics();
     const mainThread = [...agentThreads.values()].find(e => !e.parent);
     if (!mainThread) {
       throw new Error('Unreachable: no root thread found');
@@ -436,7 +436,7 @@ export class AgentThreadOrchestrator {
               if (chunk.parent) {
                 const completedThread = agentThreads.get(chunk.thread_id);
                 if (completedThread) {
-                  addMetrics(totalMetrics, completedThread.getAgentThreadMetrics());
+                  addAgentThreadMetrics(totalMetrics, completedThread.getAgentThreadMetrics());
                 }
               } else {
                 // Root-thread only — sub-agent AGENT_DONE would overwrite root trace output /
@@ -469,7 +469,7 @@ export class AgentThreadOrchestrator {
       caughtError = error;
       throw error;
     } finally {
-      addMetrics(totalMetrics, mainThread.getAgentThreadMetrics());
+      addAgentThreadMetrics(totalMetrics, mainThread.getAgentThreadMetrics());
       rootSpan.finalize(mainThread, caughtError);
       rootSpan.end();
     }

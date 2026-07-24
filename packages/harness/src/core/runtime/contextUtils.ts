@@ -1,11 +1,11 @@
 import dedent from 'dedent';
-import type { ApprovalDecision } from '../events/eventSchemas';
+import type { ApprovalDecision } from '../events/schema';
 import {
   EventType,
   type AgentApprovalDecisionMessage,
   type UserToolApprovalMessage,
   type UserToolResponseMessage,
-} from '../events/eventSchemas';
+} from '../events/schema';
 import type {
   CompletionUsage,
   EnrichedToolCall,

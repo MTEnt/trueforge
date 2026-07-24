@@ -1,5 +1,5 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat';
-import type { ThreadOverwriteContextEvent } from '../events/eventSchemas';
+import type { ThreadOverwriteContextEvent } from '../events/schema';
 import type { CompletionUsage } from '../llm/LLMTypes';
 import type {
   AgentThreadAppendContext,

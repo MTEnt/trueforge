@@ -1,5 +1,5 @@
-import type { ApprovalDecision, MCPServerInitInfo } from '../events/eventSchemas';
 import type { RegisteredPassthroughEvent } from '../events/PassthroughEvents';
+import type { ApprovalDecision, MCPServerInitInfo } from '../events/schema';
 import type { InternalEnrichedAssistantMessage, InternalEnrichedToolCall, LLMToolMessage } from '../llm/LLMTypes';
 import type { MCPAuthRequired } from '../mcp/IMCPServer';
 import type { AgentThreadCreateSubAgent } from '../runtime/AgentThread.types';

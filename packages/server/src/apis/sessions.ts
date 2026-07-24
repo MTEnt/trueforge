@@ -118,9 +118,9 @@ export function createSessionsRouter(deps: SessionsRouterDeps) {
         tenant_name: TENANT_NAME,
         limit: query.limit,
         order: query.order,
-        ...(query.page_token !== undefined ? { page_token: query.page_token } : {}),
-        ...(query.start_timestamp !== undefined ? { start_timestamp: query.start_timestamp } : {}),
-        ...(query.end_timestamp !== undefined ? { end_timestamp: query.end_timestamp } : {}),
+        page_token: query.page_token,
+        start_timestamp: query.start_timestamp,
+        end_timestamp: query.end_timestamp,
       });
       return c.json({ data: data.map(toWireSession), pagination }, 200);
     } catch (error) {
@@ -153,8 +153,8 @@ export function createSessionsRouter(deps: SessionsRouterDeps) {
     try {
       const { data, pagination } = await session.listEvents({
         limit: query.limit,
-        ...(query.page_token !== undefined ? { page_token: query.page_token } : {}),
-        ...(query.last_turn_id !== undefined ? { last_turn_id: query.last_turn_id } : {}),
+        page_token: query.page_token,
+        last_turn_id: query.last_turn_id,
       });
       return c.json({ data, pagination }, 200);
     } catch (error) {

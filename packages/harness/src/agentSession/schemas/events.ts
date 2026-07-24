@@ -4,6 +4,7 @@
  * event unions the store writes. SSE streaming envelopes stay in server/schemas.
  */
 import { z } from '@hono/zod-openapi';
+import type { WithRegisteredPassthrough } from '../../core/events/PassthroughEvents';
 import {
   EventIdSchema,
   EventType as HarnessEventType,
@@ -16,7 +17,7 @@ import {
   ToolApprovalRequiredEventSchema,
   ToolResponseEventSchema,
   ToolResponseRequiredEventSchema,
-} from '../../core/events/eventSchemas';
+} from '../../core/events/schema';
 import {
   TurnInputItemSchema,
   TurnStateCancelledSchema,
@@ -55,9 +56,11 @@ export const TurnDoneEventSchema = z
   })
   .openapi('TurnDoneEvent');
 
-/** Persisted turn content events — no deltas, no lifecycle. */
-export const TurnEventSchema = z
+/** Built-in durable turn events — lifecycle + content; no deltas, no passthrough. */
+export const SessionEventSchema = z
   .discriminatedUnion('type', [
+    TurnCreatedEventSchema,
+    TurnDoneEventSchema,
     ModelMessageEventSchema,
     ToolResponseEventSchema,
     ThreadCreatedEventSchema,
@@ -68,11 +71,6 @@ export const TurnEventSchema = z
     ToolApprovalRequiredEventSchema,
     ToolResponseRequiredEventSchema,
   ])
-  .openapi('TurnEvent');
-
-/** turn.created, turn.done, or a persisted turn event — no deltas. */
-const SessionEventSchema = z
-  .discriminatedUnion('type', [TurnCreatedEventSchema, TurnDoneEventSchema, ...TurnEventSchema.options])
   .openapi('SessionEvent');
 
 /** One row on the session timeline: which turn emitted the event plus the event payload. */
@@ -85,5 +83,13 @@ export const SessionEventItemSchema = z
 
 export type TurnCreatedEvent = z.infer<typeof TurnCreatedEventSchema>;
 export type TurnDoneEvent = z.infer<typeof TurnDoneEventSchema>;
-export type TurnEvent = z.infer<typeof TurnEventSchema>;
-export type SessionEventItem = z.infer<typeof SessionEventItemSchema>;
+export type SessionEvent = z.infer<typeof SessionEventSchema>;
+/**
+ * Durable turn event log entries: {@link SessionEvent} plus any registered
+ * passthrough events. Shared by append and list operations.
+ */
+export type PersistedTurnEvent = WithRegisteredPassthrough<SessionEvent>;
+export interface SessionEventItem {
+  turn_id: string;
+  event: PersistedTurnEvent;
+}

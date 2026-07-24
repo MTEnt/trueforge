@@ -1,9 +1,9 @@
 import type { ITurnResourceResolver } from '../../src/agentSession/ITurnResourceResolver';
-import { MAIN_THREAD_ID, TURN_SERIALIZATION_VERSION, type TurnRecord } from '../../src/agentSession/models/TurnRecord';
+import { MAIN_THREAD_ID, type TurnRecord } from '../../src/agentSession/models/TurnRecord';
 import { AgentSpecSchema, type AgentSpec } from '../../src/agentSession/schemas/agentSpec';
 import { TurnResourceResolver } from '../../src/agentSession/TurnResourceResolver';
 import type { AgentCapability } from '../../src/core/capabilities/AgentCapability';
-import { EventType, newEventId } from '../../src/core/events/eventSchemas';
+import { EventType, newEventId } from '../../src/core/events/schema';
 import type { ExtendedChatCompletionChunk, RawAssistantMessageWithUsage } from '../../src/core/llm/LLMTypes';
 import { getEmptyUsage } from '../../src/core/llm/LLMTypes';
 import type { Sandbox } from '../../src/core/sandbox/Sandbox';
@@ -126,12 +126,11 @@ export function makeRunningTurnRecord(input: {
 }): TurnRecord {
   const now = new Date().toISOString();
   return {
-    serialization_version: TURN_SERIALIZATION_VERSION,
     turn_id: input.turnId,
     session_id: input.sessionId,
     first_turn_id: input.firstTurnId ?? input.turnId,
     ancestor_ids: input.previousTurnId ? [input.previousTurnId] : [],
-    ...(input.previousTurnId !== undefined ? { previous_turn_id: input.previousTurnId } : {}),
+    previous_turn_id: input.previousTurnId,
     state: { status: 'running' },
     input: [],
     snapshot: {

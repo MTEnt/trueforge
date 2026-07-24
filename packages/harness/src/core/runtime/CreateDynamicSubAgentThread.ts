@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentParent } from '../events/eventSchemas';
+import type { AgentInfo, AgentParent } from '../events/schema';
 import type { AgentDefinition } from './AgentDefinition';
 import type { AgentThread } from './AgentThread';
 

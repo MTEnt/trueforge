@@ -29,7 +29,12 @@ export interface SandboxFileInfo {
 
 export interface SandboxProvider {
   createSandbox(): Promise<{ sandboxId: string }>;
-  exec(params: { sandboxId: string; command: string; cwd?: string; env?: Record<string, string> }): Promise<ExecResult>;
+  exec(params: {
+    sandboxId: string;
+    command: string;
+    cwd?: string | undefined;
+    env?: Record<string, string> | undefined;
+  }): Promise<ExecResult>;
   /** Provider-specific instructions appended to the agent system prompt. */
   getAdditionalInstructions(): string | undefined;
   /** Directory inside the sandbox where large tool responses are dumped. */

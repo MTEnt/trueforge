@@ -6,7 +6,7 @@ import {
   type FileContentPart,
   type TextContentPart,
   type UserContentPart,
-} from '../events/eventSchemas';
+} from '../events/schema';
 import type { LLMUserMessage } from '../llm/LLMTypes';
 import type { Sandbox, SandboxInfo } from '../sandbox/Sandbox';
 import type { AgentSendInput } from './AgentThread.types';

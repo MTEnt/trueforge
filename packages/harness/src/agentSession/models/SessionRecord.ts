@@ -8,6 +8,7 @@ import type { AgentSpec } from '../schemas/agentSpec';
  * binding via the updateSession patch.
  */
 export interface SessionRecord<TCustom extends object = Record<string, never>> {
+  tenant_name: string;
   session_id: string;
   /** Always hydrated on read. Source of `spec` in SessionHandle.run(). */
   agent_spec: AgentSpec;
@@ -21,7 +22,9 @@ export interface SessionRecord<TCustom extends object = Record<string, never>> {
    * listing anchors. Advanced only by `createTurn` (atomic link).
    */
   last_turn_id?: string | undefined;
+  /** ISO-8601 UTC datetime string (for example, `2026-07-24T02:45:00.000Z`). */
   created_at: string;
+  /** ISO-8601 UTC datetime string (for example, `2026-07-24T02:45:00.000Z`). */
   updated_at: string;
   /**
    * Liveness clock (ms since epoch). The store bumps it on createSession,

@@ -1,5 +1,5 @@
 import type { ChatCompletionCreateParams } from 'openai/resources/chat';
-import { EventType, newEventId } from '../../events/eventSchemas';
+import { EventType, newEventId } from '../../events/schema';
 import type { ILLM } from '../../llm/ILLM';
 import type { AgentDefinition } from '../../runtime/AgentDefinition';
 import type { ContextMessage } from '../../runtime/AgentThread.types';

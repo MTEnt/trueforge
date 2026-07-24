@@ -6,7 +6,7 @@ import type { Logger } from 'winston';
  * loop stops and (when a logger is supplied) a warning is emitted naming the server.
  */
 export async function paginateWithCursorGuard<T>(
-  fetchNext: (cursor: string | undefined) => Promise<{ items: T[]; nextCursor?: string }>,
+  fetchNext: (cursor: string | undefined) => Promise<{ items: T[]; nextCursor?: string | undefined }>,
   serverIdentifier: string | undefined,
   logger?: Logger,
 ): Promise<T[]> {

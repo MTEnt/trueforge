@@ -76,7 +76,7 @@ export function createServerSandboxFactory(deps: { logger: Logger }): TurnSandbo
     Promise.resolve(
       new Sandbox({
         provider,
-        ...(existingSandboxId !== undefined ? { existingSandboxId } : {}),
+        existingSandboxId,
         fileDownloadEnabled: spec.config?.sandbox?.file_downloads ?? false,
         blockDestructiveToolsInCodeMode: true,
         // Sandbox reads its tenant from TFY_TENANT_NAME (see Sandbox constructor)

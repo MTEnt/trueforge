@@ -1,8 +1,8 @@
-import type { CompletionUsage } from './LLMTypes';
-import { getEmptyUsage } from './LLMTypes';
-import { mergeUsage } from './usage';
+import type { CompletionUsage } from '../llm/LLMTypes';
+import { getEmptyUsage } from '../llm/LLMTypes';
+import { mergeUsage } from '../llm/usage';
 
-export interface AgentThreadMetric {
+export interface AgentThreadMetrics {
   iterations: number;
   total_tool_calls: number;
   total_summarizations: number;
@@ -10,11 +10,7 @@ export interface AgentThreadMetric {
   total_sub_agents: number;
 }
 
-export interface AgentThreadMetrics {
-  total: AgentThreadMetric;
-}
-
-export function getEmptyMetric(): AgentThreadMetric {
+export function createEmptyAgentThreadMetrics(): AgentThreadMetrics {
   return {
     iterations: 0,
     total_tool_calls: 0,
@@ -24,7 +20,7 @@ export function getEmptyMetric(): AgentThreadMetric {
   };
 }
 
-export function addMetrics(target: AgentThreadMetric, source: AgentThreadMetric): void {
+export function addAgentThreadMetrics(target: AgentThreadMetrics, source: AgentThreadMetrics): void {
   target.iterations += source.iterations;
   target.total_tool_calls += source.total_tool_calls;
   target.total_summarizations += source.total_summarizations;

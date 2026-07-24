@@ -2,7 +2,7 @@ import type { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import dedent from 'dedent';
 import type { Logger } from 'winston';
 import { z } from 'zod';
-import type { ApprovalDecision } from '../events/eventSchemas';
+import type { ApprovalDecision } from '../events/schema';
 import { InstructionBuilder } from '../InstructionBuilder';
 import type { InternalToolCallInfo } from '../llm/LLMTypes';
 import {

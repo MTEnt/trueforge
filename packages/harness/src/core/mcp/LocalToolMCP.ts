@@ -1,7 +1,7 @@
 import type { CallToolRequest, ListToolsResult } from '@modelcontextprotocol/sdk/types.js';
 import { type AnyZodObject, z } from 'zod';
 import zodToJsonSchema from 'zod-to-json-schema';
-import type { ApprovalDecision } from '../events/eventSchemas';
+import type { ApprovalDecision } from '../events/schema';
 import type { InternalToolCallInfo } from '../llm/LLMTypes';
 import type { AgentTracing } from '../tracing/AgentTracing';
 import {

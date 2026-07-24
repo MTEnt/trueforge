@@ -1,5 +1,5 @@
 import { AgentSandboxRequiredError, InvalidAgentInputError } from '../../src/core/errors';
-import { EventType } from '../../src/core/events/eventSchemas';
+import { EventType } from '../../src/core/events/schema';
 import {
   isEmptyMessageContent,
   processAgentUserInput,

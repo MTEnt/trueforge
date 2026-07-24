@@ -1,9 +1,10 @@
-import { MAIN_THREAD_ID, TURN_SERIALIZATION_VERSION } from '../../src/agentSession/models/TurnRecord';
+import { MAIN_THREAD_ID } from '../../src/agentSession/models/TurnRecord';
+import type { PersistedTurnEvent } from '../../src/agentSession/schemas/events';
 import { CancellationReason } from '../../src/agentSession/schemas/turn';
 import type { ISessionStore } from '../../src/agentSession/store/ISessionStore';
 import { InMemorySessionStore } from '../../src/agentSession/store/InMemorySessionStore';
 import { SessionStoreConflictError, SessionStoreNotFoundError } from '../../src/agentSession/store/SessionStoreErrors';
-import { EventType, newEventId } from '../../src/core/events/eventSchemas';
+import { EventType, newEventId } from '../../src/core/events/schema';
 import { getEmptyUsage } from '../../src/core/llm/LLMTypes';
 import { makeAgentSpec, makeModelMessageEvent, makeRunningTurnRecord, makeTurnCreatedEvent } from './testHelpers';
 
@@ -34,6 +35,7 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
       await seedSession(store);
       const session = await store.getSession({ tenant_name: tenant, session_id: sessionId });
       expect(session).toBeDefined();
+      expect(mustGet(session).tenant_name).toBe(tenant);
       expect(mustGet(session).agent_spec.model.name).toBe('test-model');
       expect(mustGet(session).last_activity_timestamp_ms).toBeGreaterThanOrEqual(before);
       expect(mustGet(session).title).toBeNull();
@@ -555,6 +557,32 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
       expect(data.every(row => row.event.type === 'turn.created')).toBe(true);
     });
 
+    it('listSessionEvents includes registered passthrough events', async () => {
+      const store = createStore();
+      await seedSession(store);
+      await store.createTurn({
+        tenant_name: tenant,
+        turn: makeRunningTurnRecord({ sessionId, turnId: 't1' }),
+      });
+      const passthrough = {
+        type: 'custom.event',
+        event: { value: 1 },
+      } as unknown as PersistedTurnEvent;
+      await store.appendToEvents({
+        tenant_name: tenant,
+        session_id: sessionId,
+        turn_id: 't1',
+        events: [passthrough],
+      });
+
+      const { data } = await store.listSessionEvents({
+        tenant_name: tenant,
+        session_id: sessionId,
+        limit: 10,
+      });
+      expect(data).toEqual([{ turn_id: 't1', event: passthrough }]);
+    });
+
     it('listSessionEvents with last_turn_id scopes to that branch, excluding fork siblings', async () => {
       const store = createStore();
       await seedSession(store);
@@ -597,6 +625,50 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
         }),
       ).rejects.toBeInstanceOf(SessionStoreNotFoundError);
     });
+
+    it('listSessionEvents spills through truncated ancestor_ids windows to reach the chain root', async () => {
+      const store = createStore();
+      await seedSession(store);
+      // Writer-chosen window shorter than the chain — store must spill.
+      const ancestorWindow = 3;
+      const chainLength = ancestorWindow + 5;
+      const ids = Array.from({ length: chainLength }, (_, i) => `t${String(i + 1)}`);
+      for (let i = 0; i < ids.length; i++) {
+        const turnId = mustGet(ids[i], `ids[${String(i)}]`);
+        const window = ids.slice(Math.max(0, i - ancestorWindow), i);
+        await store.createTurn({
+          tenant_name: tenant,
+          turn: {
+            ...makeRunningTurnRecord({
+              sessionId,
+              turnId,
+              ...(i > 0
+                ? {
+                    previousTurnId: mustGet(ids[i - 1], `ids[${String(i - 1)}]`),
+                    firstTurnId: mustGet(ids[0], 'ids[0]'),
+                  }
+                : {}),
+            }),
+            ancestor_ids: window,
+          },
+        });
+        await store.appendToEvents({
+          tenant_name: tenant,
+          session_id: sessionId,
+          turn_id: turnId,
+          events: [makeTurnCreatedEvent(turnId)],
+        });
+      }
+      const tip = mustGet(ids.at(-1), 'chain tip');
+      const { data } = await store.listSessionEvents({
+        tenant_name: tenant,
+        session_id: sessionId,
+        limit: chainLength + 10,
+        last_turn_id: tip,
+      });
+      // Full chain reachable despite truncated windows, newest first.
+      expect(data.map(row => row.turn_id)).toEqual([...ids].reverse());
+    });
   });
 
   describe('deep-copy boundary', () => {
@@ -616,11 +688,6 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
       const keys = Object.getOwnPropertyNames(Object.getPrototypeOf(store)).concat(Object.keys(store));
       expect(keys.some(k => k.startsWith('subscribe'))).toBe(false);
     });
-  });
-
-  // Keep serialization_version visible in fixtures
-  it('turn records use TURN_SERIALIZATION_VERSION', () => {
-    expect(TURN_SERIALIZATION_VERSION).toBe(1);
   });
 }
 

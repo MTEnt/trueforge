@@ -1,5 +1,5 @@
 import type { ChatCompletionTool } from 'openai/resources/chat';
-import type { MCPServerInitInfo } from '../events/eventSchemas';
+import type { MCPServerInitInfo } from '../events/schema';
 import type { MCPAuthRequired } from '../mcp/IMCPServer';
 import { type IToolSet, isAuthRequired } from './IMCPServer';
 import { getUniqueSanitizedToolName } from './toolNames';

@@ -17,13 +17,15 @@ import type { AgentTracing } from '../core/tracing/AgentTracing';
 import { builtinsFromSpec } from './builtinsFromSpec';
 import type { ITurnResourceResolver } from './ITurnResourceResolver';
 import type { SessionRecord } from './models/SessionRecord';
-import { MAIN_THREAD_ID, TURN_SERIALIZATION_VERSION, type TurnRecord } from './models/TurnRecord';
-import type { TurnCreatedEvent, TurnDoneEvent, TurnEvent } from './schemas/events';
+import { MAIN_THREAD_ID, type TurnRecord } from './models/TurnRecord';
+import type { SessionEventItem } from './schemas/events';
 import type { TokenPagination } from './schemas/pagination';
 import type { TurnInputItem } from './schemas/turn';
 import type { ISessionStore } from './store/ISessionStore';
 import { TurnHandle } from './TurnHandle';
 
+/** How many recent ancestors SessionHandle persists on each turn. Store-local. */
+const MAX_TURN_ANCESTORS = 20;
 function resolvePreviousTurnId(
   requested: string | null | undefined,
   lastTurnId: string | undefined,
@@ -63,16 +65,10 @@ export class SessionHandle<
   TTurnCustom extends object = Record<string, never>,
 > {
   private readonly store: ISessionStore<TSessionCustom, TTurnCustom>;
-  private readonly tenantName: string;
   private session: SessionRecord<TSessionCustom>;
 
-  constructor(options: {
-    store: ISessionStore<TSessionCustom, TTurnCustom>;
-    tenantName: string;
-    session: SessionRecord<TSessionCustom>;
-  }) {
+  constructor(options: { store: ISessionStore<TSessionCustom, TTurnCustom>; session: SessionRecord<TSessionCustom> }) {
     this.store = options.store;
-    this.tenantName = options.tenantName;
     this.session = options.session;
   }
 
@@ -81,7 +77,7 @@ export class SessionHandle<
   }
 
   get tenant_name(): string {
-    return this.tenantName;
+    return this.session.tenant_name;
   }
 
   get agent_spec() {
@@ -131,7 +127,7 @@ export class SessionHandle<
     const previousTurnId = resolvePreviousTurnId(input.previous_turn_id, this.session.last_turn_id);
     const previous = previousTurnId
       ? await this.store.getTurn({
-          tenant_name: this.tenantName,
+          tenant_name: this.tenant_name,
           session_id: this.session.session_id,
           turn_id: previousTurnId,
         })
@@ -187,32 +183,32 @@ export class SessionHandle<
       const turnId = ulid().toLowerCase();
       const now = new Date().toISOString();
       const turnRecord: TurnRecord<TTurnCustom> = {
-        serialization_version: TURN_SERIALIZATION_VERSION,
         turn_id: turnId,
         session_id: this.session.session_id,
         first_turn_id: previous?.first_turn_id ?? turnId,
-        ancestor_ids: previous ? [...previous.ancestor_ids, previous.turn_id] : [],
-        ...(previousTurnId !== undefined ? { previous_turn_id: previousTurnId } : {}),
+        // Truncate to a recent window; stores spill if they need older ancestors.
+        ancestor_ids: previous ? [...previous.ancestor_ids, previous.turn_id].slice(-MAX_TURN_ANCESTORS) : [],
+        previous_turn_id: previousTurnId,
         state: { status: 'running' },
         input: input.input ?? [],
         snapshot: {
           threads: threadsRecordFromMap(agentThreads),
-          ...(previous?.snapshot.mcp_servers !== undefined ? { mcp_servers: previous.snapshot.mcp_servers } : {}),
-          ...(previous?.snapshot.sandbox_info !== undefined ? { sandbox_info: previous.snapshot.sandbox_info } : {}),
+          mcp_servers: previous?.snapshot.mcp_servers,
+          sandbox_info: previous?.snapshot.sandbox_info,
         },
         created_at: now,
         updated_at: now,
-        ...(custom !== undefined ? { custom } : {}),
+        custom,
       };
 
       await this.store.createTurn({
-        tenant_name: this.tenantName,
+        tenant_name: this.tenant_name,
         turn: turnRecord,
         update_session_title_if_not_exist: input.update_session_title_if_not_exist,
       });
 
       const refreshed = await this.store.getSession({
-        tenant_name: this.tenantName,
+        tenant_name: this.tenant_name,
         session_id: this.session.session_id,
       });
       if (refreshed) {
@@ -221,7 +217,7 @@ export class SessionHandle<
 
       return new TurnHandle({
         store: this.store,
-        tenantName: this.tenantName,
+        tenantName: this.tenant_name,
         turn: turnRecord,
         orchestrator,
         resolver: input.resolver,
@@ -240,7 +236,7 @@ export class SessionHandle<
   /** Returns the turn handle (store-backed; not executable), or undefined if not found. */
   async getTurn(turn_id: string): Promise<TurnHandle<TTurnCustom> | undefined> {
     const turn = await this.store.getTurn({
-      tenant_name: this.tenantName,
+      tenant_name: this.tenant_name,
       session_id: this.session.session_id,
       turn_id,
     });
@@ -249,7 +245,7 @@ export class SessionHandle<
     }
     return TurnHandle.fromRecord({
       store: this.store,
-      tenantName: this.tenantName,
+      tenantName: this.tenant_name,
       turn,
     });
   }
@@ -260,7 +256,7 @@ export class SessionHandle<
     page_token?: string | undefined;
   }): Promise<{ data: TurnRecord<TTurnCustom>[]; pagination: TokenPagination }> {
     return this.store.listTurns({
-      tenant_name: this.tenantName,
+      tenant_name: this.tenant_name,
       session_id: this.session.session_id,
       limit: input.limit,
       page_token: input.page_token,
@@ -272,12 +268,16 @@ export class SessionHandle<
    * turn.created / turn.done lifecycle events. Reads from the store only —
    * nothing is synthesized on read.
    */
-  async listEvents(input: { limit: number; page_token?: string; last_turn_id?: string }): Promise<{
-    data: { turn_id: string; event: TurnCreatedEvent | TurnDoneEvent | TurnEvent }[];
+  async listEvents(input: {
+    limit: number;
+    page_token?: string | undefined;
+    last_turn_id?: string | undefined;
+  }): Promise<{
+    data: SessionEventItem[];
     pagination: TokenPagination;
   }> {
     return this.store.listSessionEvents({
-      tenant_name: this.tenantName,
+      tenant_name: this.tenant_name,
       session_id: this.session.session_id,
       limit: input.limit,
       page_token: input.page_token,

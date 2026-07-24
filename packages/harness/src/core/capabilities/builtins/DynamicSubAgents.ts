@@ -120,7 +120,7 @@ export class DynamicSubAgents extends LocalToolMCP {
     });
   }
 
-  constructor({ modelSetConfig, tracing }: { modelSetConfig?: ModelSetConfig; tracing: AgentTracing }) {
+  constructor({ modelSetConfig, tracing }: { modelSetConfig?: ModelSetConfig | undefined; tracing: AgentTracing }) {
     super({ tracing });
     this.tools = [this.getCreateSubAgentTool(modelSetConfig)];
   }
@@ -151,7 +151,7 @@ export function dynamicSubAgents(options: {
   tracing: AgentTracing;
 }): AgentCapability {
   const toolSet = new DynamicSubAgents({
-    ...(options.modelSetConfig !== undefined ? { modelSetConfig: options.modelSetConfig } : {}),
+    modelSetConfig: options.modelSetConfig,
     tracing: options.tracing,
   });
   return {

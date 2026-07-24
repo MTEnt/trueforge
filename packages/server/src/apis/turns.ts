@@ -43,7 +43,7 @@ export interface TurnsRouterDeps {
 function createTurnResolver(deps: {
   modelStore: ModelStore;
   mcpStore: McpStore;
-  sandboxFactory?: TurnSandboxFactory;
+  sandboxFactory?: TurnSandboxFactory | undefined;
   logger: Logger;
   signal: AbortSignal;
 }): TurnResourceResolver {
@@ -126,7 +126,7 @@ export function createTurnsRouter(deps: TurnsRouterDeps) {
     const resolver = createTurnResolver({
       modelStore: deps.modelStore,
       mcpStore: deps.mcpStore,
-      ...(deps.sandboxFactory ? { sandboxFactory: deps.sandboxFactory } : {}),
+      sandboxFactory: deps.sandboxFactory,
       logger: deps.logger,
       signal: abortController.signal,
     });
@@ -138,11 +138,11 @@ export function createTurnsRouter(deps: TurnsRouterDeps) {
     let turn;
     try {
       turn = await session.run({
-        ...(body.input !== undefined ? { input: body.input } : {}),
+        input: body.input,
         previous_turn_id: body.previous_turn_id,
         signal: abortController.signal,
         resolver,
-        ...(title !== undefined ? { update_session_title_if_not_exist: title } : {}),
+        update_session_title_if_not_exist: title,
       });
     } catch (error) {
       // Unknown previous_turn_id (nothing was persisted).

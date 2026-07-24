@@ -6,21 +6,11 @@ import tseslint from 'typescript-eslint';
 
 export default defineConfig(
   {
-    ignores: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/coverage/**',
-      '**/.pnpm-store/**',
-      '**/.eslintcache',
-    ],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.pnpm-store/**', '**/.eslintcache'],
   },
   {
     files: ['**/*.{js,mjs,cjs,ts}'],
-    extends: [
-      js.configs.recommended,
-      tseslint.configs.strictTypeChecked,
-      tseslint.configs.stylisticTypeChecked,
-    ],
+    extends: [js.configs.recommended, tseslint.configs.strictTypeChecked, tseslint.configs.stylisticTypeChecked],
     languageOptions: {
       parserOptions: {
         projectService: true,

@@ -17,7 +17,7 @@ export interface RemoteMcpConnection {
   readonly transportType: RemoteMcpTransportType;
   /** Session id for a stateful server, or null for a stateless one. */
   readonly sessionId: string | null;
-  listTools(cursor?: string): Promise<{ tools: ToolSchema[]; nextCursor?: string }>;
+  listTools(cursor?: string): Promise<{ tools: ToolSchema[]; nextCursor?: string | undefined }>;
   callTool(params: CallToolRequest['params']): Promise<CallToolResult>;
   close(): Promise<void>;
 }
@@ -106,7 +106,7 @@ function buildConnection(
       const response = await client.listTools(cursor ? { cursor } : undefined, requestOptions);
       return {
         tools: response.tools,
-        ...(response.nextCursor !== undefined ? { nextCursor: response.nextCursor } : {}),
+        nextCursor: response.nextCursor,
       };
     },
     callTool: async (callParams: CallToolRequest['params']): Promise<CallToolResult> => {

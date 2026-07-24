@@ -499,10 +499,10 @@ export class Sandbox extends LocalToolMCP {
     }
     const bridge = await this.ensureNatsBridgeConnected(sandboxInfo.sandbox_id);
     const mcpClientEnv = injectMCPClientEnv({
-      ...(input.env !== undefined ? { env: input.env } : {}),
+      env: input.env,
       mcpServers: this.buildMcpServersEnvelope(),
-      ...(this.execExtraEnv !== undefined ? { execExtraEnv: this.execExtraEnv } : {}),
-      ...(bridge?.subjectPrefix !== undefined ? { natsBridgeSubjectPrefix: bridge.subjectPrefix } : {}),
+      execExtraEnv: this.execExtraEnv,
+      natsBridgeSubjectPrefix: bridge?.subjectPrefix,
     });
     const gitAuthEnv =
       this.resolvedGitCredentialsContent !== null
@@ -513,7 +513,7 @@ export class Sandbox extends LocalToolMCP {
     const result = await this.provider.exec({
       sandboxId: sandboxInfo.sandbox_id,
       command: input.command,
-      ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+      cwd: input.cwd,
       env,
     });
 
