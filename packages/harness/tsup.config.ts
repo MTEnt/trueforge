@@ -1,14 +1,15 @@
+import { esbuildPluginFilePathExtensions } from 'esbuild-plugin-file-path-extensions';
 import { defineConfig } from 'tsup';
 
+// every src module compiles to its own .js (CJS) + .mjs (ESM) pair so consumers can deep-import real file paths.
 export default defineConfig({
-  entry: {
-    index: 'src/index.ts',
-    'core/index': 'src/core/index.ts',
-    'agent-session/index': 'src/agent-session/index.ts',
-  },
-  // CJS output exists for consumers whose test toolchains transpile to CommonJS
-  // (e.g. the gateway's Jest); ESM remains the primary format.
+  entry: ['src/**/*.ts'],
   format: ['esm', 'cjs'],
+  // The plugin externalizes relative imports and rewrites extensionless
+  // specifiers per format ('./foo' -> './foo.mjs' / './foo.js'). It requires
+  // bundle mode, but with every file as an entry nothing actually inlines.
+  bundle: true,
+  esbuildPlugins: [esbuildPluginFilePathExtensions({ esmExtension: 'mjs', cjsExtension: 'js' })],
   dts: false,
   splitting: false,
   // TODO(oss): revisit sourcemaps at the public release — with sourcesContent
@@ -17,19 +18,5 @@ export default defineConfig({
   clean: true,
   target: 'esnext',
   outDir: 'dist',
-  external: [
-    '@daytona/sdk',
-    '@hono/zod-openapi',
-    '@modelcontextprotocol/sdk',
-    '@nats-io/nats-core',
-    '@opentelemetry/api',
-    '@opentelemetry/core',
-    'dedent',
-    'openai',
-    'ulid',
-    'winston',
-    'ws',
-    'zod',
-    'zod-to-json-schema',
-  ],
+  skipNodeModulesBundle: true,
 });
