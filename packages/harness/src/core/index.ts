@@ -123,7 +123,7 @@ export {
   ThreadOverwriteContextEventSchema,
   UserToolApprovalMessageSchema,
   UserToolResponseMessageSchema,
-} from './events/eventSchemas';
+} from './events/schema';
 export type {
   AgentOutputEvent,
   MCPAuthRequiredEvent,
@@ -131,9 +131,8 @@ export type {
   MCPServerInitInfo,
   ThreadDoneEvent,
   ThreadOverwriteContextEvent,
-} from './events/eventSchemas';
+} from './events/schema';
 export type { AgentMetadata } from './llm/ILLM';
-export type { AgentThreadMetrics } from './llm/metrics';
 export {
   DEFAULT_DISABLE_TOOLS,
   DEFAULT_ENABLE_TOOLS,
