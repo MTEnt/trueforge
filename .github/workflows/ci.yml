@@ -34,6 +34,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # sandboxScripts.gen.ts is gitignored; lint/format need it to exist.
+      - name: Generate sources
+        run: pnpm --filter @truefoundry/utils build:gen
+
       - name: Format check
         run: pnpm format:check
 
