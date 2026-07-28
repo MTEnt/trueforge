@@ -240,21 +240,16 @@ export class AgentThreadOrchestrator {
   }
 
   /**
-   * Snapshot of the turn's aggregate usage/metrics so far; `execute()` returns this as its
-   * `metrics.total`. Safe to call mid-flight and after cancel/error, where `execute()`
-   * throws instead of returning (so callers read it here directly).
+   * Aggregate metrics for the turn so far. `execute()` returns this as `metrics.total`; also safe
+   * to read mid-flight or after cancel/error (when `execute()` throws instead of returning).
    *
-   * Sums two disjoint sets, so each thread is counted exactly once:
-   *   • finished sub-agents  — via `completedSubAgentMetrics` (deleted from `agentThreads`)
-   *   • live threads         — via `agentThreads` (main thread + in-flight sub-agents)
+   * Counts each thread once by summing two disjoint sets — finished sub-agents
+   * (`completedSubAgentMetrics`) and live threads (`agentThreads`) — which stay disjoint because a
+   * sub-agent is moved between them atomically in `processAgentStreamChunk`.
    */
   public getRunningMetrics(): AgentThreadMetrics {
     const snapshot = createEmptyAgentThreadMetrics();
-
-    // Finished sub-agents.
     addAgentThreadMetrics(snapshot, this.completedSubAgentMetrics);
-
-    // Main thread + in-flight sub-agents.
     for (const thread of this.agentThreads.values()) {
       addAgentThreadMetrics(snapshot, thread.getAgentThreadMetrics());
     }
@@ -369,6 +364,9 @@ export class AgentThreadOrchestrator {
             yield* this.sendToThread(chunk.parent.thread_id, [chunk.send_to_parent]);
           }
           yield chunk;
+          // Move metrics to the finished bucket and drop the live entry with no `yield` between,
+          // so getRunningMetrics() counts this sub-agent once. After `yield chunk` per durable-state.
+          addAgentThreadMetrics(this.completedSubAgentMetrics, currentThread.getAgentThreadMetrics());
           this.agentThreads.delete(chunk.thread_id);
           return { shouldStopExecution: false };
         }
@@ -455,17 +453,10 @@ export class AgentThreadOrchestrator {
               shouldStopExecution = true;
               continue;
             }
-            if (chunk.type === InternalEventType.AGENT_DONE) {
-              if (chunk.parent) {
-                const completedThread = agentThreads.get(chunk.thread_id);
-                if (completedThread) {
-                  addAgentThreadMetrics(this.completedSubAgentMetrics, completedThread.getAgentThreadMetrics());
-                }
-              } else {
-                // Root-thread only — sub-agent AGENT_DONE would overwrite root trace output /
-                // leave a stale error; sub-agent spans finalize in wrapWithSubAgentSpan.
-                rootSpan.setOutputFromEvent(chunk);
-              }
+            if (chunk.type === InternalEventType.AGENT_DONE && !chunk.parent) {
+              // Root-thread only — sub-agent AGENT_DONE would overwrite root trace output /
+              // leave a stale error; sub-agent spans finalize in wrapWithSubAgentSpan.
+              rootSpan.setOutputFromEvent(chunk);
             }
 
             const result = yield* this.processAgentStreamChunk(chunk, signal);
