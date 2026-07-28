@@ -3,6 +3,7 @@ import type { CompletionUsage } from '../../core/llm/LLMTypes';
 import type {
   AgentThreadSnapshot,
   ContextMessage,
+  JsonValue,
   SubAgentCompletionMarker,
 } from '../../core/runtime/AgentThread.types';
 import type { SandboxInfo } from '../../core/sandbox/Sandbox';
@@ -123,7 +124,7 @@ export interface PatchThreadCapabilityStateInput {
   turn_id: string;
   thread_id: string;
   key: string;
-  state: unknown;
+  state: JsonValue;
 }
 
 export interface ListTurnEventsInput {
