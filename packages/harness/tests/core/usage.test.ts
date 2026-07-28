@@ -36,6 +36,23 @@ describe('completion usage cost', () => {
       completion_tokens: 13,
       total_tokens: 43,
     });
-    expect(merged.costInUSD).toBeCloseTo(0.35);
+    expect(merged.costInUSD).toBe(0.12 + 0.23);
+  });
+
+  it('retains full precision and never rounds cost to cents', () => {
+    // Sub-cent inputs must survive verbatim; any rounding to 2 dp would collapse these to 0.
+    const merged = mergeUsage({ ...getEmptyUsage(), costInUSD: 0.0001 }, { ...getEmptyUsage(), costInUSD: 0.0002 });
+
+    expect(merged.costInUSD).toBe(0.0001 + 0.0002);
+    expect(merged.costInUSD).toBeGreaterThan(0);
+  });
+
+  it('treats a missing cost as zero', () => {
+    const merged = mergeUsage(
+      { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      { ...getEmptyUsage(), costInUSD: 0.5 },
+    );
+
+    expect(merged.costInUSD).toBe(0.5);
   });
 });
