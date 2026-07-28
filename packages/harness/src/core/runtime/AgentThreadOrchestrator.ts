@@ -32,7 +32,7 @@ import {
   isInternalThreadDoneError,
 } from './contextUtils';
 import type { CreateDynamicSubAgentThread } from './CreateDynamicSubAgentThread';
-import { addAgentThreadMetrics, createEmptyAgentThreadMetrics } from './metrics';
+import { addAgentThreadMetrics, createEmptyAgentThreadMetrics, type AgentThreadMetrics } from './metrics';
 
 const MAX_PARALLEL_SUB_AGENTS = 5;
 
@@ -229,12 +229,36 @@ export class AgentThreadOrchestrator {
   private readonly createDynamicSubAgentThread: CreateDynamicSubAgentThread;
   private readonly tracing: AgentTracing;
   private readonly logger: Logger;
+  // Metrics of sub-agents that finished and were removed from `agentThreads`.
+  private readonly completedSubAgentMetrics: AgentThreadMetrics = createEmptyAgentThreadMetrics();
 
   constructor(params: AgentThreadOrchestratorInput) {
     this.agentThreads = params.agentThreads;
     this.createDynamicSubAgentThread = params.createDynamicSubAgentThread;
     this.tracing = params.tracing;
     this.logger = params.logger.child({ module: 'AgentThreadOrchestrator' });
+  }
+
+  /**
+   * Snapshot of the turn's aggregate usage/metrics so far; `execute()` returns this as its
+   * `metrics.total`. Safe to call mid-flight and after cancel/error, where `execute()`
+   * throws instead of returning (so callers read it here directly).
+   *
+   * Sums two disjoint sets, so each thread is counted exactly once:
+   *   • finished sub-agents  — via `completedSubAgentMetrics` (deleted from `agentThreads`)
+   *   • live threads         — via `agentThreads` (main thread + in-flight sub-agents)
+   */
+  public getRunningMetrics(): AgentThreadMetrics {
+    const snapshot = createEmptyAgentThreadMetrics();
+
+    // Finished sub-agents.
+    addAgentThreadMetrics(snapshot, this.completedSubAgentMetrics);
+
+    // Main thread + in-flight sub-agents.
+    for (const thread of this.agentThreads.values()) {
+      addAgentThreadMetrics(snapshot, thread.getAgentThreadMetrics());
+    }
+    return snapshot;
   }
 
   public async *send(messages: AgentThreadSendBatch): AsyncGenerator<AgentThreadAppendContext, void, unknown> {
@@ -400,7 +424,6 @@ export class AgentThreadOrchestrator {
     const requiredActions: ActionRequiredEvent[] = [];
     let rootAgentError: AgentThreadExecutionResult['root_agent_error'];
     const pendingAuthEvents: InternalMCPAuthRequiredEvent[] = [];
-    const totalMetrics = createEmptyAgentThreadMetrics();
     const mainThread = [...agentThreads.values()].find(e => !e.parent);
     if (!mainThread) {
       throw new Error('Unreachable: no root thread found');
@@ -436,7 +459,7 @@ export class AgentThreadOrchestrator {
               if (chunk.parent) {
                 const completedThread = agentThreads.get(chunk.thread_id);
                 if (completedThread) {
-                  addAgentThreadMetrics(totalMetrics, completedThread.getAgentThreadMetrics());
+                  addAgentThreadMetrics(this.completedSubAgentMetrics, completedThread.getAgentThreadMetrics());
                 }
               } else {
                 // Root-thread only — sub-agent AGENT_DONE would overwrite root trace output /
@@ -469,7 +492,6 @@ export class AgentThreadOrchestrator {
       caughtError = error;
       throw error;
     } finally {
-      addAgentThreadMetrics(totalMetrics, mainThread.getAgentThreadMetrics());
       rootSpan.finalize(mainThread, caughtError);
       rootSpan.end();
     }
@@ -494,7 +516,7 @@ export class AgentThreadOrchestrator {
       output,
       required_actions: requiredActions,
       root_agent_error: rootAgentError,
-      metrics: { total: totalMetrics },
+      metrics: { total: this.getRunningMetrics() },
     };
   }
 }

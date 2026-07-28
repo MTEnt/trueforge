@@ -151,6 +151,7 @@ export const CompletionUsageSchema = z
       .optional(),
     cache_read_input_tokens: z.number().int().nonnegative().optional(),
     cache_creation_input_tokens: z.number().int().nonnegative().optional(),
+    costInUSD: z.number().nonnegative().optional(),
   })
   .openapi('CompletionUsage');
 
@@ -175,7 +176,7 @@ export type CompletionUsage = z.infer<typeof CompletionUsageSchema>;
 export type FinishReason = z.infer<typeof FinishReasonSchema>;
 
 export function getEmptyUsage(): CompletionUsage {
-  return { prompt_tokens: 0, total_tokens: 0, completion_tokens: 0 };
+  return { prompt_tokens: 0, total_tokens: 0, completion_tokens: 0, costInUSD: 0 };
 }
 
 /**
