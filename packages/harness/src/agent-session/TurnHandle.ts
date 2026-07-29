@@ -78,7 +78,7 @@ function turnUsageFromMetrics(metrics: AgentThreadMetrics): TurnUsage {
     total_input_tokens: metrics.usage.prompt_tokens,
     total_output_tokens: metrics.usage.completion_tokens,
     total_cache_read_tokens: resolveCacheReadTokens(metrics.usage) ?? 0,
-    total_cost_in_usd: metrics.usage.costInUSD ?? 0,
+    total_cost_in_usd: metrics.usage.cost_in_usd ?? 0,
   };
 }
 

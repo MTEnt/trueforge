@@ -67,7 +67,7 @@ describe('TurnHandle.stream()', () => {
           completion_tokens: 5,
           total_tokens: 17,
           cache_read_input_tokens: 4,
-          costInUSD: 0.42,
+          cost_in_usd: 0.42,
         },
       }),
     });
@@ -103,7 +103,7 @@ describe('TurnHandle.stream()', () => {
           completion_tokens: 5,
           total_tokens: 17,
           prompt_tokens_details: { cached_tokens: 4 },
-          costInUSD: 0.42,
+          cost_in_usd: 0.42,
         },
       }),
     });
