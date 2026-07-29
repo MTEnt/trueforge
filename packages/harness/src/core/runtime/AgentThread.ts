@@ -488,6 +488,7 @@ export class AgentThread {
   private _totalSubAgents = 0;
   private _cumulativeUsage: CompletionUsage = getEmptyUsage();
   private tfyManagedServerNames = new Set<string>();
+  private onMetricsDelta: ((delta: AgentThreadMetrics) => void) | undefined;
 
   private contextBusy = false;
   private preSendRanThisTurn = false;
@@ -676,6 +677,7 @@ export class AgentThread {
     this.currentContextUsage = newCurrentContextUsage;
     if (updateCumulativeUsage && overwriteUsage) {
       this._cumulativeUsage = mergeUsage(this._cumulativeUsage, overwriteUsage);
+      this.reportMetricsDelta({ usage: overwriteUsage });
     }
   }
 
@@ -691,6 +693,7 @@ export class AgentThread {
     this._cumulativeUsage = mergeUsage(this._cumulativeUsage, payload.compaction_llm_usage);
     this.currentContextUsage = payload.current_context_usage;
     this._totalSummarizations++;
+    this.reportMetricsDelta({ usage: payload.compaction_llm_usage, total_summarizations: 1 });
   }
 
   private generateErrorEvent(message: string, output?: ModelMessageEvent): InternalThreadDoneEvent {
@@ -759,6 +762,21 @@ export class AgentThread {
       usage: { ...this._cumulativeUsage },
       total_sub_agents: this._totalSubAgents,
     };
+  }
+
+  /** Wire turn-level metrics into the orchestrator's running counter (deltas only). */
+  public setMetricsDeltaHandler(handler: ((delta: AgentThreadMetrics) => void) | undefined): void {
+    this.onMetricsDelta = handler;
+  }
+
+  private reportMetricsDelta(partial: Partial<Omit<AgentThreadMetrics, 'usage'>> & { usage?: CompletionUsage }): void {
+    this.onMetricsDelta?.({
+      iterations: partial.iterations ?? 0,
+      total_tool_calls: partial.total_tool_calls ?? 0,
+      total_summarizations: partial.total_summarizations ?? 0,
+      total_sub_agents: partial.total_sub_agents ?? 0,
+      usage: partial.usage ?? getEmptyUsage(),
+    });
   }
 
   private transformToLLMRequest(tools: ChatCompletionTool[]): ChatCompletionCreateParamsStreaming {
@@ -1147,6 +1165,12 @@ export class AgentThread {
     }
     this._totalToolCalls += toolCallResults.length;
     this._totalSubAgents += createThreadEvents.length;
+    if (toolCallResults.length > 0 || createThreadEvents.length > 0) {
+      this.reportMetricsDelta({
+        total_tool_calls: toolCallResults.length,
+        total_sub_agents: createThreadEvents.length,
+      });
+    }
 
     if (initializationInfo.length > 0) {
       yield buildMCPInitializeEvent(initializationInfo, this.threadId);
@@ -1325,6 +1349,7 @@ export class AgentThread {
               return;
             }
             this._iterations++;
+            this.reportMetricsDelta({ iterations: 1 });
 
             const llmResult = yield* this.stepLLMCall(tools, toolMapping, signal);
             outcome = llmResult.outcome;
