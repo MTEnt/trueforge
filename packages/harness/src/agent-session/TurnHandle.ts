@@ -5,6 +5,7 @@ import { AgentHarnessError } from '../core/errors';
 import type { MCPAuthRequiredEvent, ModelMessageDeltaEvent, ThreadDoneEvent } from '../core/events/schema';
 import { EventType as HarnessEventType, newEventId } from '../core/events/schema';
 import { getEmptyUsage } from '../core/llm/LLMTypes';
+import { resolveCacheReadTokens } from '../core/llm/usage';
 import {
   InternalEventType,
   type AgentThreadExecutionEvent,
@@ -76,8 +77,7 @@ function turnUsageFromMetrics(metrics: AgentThreadMetrics): TurnUsage {
   return {
     total_input_tokens: metrics.usage.prompt_tokens,
     total_output_tokens: metrics.usage.completion_tokens,
-    total_cache_read_tokens:
-      metrics.usage.cache_read_input_tokens ?? metrics.usage.prompt_tokens_details?.cached_tokens ?? 0,
+    total_cache_read_tokens: resolveCacheReadTokens(metrics.usage) ?? 0,
     total_cost_in_usd: metrics.usage.costInUSD ?? 0,
   };
 }

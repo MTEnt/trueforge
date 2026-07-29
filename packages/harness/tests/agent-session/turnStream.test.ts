@@ -91,6 +91,31 @@ describe('TurnHandle.stream()', () => {
     });
   });
 
+  it('persists OpenAI-shaped cache reads reported via prompt_tokens_details', async () => {
+    const { session } = await createSession();
+    const turn = await session.createTurn({
+      input: [{ type: EventType.USER_MESSAGE, content: 'hello' }],
+      previous_turn_id: null,
+      signal: new AbortController().signal,
+      resolver: makeTestResolver({
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 5,
+          total_tokens: 17,
+          prompt_tokens_details: { cached_tokens: 4 },
+          costInUSD: 0.42,
+        },
+      }),
+    });
+
+    for await (const event of turn.stream()) void event;
+
+    expect(turn.state).toMatchObject({
+      status: 'done',
+      usage: { total_cache_read_tokens: 4 },
+    });
+  });
+
   it('background drain reaches terminal done', async () => {
     const { session } = await createSession();
     const turn = await session.createTurn({

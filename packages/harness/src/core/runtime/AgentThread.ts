@@ -52,7 +52,7 @@ import {
 } from '../llm/LLMTypes';
 import { toOpenAIResponseFormat } from '../llm/responseFormat';
 import { toOpenAIChatMessage } from '../llm/toOpenAIChatMessage';
-import { estimateTokensForString, mergeUsage } from '../llm/usage';
+import { estimateTokensForString, mergeUsage, resolveCacheReadTokens } from '../llm/usage';
 import { convertMCPServersToTools, type ConvertToolsResult, type MappedMCPTool } from '../mcp/convertMCPServers';
 import { executeToolCalls } from '../mcp/executeToolCalls';
 import type { IToolSet, MCPAuthRequired } from '../mcp/IMCPServer';
@@ -847,7 +847,7 @@ export class AgentThread {
     return {
       input_tokens: usage.prompt_tokens,
       output_tokens: usage.completion_tokens,
-      cache_read_tokens: usage.cache_read_input_tokens ?? usage.prompt_tokens_details?.cached_tokens,
+      cache_read_tokens: resolveCacheReadTokens(usage),
       cache_write_tokens: usage.cache_creation_input_tokens,
       input_tokens_breakdown: {
         harness: harnessEstimate,
