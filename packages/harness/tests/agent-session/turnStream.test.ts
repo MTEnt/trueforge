@@ -55,6 +55,42 @@ describe('TurnHandle.stream()', () => {
     expect(stored?.state.status).toBe('done');
   });
 
+  it('persists final turn usage and session cost from running metrics', async () => {
+    const { store, session } = await createSession();
+    const turn = await session.createTurn({
+      input: [{ type: EventType.USER_MESSAGE, content: 'hello' }],
+      previous_turn_id: null,
+      signal: new AbortController().signal,
+      resolver: makeTestResolver({
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 5,
+          total_tokens: 17,
+          cache_read_input_tokens: 4,
+          costInUSD: 0.42,
+        },
+      }),
+    });
+
+    for await (const event of turn.stream()) void event;
+
+    expect(turn.state).toMatchObject({
+      status: 'done',
+      usage: {
+        total_input_tokens: 12,
+        total_output_tokens: 5,
+        total_cache_read_tokens: 4,
+        total_cost_in_usd: 0.42,
+      },
+    });
+    const storedSession = await store.getSession({ tenant_name: tenant, session_id: 's1' });
+    expect(storedSession).toMatchObject({
+      total_cost_in_usd: 0.42,
+      num_turns: 1,
+      num_completed_turns: 1,
+    });
+  });
+
   it('background drain reaches terminal done', async () => {
     const { session } = await createSession();
     const turn = await session.createTurn({

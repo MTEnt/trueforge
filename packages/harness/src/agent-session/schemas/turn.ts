@@ -30,11 +30,21 @@ export const TurnStateCancelledReasonSchema = z
   .describe('Reason for the cancellation.')
   .openapi('TurnStateCancelledReason');
 
+export const TurnUsageSchema = z
+  .object({
+    total_input_tokens: z.number().int().nonnegative(),
+    total_output_tokens: z.number().int().nonnegative(),
+    total_cache_read_tokens: z.number().int().nonnegative(),
+    total_cost_in_usd: z.number().nonnegative(),
+  })
+  .openapi('TurnUsage');
+
 export const TurnStateCancelledSchema = z
   .object({
     status: z.literal('cancelled'),
     reason: TurnStateCancelledReasonSchema,
     completed_at: z.string(),
+    usage: TurnUsageSchema.optional(),
   })
   .openapi('TurnStateCancelled');
 
@@ -43,6 +53,7 @@ export const TurnStateErrorSchema = z
     status: z.literal('error'),
     message: z.string(),
     completed_at: z.string(),
+    usage: TurnUsageSchema.optional(),
   })
   .openapi('TurnStateError');
 
@@ -52,6 +63,7 @@ export const TurnStateDoneSchema = z
     output: ModelMessageEventSchema.nullable(),
     required_actions: z.array(ActionRequiredEventSchema),
     completed_at: z.string(),
+    usage: TurnUsageSchema.optional(),
   })
   .openapi('TurnStateDone');
 
@@ -114,3 +126,4 @@ export type Turn = z.infer<typeof TurnSchema>;
 export type TurnInputItem = z.infer<typeof TurnInputItemSchema>;
 export type TurnState = z.infer<typeof TurnStateSchema>;
 export type TerminalTurnState = Exclude<TurnState, { status: 'running' }>;
+export type TurnUsage = z.infer<typeof TurnUsageSchema>;

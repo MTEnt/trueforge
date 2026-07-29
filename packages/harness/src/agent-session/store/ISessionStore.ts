@@ -11,7 +11,7 @@ import type { SessionRecord } from '../models/SessionRecord';
 import type { TurnRecord } from '../models/TurnRecord';
 import type { PersistedTurnEvent, SessionEventItem } from '../schemas/events';
 import type { TokenPagination } from '../schemas/pagination';
-import type { TerminalTurnState } from '../schemas/turn';
+import type { TerminalTurnState, TurnUsage } from '../schemas/turn';
 
 /** Caller-supplied fields for creating a session; the store owns timestamps and tip state. */
 export type CreateSessionInput<TSessionCustom extends object = Record<string, never>> = Pick<
@@ -63,7 +63,7 @@ export interface UpdateTurnStateInput {
   tenant_name: string;
   session_id: string;
   turn_id: string;
-  state: TerminalTurnState;
+  state: TerminalTurnState & { usage: TurnUsage };
 }
 
 export interface AppendToEventsInput {
@@ -190,7 +190,7 @@ export interface ISessionStore<
   ): Promise<{ data: SessionRecord<TSessionCustom>[]; pagination: TokenPagination }>;
 
   /**
-   * Creates the turn AND advances `session.last_turn_id`.
+   * Creates the turn, advances `session.last_turn_id`, and increments `session.num_turns`.
    *
    * Atomicity (store contract): insert turn + set `last_turn_id` (+ session
    * turn-list append if the backend has one) MUST be one atomic unit per
@@ -221,14 +221,15 @@ export interface ISessionStore<
   listTurns(input: ListTurnsInput): Promise<{ data: TurnRecord<TTurnCustom>[]; pagination: TokenPagination }>;
 
   /**
-   * Writes the terminal state. Store contract — **first terminal write wins**:
+   * Writes the terminal state and atomically folds its cost/duration into session totals.
+   * Store contract — **first terminal write wins**:
    * - Allowed: `running` → `done` | `cancelled` | `error`.
    * - Rejected with **409** (or equivalent conflict): any write when status is already
    *   terminal — including done→cancelled, cancelled→done, error→*, terminal→running.
    * - Missing turn → 404 / not-found.
    *
-   * Check under the same concurrency control as other turn mutations (lock/CAS) —
-   * not a racy read-then-write outside the critical section.
+   * Check, state write, and session increment run under the same concurrency control
+   * (lock/CAS/transaction) so a retry never double-counts usage.
    */
   updateTurnState(input: UpdateTurnStateInput): Promise<void>;
 

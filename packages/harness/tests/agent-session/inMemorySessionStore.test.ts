@@ -15,6 +15,13 @@ function mustGet<T>(value: T | undefined | null, label = 'value'): T {
   return value;
 }
 
+const emptyTurnUsage = {
+  total_input_tokens: 0,
+  total_output_tokens: 0,
+  total_cache_read_tokens: 0,
+  total_cost_in_usd: 0,
+};
+
 /** Store contract suite — factory-injected so other backends can reuse it. */
 function runStoreContractSuite(createStore: () => ISessionStore) {
   const tenant = 't1';
@@ -135,6 +142,7 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
       await store.createTurn({ tenant_name: tenant, turn });
       const after = await store.getSession({ tenant_name: tenant, session_id: sessionId });
       expect(mustGet(after).last_turn_id).toBe('turn-1');
+      expect(mustGet(after).num_turns).toBe(1);
       expect(mustGet(after).last_activity_timestamp_ms).toBeGreaterThan(mustGet(before).last_activity_timestamp_ms);
     });
 
@@ -256,6 +264,41 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
   });
 
   describe('updateTurnState', () => {
+    it('stores turn usage and folds session totals exactly once', async () => {
+      const store = createStore();
+      await seedSession(store);
+      const turn = makeRunningTurnRecord({ sessionId, turnId: 'turn-usage' });
+      const createdAtMs = Date.now() - 1000;
+      turn.created_at = new Date(createdAtMs).toISOString();
+      await store.createTurn({ tenant_name: tenant, turn });
+
+      const completedAtMs = createdAtMs + 2000;
+      const completedAt = new Date(completedAtMs).toISOString();
+      const usage = {
+        total_input_tokens: 10,
+        total_output_tokens: 4,
+        total_cache_read_tokens: 3,
+        total_cost_in_usd: 0.25,
+      };
+      await store.updateTurnState({
+        tenant_name: tenant,
+        session_id: sessionId,
+        turn_id: turn.turn_id,
+        state: { status: 'done', output: null, required_actions: [], completed_at: completedAt, usage },
+      });
+
+      const storedTurn = await store.getTurn({ tenant_name: tenant, session_id: sessionId, turn_id: turn.turn_id });
+      expect(storedTurn?.state).toMatchObject({ status: 'done', usage });
+      const session = mustGet(await store.getSession({ tenant_name: tenant, session_id: sessionId }));
+      expect(session).toMatchObject({
+        total_cost_in_usd: 0.25,
+        total_duration_ms: 2000,
+        num_turns: 1,
+        num_completed_turns: 1,
+        last_activity_timestamp_ms: completedAtMs,
+      });
+    });
+
     it('allows running → done and rejects second terminal (first-terminal-wins)', async () => {
       const store = createStore();
       await seedSession(store);
@@ -272,6 +315,7 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
           output: null,
           required_actions: [],
           completed_at: new Date().toISOString(),
+          usage: emptyTurnUsage,
         },
       });
       await expect(
@@ -283,6 +327,7 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
             status: 'cancelled',
             reason: CancellationReason.ClientCancelled,
             completed_at: new Date().toISOString(),
+            usage: emptyTurnUsage,
           },
         }),
       ).rejects.toBeInstanceOf(SessionStoreConflictError);
@@ -301,6 +346,7 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
             output: null,
             required_actions: [],
             completed_at: new Date().toISOString(),
+            usage: emptyTurnUsage,
           },
         }),
       ).rejects.toBeInstanceOf(SessionStoreNotFoundError);
@@ -530,6 +576,7 @@ function runStoreContractSuite(createStore: () => ISessionStore) {
           output: null,
           required_actions: [],
           completed_at: new Date().toISOString(),
+          usage: emptyTurnUsage,
         },
       });
       await store.createTurn({

@@ -13,12 +13,18 @@ import {
   type InternalThreadDoneEvent,
 } from '../core/runtime/AgentThread.types';
 import type { AgentThreadOrchestrator } from '../core/runtime/AgentThreadOrchestrator';
-import { createEmptyAgentThreadMetrics } from '../core/runtime/metrics';
+import { createEmptyAgentThreadMetrics, type AgentThreadMetrics } from '../core/runtime/metrics';
 import type { ITurnResourceResolver } from './ITurnResourceResolver';
 import type { TurnRecord } from './models/TurnRecord';
 import { EventType, type PersistedTurnEvent, type TurnCreatedEvent, type TurnDoneEvent } from './schemas/events';
 import type { TokenPagination } from './schemas/pagination';
-import { CancellationReason, type TerminalTurnState, type TurnInputItem, type TurnState } from './schemas/turn';
+import {
+  CancellationReason,
+  type TerminalTurnState,
+  type TurnInputItem,
+  type TurnState,
+  type TurnUsage,
+} from './schemas/turn';
 import type { ISessionStore } from './store/ISessionStore';
 
 /** Streaming yield union — deltas pass through; never persisted. No sequence_number. */
@@ -63,6 +69,16 @@ function toMCPAuthRequiredEvent(event: InternalMCPAuthRequiredEvent): MCPAuthReq
       void thread_ids;
       return server;
     }),
+  };
+}
+
+function turnUsageFromMetrics(metrics: AgentThreadMetrics): TurnUsage {
+  return {
+    total_input_tokens: metrics.usage.prompt_tokens,
+    total_output_tokens: metrics.usage.completion_tokens,
+    total_cache_read_tokens:
+      metrics.usage.cache_read_input_tokens ?? metrics.usage.prompt_tokens_details?.cached_tokens ?? 0,
+    total_cost_in_usd: metrics.usage.costInUSD ?? 0,
   };
 }
 
@@ -221,24 +237,28 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
       }
 
       const createdAt = new Date().toISOString();
-      let terminalState: TerminalTurnState;
+      const usage = turnUsageFromMetrics(orchestrator.getRunningMetrics());
+      let terminalState: TerminalTurnState & { usage: TurnUsage };
       if (signal.aborted) {
         terminalState = {
           status: 'cancelled',
           reason: cancellationReasonFromAbortReason(signal.reason),
           completed_at: createdAt,
+          usage,
         };
       } else if (caughtError) {
         terminalState = {
           status: 'error',
           message: caughtError.message,
           completed_at: createdAt,
+          usage,
         };
       } else if (executeResult?.root_agent_error) {
         terminalState = {
           status: 'error',
           message: executeResult.root_agent_error.error,
           completed_at: createdAt,
+          usage,
         };
       } else if (executeResult === undefined) {
         // Consumer abandoned the generator (break/return) without aborting —
@@ -247,6 +267,7 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
           status: 'cancelled',
           reason: CancellationReason.ClientCancelled,
           completed_at: createdAt,
+          usage,
         };
       } else {
         terminalState = {
@@ -254,6 +275,7 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
           output: executeResult.output,
           required_actions: executeResult.required_actions,
           completed_at: createdAt,
+          usage,
         };
       }
 
