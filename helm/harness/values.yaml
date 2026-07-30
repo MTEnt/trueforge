@@ -1,0 +1,214 @@
+# Default values for the harness chart.
+#
+# The server refuses to boot on a missing or invalid setting, so anything it
+# requires is either set here or derived by the chart. Connection details for
+# Postgres and Redis are always derived — set `postgres.external` /
+# `redis.external` rather than the env vars themselves.
+
+nameOverride: ''
+fullnameOverride: ''
+
+# Prefix for every image below, e.g. "ghcr.io/truefoundry". Empty means the
+# images are resolved as-is, which is what a locally built or preloaded image
+# needs.
+imageRegistry: ''
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  # Defaults to the release's fullname when empty.
+  name: ''
+  annotations: {}
+
+server:
+  image:
+    repository: truefoundry-server
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  # Replicas coordinate turn cancellation over Redis, so any replica can serve
+  # any request.
+  port: 8790
+  service:
+    type: ClusterIP
+    port: 8790
+    annotations: {}
+
+  # Non-secret env vars, rendered verbatim into a ConfigMap. Keys are the
+  # server's own env-var names; packages/server/.env.example documents them all.
+  # Values the chart derives (POSTGRES_*, REDIS_URL, PORT) are set directly on
+  # the pod and cannot be overridden here.
+  env:
+    LOG_LEVEL: info
+    # SERVER_EXECUTION_TIMEOUT_SECONDS: '600'
+    # DATABASE_POOL_MAX: '10'
+    # MODEL_HEADERS: '{"x-custom-header":"value"}'
+    # MCP_HEADERS: '{"Authorization":"Bearer <token>"}'
+    # SANDBOX_SETTINGS: '{"type":"daytona","snapshotName":"<snapshot>"}'
+
+  # Secret env vars, rendered into a Secret. MODEL_API_KEY is required unless
+  # `server.existingSecret` supplies it. Per-model and per-MCP-server overrides
+  # (MODEL_{NAME}_API_KEY, MCP_{NAME}_HEADERS) belong here too.
+  secretEnv:
+    MODEL_API_KEY: ''
+    # SANDBOX_API_KEY: '<daytona-api-key>'
+    # MODEL_ANTHROPIC_CLAUDE_SONNET_4_6_API_KEY: '<per-model-key>'
+
+  # Use a Secret you manage instead of `secretEnv`; its keys are loaded as env
+  # vars, so they must be named exactly as the server expects.
+  existingSecret: ''
+
+  # Extra ConfigMaps or Secrets to load as env vars, e.g.
+  #   - secretRef: {name: my-model-keys}
+  extraEnvFrom: []
+
+  # Seconds the server may spend cancelling turns and draining connections on
+  # SIGTERM. terminationGracePeriodSeconds is derived from this with headroom,
+  # so Kubernetes cannot SIGKILL mid-drain.
+  gracefulTimeoutSeconds: 30
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  # `GET /` returns 200 once the HTTP server is listening, which happens after
+  # migrations, Redis peering and the YAML stores are all ready.
+  probes:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    # Boot does migrations and a Redis handshake first; this bounds how long
+    # that may take before the pod is restarted.
+    startupFailureThreshold: 30
+
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# The YAML registry is not baked into the server image: it is mounted at
+# REGISTRY_DIR and read at startup, and the server exits if a file is missing
+# or invalid.
+registry:
+  # Mount a ConfigMap you manage instead of the contents below. It must hold
+  # models.yaml, mcp.yaml and skills.yaml.
+  existingConfigMap: ''
+  models: |
+    # Base URL of the OpenAI-compatible API. Credentials come from
+    # server.secretEnv.MODEL_API_KEY, never from this file.
+    base_url: https://api.openai.com/v1
+
+    models:
+      - name: gpt-4o-mini
+        max_output_tokens: 16384
+  mcp: |
+    mcp_servers: []
+  skills: |
+    skills: []
+
+frontend:
+  # Serves the built SPA and reverse-proxies /v1 to the server, including the
+  # SDK path rewrites and the unbuffered flushing that SSE needs.
+  enabled: true
+  image:
+    repository: truefoundry-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 80
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+postgres:
+  # Bundled Postgres is a single pod with no backups or failover: fine for
+  # trying the harness out, not for production. Disable it and set `external`
+  # to use a managed database.
+  enabled: true
+  image:
+    repository: postgres
+    tag: '17'
+    pullPolicy: IfNotPresent
+  auth:
+    username: harness
+    database: harness
+    password: harness
+    # Read the password from a Secret you manage instead.
+    existingSecret: ''
+    existingSecretPasswordKey: password
+  service:
+    port: 5432
+  persistence:
+    enabled: true
+    size: 8Gi
+    # Empty uses the cluster's default StorageClass.
+    storageClass: ''
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  # Only used when `enabled` is false.
+  external:
+    host: ''
+    port: 5432
+
+redis:
+  # Storage is deliberately ephemeral: Redis only carries executor peering and
+  # short-lived replies, so a restart costs nothing durable.
+  enabled: true
+  image:
+    repository: redis
+    tag: 7-alpine
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  # Only used when `enabled` is false. Full URL, e.g. redis://host:6379.
+  external:
+    url: ''
+
+ingress:
+  enabled: false
+  className: nginx
+  # Streamed turns break under a proxy that buffers responses or times out
+  # mid-stream; these are the ingress-nginx equivalents of what Caddy already
+  # does inside the frontend. Replace them if you run a different controller.
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: 'off'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+  hosts:
+    - host: harness.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

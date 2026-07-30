@@ -1,0 +1,9 @@
+apiVersion: v2
+name: harness
+description: Agent harness server with its Postgres, Redis and web frontend.
+type: application
+# Chart version; bump on chart changes. appVersion tracks the server image tag.
+version: 0.1.0
+appVersion: '0.1.0'
+maintainers:
+  - name: truefoundry

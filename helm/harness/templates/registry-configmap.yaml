@@ -1,0 +1,17 @@
+{{- if not .Values.registry.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-registry" (include "harness.fullname" .) }}
+  labels:
+    {{- include "harness.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+data:
+  # Filenames are fixed: the stores look for exactly these three.
+  models.yaml: |
+    {{- .Values.registry.models | nindent 4 }}
+  mcp.yaml: |
+    {{- .Values.registry.mcp | nindent 4 }}
+  skills.yaml: |
+    {{- .Values.registry.skills | nindent 4 }}
+{{- end }}

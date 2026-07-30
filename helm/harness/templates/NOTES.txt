@@ -1,0 +1,22 @@
+{{ .Chart.Name }} {{ .Chart.Version }} installed as {{ .Release.Name }}.
+
+Reach it with:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else if .Values.frontend.enabled }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "harness.frontend.fullname" . }} 8080:{{ .Values.frontend.service.port }}
+  open http://127.0.0.1:8080
+{{- else }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "harness.server.fullname" . }} 8790:{{ .Values.server.service.port }}
+  open http://127.0.0.1:8790/docs
+{{- end }}
+
+Configured models and MCP servers come from the registry ConfigMap
+({{ include "harness.registry.configMapName" . }}); the server reloads them only on restart.
+{{- if and .Values.postgres.enabled (not .Values.postgres.persistence.enabled) }}
+
+Warning: bundled Postgres is running on an emptyDir, so all sessions are lost
+when its pod restarts.
+{{- end }}

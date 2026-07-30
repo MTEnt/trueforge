@@ -1,0 +1,167 @@
+{{- include "harness.validate" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "harness.server.fullname" . }}
+  labels:
+    {{- include "harness.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "harness.selectorLabels" (dict "root" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pods when configuration changes; env vars are only read at
+        # startup, so an unnoticed edit would otherwise stay inert.
+        checksum/config: {{ include (print $.Template.BasePath "/server-configmap.yaml") . | sha256sum }}
+        checksum/registry: {{ include (print $.Template.BasePath "/registry-configmap.yaml") . | sha256sum }}
+        {{- if not .Values.server.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/server-secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.server.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "harness.selectorLabels" (dict "root" . "component" "server") | nindent 8 }}
+        {{- with .Values.server.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "harness.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Headroom over the drain budget so Kubernetes cannot SIGKILL a replica
+      # that is still persisting terminal turn state.
+      terminationGracePeriodSeconds: {{ add .Values.server.gracefulTimeoutSeconds 5 }}
+      {{- if or .Values.postgres.enabled .Values.redis.enabled }}
+      # The server exits instead of retrying when a dependency is unreachable at
+      # boot, so without this it CrashLoopBackOffs through a fresh install.
+      # Only bundled dependencies are waited on; an external one is assumed up.
+      # Both Services only route to pods past their readiness probe, so a
+      # successful connect means the backend is really accepting traffic.
+      initContainers:
+        - name: wait-for-dependencies
+          image: {{ include "harness.image" (dict "root" . "image" .Values.server.image) }}
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          command:
+            - bash
+            - -c
+            - |
+              set -eu
+              {{- if .Values.postgres.enabled }}
+              until (echo > /dev/tcp/{{ include "harness.postgres.host" . }}/{{ include "harness.postgres.port" . }}) 2>/dev/null; do
+                echo "waiting for postgres"
+                sleep 2
+              done
+              {{- end }}
+              {{- if .Values.redis.enabled }}
+              until (echo > /dev/tcp/{{ include "harness.redis.fullname" . }}/{{ .Values.redis.service.port }}) 2>/dev/null; do
+                echo "waiting for redis"
+                sleep 2
+              done
+              {{- end }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ include "harness.image" (dict "root" . "image" .Values.server.image) }}
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          {{- with .Values.server.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "harness.server.fullname" . }}
+            - secretRef:
+                name: {{ include "harness.server.secretName" . }}
+            {{- with .Values.server.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Set here rather than in the ConfigMap: an explicit `env` entry wins
+          # over `envFrom`, so a stale copy in values cannot point a replica at
+          # the wrong database.
+          env:
+            - name: PORT
+              value: {{ .Values.server.port | quote }}
+            - name: GRACEFUL_TIMEOUT_SECONDS
+              value: {{ .Values.server.gracefulTimeoutSeconds | quote }}
+            - name: POSTGRES_HOST
+              value: {{ include "harness.postgres.host" . | quote }}
+            - name: POSTGRES_PORT
+              value: {{ include "harness.postgres.port" . | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.auth.username | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.auth.database | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harness.postgres.secretName" . }}
+                  key: {{ include "harness.postgres.secretPasswordKey" . }}
+            - name: REDIS_URL
+              value: {{ include "harness.redis.url" . | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.port }}
+              protocol: TCP
+          {{- if .Values.server.probes.enabled }}
+          # Migrations, Redis peering and the YAML stores all complete before
+          # the listener opens, so a single startup gate covers boot.
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: {{ .Values.server.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.startupFailureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: {{ .Values.server.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: {{ .Values.server.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.server.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            # REGISTRY_DIR resolves against the image's workdir, and the server
+            # exits if these files are absent.
+            - name: registry
+              mountPath: /app/packages/server/registry
+              readOnly: true
+      volumes:
+        - name: registry
+          configMap:
+            name: {{ include "harness.registry.configMapName" . }}
+      {{- with .Values.server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

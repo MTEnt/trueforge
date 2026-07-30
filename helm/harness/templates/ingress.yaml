@@ -1,0 +1,39 @@
+{{- if .Values.ingress.enabled }}
+{{- $backendName := ternary (include "harness.frontend.fullname" .) (include "harness.server.fullname" .) .Values.frontend.enabled -}}
+{{- $backendPort := ternary .Values.frontend.service.port .Values.server.service.port .Values.frontend.enabled -}}
+# One backend for the whole host: with the frontend deployed, Caddy serves the
+# app and proxies /v1 onward, so path splitting here would only duplicate it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "harness.fullname" . }}
+  labels:
+    {{- include "harness.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ $backendName }}
+                port:
+                  number: {{ $backendPort }}
+          {{- end }}
+    {{- end }}
+{{- end }}

@@ -1,3 +1,5 @@
+# Upstream defaults to the compose service name; the Helm chart overrides
+# SERVER_HOST/SERVER_PORT with its own Service.
 :80 {
 	encode gzip
 
@@ -5,7 +7,7 @@
 	@draftSessions path /v1/agents/draft-sessions /v1/agents/draft-sessions/*
 	handle @draftSessions {
 		uri replace /v1/agents/draft-sessions /v1/sessions
-		reverse_proxy server:8790 {
+		reverse_proxy {$SERVER_HOST:server}:{$SERVER_PORT:8790} {
 			flush_interval -1
 		}
 	}
@@ -13,13 +15,13 @@
 	@agentSessions path /v1/agents/sessions /v1/agents/sessions/*
 	handle @agentSessions {
 		uri replace /v1/agents/sessions /v1/sessions
-		reverse_proxy server:8790 {
+		reverse_proxy {$SERVER_HOST:server}:{$SERVER_PORT:8790} {
 			flush_interval -1
 		}
 	}
 
 	handle /v1/* {
-		reverse_proxy server:8790 {
+		reverse_proxy {$SERVER_HOST:server}:{$SERVER_PORT:8790} {
 			flush_interval -1
 		}
 	}

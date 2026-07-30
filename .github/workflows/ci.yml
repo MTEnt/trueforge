@@ -46,6 +46,32 @@ jobs:
       - name: Test
         run: pnpm test
 
+  helm-chart:
+    name: Helm Chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      # Renders every branch of the chart; no cluster or dependency install needed.
+      - name: Lint and render chart
+        run: pnpm helm:lint
+
   postgres-store-tests:
     name: Postgres Session Store Tests
     runs-on: ubuntu-latest
