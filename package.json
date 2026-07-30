@@ -18,6 +18,8 @@
     "ui:shot": "node ui-shots/shot.mjs",
     "ui:clean": "node ui-shots/clean.mjs",
     "pack:dry": "pnpm --filter @truefoundry/utils pack:dry",
+    "get-dcr-registration-url": "pnpm --filter @truefoundry/utils get-dcr-registration-url",
+    "mcp-oauth-client": "pnpm --filter @truefoundry/utils mcp-oauth-client",
     "postinstall": "pnpm --filter @truefoundry/utils build:gen",
     "prepare": "husky || true"
   },

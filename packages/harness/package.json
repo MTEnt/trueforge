@@ -57,7 +57,9 @@
     "build:check": "node scripts/check-dist.mjs",
     "typecheck": "pnpm run build:gen && tsc --noEmit",
     "test": "pnpm run build:gen && jest --config jest.config.cjs",
-    "pack:dry": "cd dist && pnpm pack --dry-run"
+    "pack:dry": "cd dist && pnpm pack --dry-run",
+    "get-dcr-registration-url": "tsx scripts/get-dcr-registration-url.ts",
+    "mcp-oauth-client": "tsx scripts/mcp-oauth-client.ts"
   },
   "dependencies": {
     "@daytona/sdk": "^0.190.0",
@@ -87,6 +89,7 @@
     "esbuild-plugin-file-path-extensions": "^2.1.4",
     "jest": "^29.7.0",
     "tsup": "^8.5.0",
+    "tsx": "^4.23.1",
     "typescript": "^7.0.2"
   }
 }
