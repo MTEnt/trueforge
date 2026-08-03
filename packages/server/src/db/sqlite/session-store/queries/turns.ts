@@ -356,9 +356,9 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
       if (prevTurnId != null) {
         // Read previous turn + its turn_thread rows in one join.
         const prevRows = await trx
-          .selectFrom('turn')
+          .selectFrom('turn as t')
           .leftJoin('turn_thread as tt', join =>
-            join.onRef('tt.session_id', '=', 'turn.session_id').onRef('tt.turn_id', '=', 'turn.turn_id'),
+            join.onRef('tt.session_id', '=', 't.session_id').onRef('tt.turn_id', '=', 't.turn_id'),
           )
           .leftJoin(
             db
@@ -371,16 +371,16 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
             join => join.onRef('tc_agg.thread_id', '=', 'tt.thread_id').onRef('tc_agg.turn_id', '=', 'tt.turn_id'),
           )
           .select([
-            jsonText<TurnCheckpoint>(sql.ref('turn.checkpoint')).as('turn_checkpoint'),
-            jsonText<TurnState>(sql.ref('turn.state')).as('turn_state'),
+            jsonText<TurnCheckpoint>(sql.ref('t.checkpoint')).as('turn_checkpoint'),
+            jsonText<TurnState>(sql.ref('t.state')).as('turn_state'),
             'tt.thread_id',
             jsonText<TurnThreadCheckpoint | null>(sql.ref('tt.checkpoint')).as('thread_checkpoint'),
             jsonText<AgentInfo | null>(sql.ref('tt.agent_info')).as('agent_info'),
             jsonText<CurrentContextUsage | null>(sql.ref('tt.current_context_usage')).as('current_context_usage'),
             'tc_agg.max_pos',
           ])
-          .where('turn.session_id', '=', input.session_id)
-          .where('turn.turn_id', '=', prevTurnId)
+          .where('t.session_id', '=', input.session_id)
+          .where('t.turn_id', '=', prevTurnId)
           .execute();
 
         const first = prevRows[0];

@@ -12,8 +12,13 @@ export async function patchThreadCapabilityState(
   db: Kysely<Database>,
   input: PatchThreadCapabilityStateInput,
 ): Promise<void> {
+  const keys = {
+    session_id: input.session_id,
+    turn_id: input.turn_id,
+  };
+
   const rows = await db
-    .with('turn_fence', qb => turnRunningFence(qb, input))
+    .with('turn_fence', qb => turnRunningFence(qb, keys))
     .insertInto('thread_capability_state')
     .columns(['session_id', 'turn_id', 'thread_id', 'key', 'state', 'updated_at'])
     .expression(eb =>
@@ -39,6 +44,6 @@ export async function patchThreadCapabilityState(
     .execute();
 
   if (rows.length === 0) {
-    await classifyTurnFenceWriteFailure(db, input);
+    await classifyTurnFenceWriteFailure(db, keys);
   }
 }

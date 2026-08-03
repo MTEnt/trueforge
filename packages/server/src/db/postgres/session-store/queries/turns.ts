@@ -405,21 +405,21 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
         // One round-trip: previous turn metadata + its turn_thread rows.
         // Unknown previous_turn_id is allowed (relaxed): treat as no inheritance.
         const prevRows = await trx
-          .selectFrom('turn')
+          .selectFrom('turn as t')
           .leftJoin('turn_thread as tt', join =>
-            join.onRef('tt.session_id', '=', 'turn.session_id').onRef('tt.turn_id', '=', 'turn.turn_id'),
+            join.onRef('tt.session_id', '=', 't.session_id').onRef('tt.turn_id', '=', 't.turn_id'),
           )
           .select([
-            'turn.checkpoint as turn_checkpoint',
-            'turn.state as turn_state',
+            't.checkpoint as turn_checkpoint',
+            't.state as turn_state',
             'tt.thread_id',
             'tt.checkpoint as thread_checkpoint',
             'tt.agent_info',
             'tt.current_context_usage',
             'tt.context_ids',
           ])
-          .where('turn.session_id', '=', input.session_id)
-          .where('turn.turn_id', '=', prevTurnId)
+          .where('t.session_id', '=', input.session_id)
+          .where('t.turn_id', '=', prevTurnId)
           .execute();
 
         const first = prevRows[0];
