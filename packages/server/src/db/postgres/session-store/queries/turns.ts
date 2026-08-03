@@ -144,15 +144,18 @@ function terminalTurnState(state: TurnState, turn_id: string): TerminalTurnState
  * Multi-statement turn-scoped writes use {@link assertTurnRunning} instead.
  */
 export function turnRunningFence(db: TurnFenceDb, keys: TurnKeys) {
-  return db
-    .selectFrom('turn as t')
-    .innerJoin('session as s', 's.session_id', 't.session_id')
-    .select(sql`1`.as('one'))
-    .where('s.tenant_id', '=', keys.tenant_id)
-    .where('t.session_id', '=', keys.session_id)
-    .where('t.turn_id', '=', keys.turn_id)
-    .where(sql`t.state->>'status'`, '=', 'running')
-    .forShare();
+  return (
+    db
+      .selectFrom('turn as t')
+      .innerJoin('session as s', 's.session_id', 't.session_id')
+      .select(sql`1`.as('one'))
+      .where('s.tenant_id', '=', keys.tenant_id)
+      .where('t.session_id', '=', keys.session_id)
+      .where('t.turn_id', '=', keys.turn_id)
+      .where(sql`t.state->>'status'`, '=', 'running')
+      // OF t: locking the joined session row too would contend with createTurn's tip FOR UPDATE.
+      .forShare('t')
+  );
 }
 
 /** Classify a 0-row fenced write: missing turn vs frozen/non-running turn. */
@@ -207,7 +210,8 @@ export async function assertTurnRunning(db: DbOrTrx, keys: TurnKeys): Promise<vo
     .where('s.tenant_id', '=', keys.tenant_id)
     .where('t.session_id', '=', keys.session_id)
     .where('t.turn_id', '=', keys.turn_id)
-    .forShare()
+    // OF t: locking the joined session row too would contend with createTurn's tip FOR UPDATE.
+    .forShare('t')
     .executeTakeFirst();
 
   if (!row) {
