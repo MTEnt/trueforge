@@ -56,7 +56,6 @@ export interface NewThreadRegistration {
 }
 
 export interface TurnKeys {
-  tenant_id: string;
   session_id: string;
   turn_id: string;
 }
@@ -137,7 +136,6 @@ export function turnRunningFence(db: TurnFenceDb, keys: TurnKeys) {
   return db
     .selectFrom('turn')
     .select(sql`1`.as('one'))
-    .where('tenant_id', '=', keys.tenant_id)
     .where('session_id', '=', keys.session_id)
     .where('turn_id', '=', keys.turn_id)
     .where(sql`state->>'status'`, '=', 'running')
@@ -149,7 +147,6 @@ export async function classifyTurnFenceWriteFailure(db: Kysely<Database>, keys: 
   const row = await db
     .selectFrom('turn')
     .select('state')
-    .where('tenant_id', '=', keys.tenant_id)
     .where('session_id', '=', keys.session_id)
     .where('turn_id', '=', keys.turn_id)
     .executeTakeFirst();
@@ -171,7 +168,6 @@ export async function classifyTurnThreadWriteFailure(
   const row = await db
     .selectFrom('turn')
     .select('state')
-    .where('tenant_id', '=', keys.tenant_id)
     .where('session_id', '=', keys.session_id)
     .where('turn_id', '=', keys.turn_id)
     .executeTakeFirst();
@@ -190,7 +186,6 @@ export async function assertTurnRunning(db: DbOrTrx, keys: TurnKeys): Promise<vo
   const row = await db
     .selectFrom('turn')
     .select('state')
-    .where('tenant_id', '=', keys.tenant_id)
     .where('session_id', '=', keys.session_id)
     .where('turn_id', '=', keys.turn_id)
     .forShare()
@@ -211,12 +206,11 @@ interface CapabilityAggRow {
 
 async function assembleTurnRecord(
   db: DbOrTrx,
-  args: { tenant_id: string; session_id: string; turn_id: string },
+  args: { session_id: string; turn_id: string },
 ): Promise<TurnRecord<TurnCustom> | undefined> {
   const turn = await db
     .selectFrom('turn')
     .selectAll()
-    .where('tenant_id', '=', args.tenant_id)
     .where('session_id', '=', args.session_id)
     .where('turn_id', '=', args.turn_id)
     .executeTakeFirst();
@@ -230,13 +224,11 @@ async function assembleTurnRecord(
     .leftJoin(lateralUnnestBigintArrayWithOrdinality(sql<number[]>`tt.context_ids`, 'c'), join => join.onTrue())
     .leftJoin('thread_context_log as l', join =>
       join
-        .on('l.tenant_id', '=', args.tenant_id)
         .on('l.session_id', '=', args.session_id)
         .onRef('l.thread_id', '=', 'tt.thread_id')
         .onRef('l.append_id', '=', 'c.append_id'),
     )
     .select(['tt.thread_id', 'tt.checkpoint', 'tt.agent_info', 'tt.current_context_usage', 'l.body', 'c.pos'])
-    .where('tt.tenant_id', '=', args.tenant_id)
     .where('tt.session_id', '=', args.session_id)
     .where('tt.turn_id', '=', args.turn_id)
     .orderBy('tt.thread_id')
@@ -246,7 +238,6 @@ async function assembleTurnRecord(
   const capabilityRows: CapabilityAggRow[] = await db
     .selectFrom('thread_capability_state')
     .select(['thread_id', sql<Record<string, JsonValue> | null>`jsonb_object_agg(key, state)`.as('capability_state')])
-    .where('tenant_id', '=', args.tenant_id)
     .where('session_id', '=', args.session_id)
     .where('turn_id', '=', args.turn_id)
     .groupBy('thread_id')
@@ -326,7 +317,6 @@ async function assembleTurnRecord(
 }
 
 interface TurnInsertValues {
-  tenant_id: string;
   session_id: string;
   turn_id: string;
   first_turn_id: string;
@@ -341,7 +331,6 @@ interface TurnInsertValues {
 }
 
 interface LogInsertRow {
-  tenant_id: string;
   session_id: string;
   thread_id: string;
   turn_id: string;
@@ -350,7 +339,6 @@ interface LogInsertRow {
 }
 
 interface TurnThreadInsertRow {
-  tenant_id: string;
   session_id: string;
   turn_id: string;
   thread_id: string;
@@ -362,7 +350,6 @@ interface TurnThreadInsertRow {
 }
 
 interface CapabilityStateInsertRow {
-  tenant_id: string;
   session_id: string;
   turn_id: string;
   thread_id: string;
@@ -426,10 +413,7 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
         const prevRows = await trx
           .selectFrom('turn as t')
           .leftJoin('turn_thread as tt', join =>
-            join
-              .onRef('tt.tenant_id', '=', 't.tenant_id')
-              .onRef('tt.session_id', '=', 't.session_id')
-              .onRef('tt.turn_id', '=', 't.turn_id'),
+            join.onRef('tt.session_id', '=', 't.session_id').onRef('tt.turn_id', '=', 't.turn_id'),
           )
           .select([
             't.checkpoint as turn_checkpoint',
@@ -440,7 +424,6 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
             'tt.current_context_usage',
             'tt.context_ids',
           ])
-          .where('t.tenant_id', '=', input.tenant_id)
           .where('t.session_id', '=', input.session_id)
           .where('t.turn_id', '=', prevTurnId)
           .execute();
@@ -486,7 +469,6 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
 
       // step3: turn row
       const turnValues: TurnInsertValues = {
-        tenant_id: input.tenant_id,
         session_id: input.session_id,
         turn_id: input.turn.turn_id,
         first_turn_id: input.turn.first_turn_id,
@@ -506,7 +488,6 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
       for (const append of input.new_context_appends) {
         for (const body of append.context) {
           logRows.push({
-            tenant_id: input.tenant_id,
             session_id: input.session_id,
             thread_id: append.thread_id,
             turn_id: input.turn.turn_id,
@@ -547,7 +528,6 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
         const newIds = newIdsByThread.get(parent.thread_id) ?? [];
         const usage = appendUsageByThread.get(parent.thread_id) ?? parent.current_context_usage;
         turnThreadRows.push({
-          tenant_id: input.tenant_id,
           session_id: input.session_id,
           turn_id: input.turn.turn_id,
           thread_id: parent.thread_id,
@@ -567,7 +547,6 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
           completion: null,
         };
         turnThreadRows.push({
-          tenant_id: input.tenant_id,
           session_id: input.session_id,
           turn_id: input.turn.turn_id,
           thread_id: nt.thread_id,
@@ -589,7 +568,6 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
         if (capability.capability_state === null) continue;
         for (const [key, state] of Object.entries(capability.capability_state)) {
           capabilityStateRows.push({
-            tenant_id: input.tenant_id,
             session_id: input.session_id,
             turn_id: input.turn.turn_id,
             thread_id: capability.thread_id,
@@ -631,7 +609,6 @@ export async function freezeAndGetTurn(db: Kysely<Database>, input: FreezeAndGet
         state: cancelledState,
         updated_at: sql`now()`,
       })
-      .where('tenant_id', '=', input.tenant_id)
       .where('session_id', '=', input.session_id)
       .where('turn_id', '=', input.turn_id)
       .where(sql<boolean>`state->>'status' = 'running'`)
@@ -641,7 +618,6 @@ export async function freezeAndGetTurn(db: Kysely<Database>, input: FreezeAndGet
       await trx
         .insertInto('session_event')
         .values({
-          tenant_id: input.tenant_id,
           session_id: input.session_id,
           turn_id: input.turn_id,
           event_id: input.turn_done_event.id,
@@ -678,7 +654,6 @@ export async function listTurns(db: Kysely<Database>, input: ListTurnsInput): Pr
   const rows = await db
     .selectFrom('turn')
     .selectAll()
-    .where('tenant_id', '=', input.tenant_id)
     .where('session_id', '=', input.session_id)
     .orderBy('created_at', 'asc')
     .orderBy('turn_id', 'asc')
@@ -720,7 +695,6 @@ export async function updateTurnState(db: Kysely<Database>, input: UpdateTurnSta
         state: input.state,
         updated_at: sql`now()`,
       })
-      .where('tenant_id', '=', input.tenant_id)
       .where('session_id', '=', input.session_id)
       .where('turn_id', '=', input.turn_id)
       .where(sql<boolean>`state->>'status' = 'running'`)
@@ -731,7 +705,6 @@ export async function updateTurnState(db: Kysely<Database>, input: UpdateTurnSta
       const existing = await trx
         .selectFrom('turn')
         .select('state')
-        .where('tenant_id', '=', input.tenant_id)
         .where('session_id', '=', input.session_id)
         .where('turn_id', '=', input.turn_id)
         .executeTakeFirst();
@@ -743,7 +716,6 @@ export async function updateTurnState(db: Kysely<Database>, input: UpdateTurnSta
     await trx
       .insertInto('session_event')
       .values({
-        tenant_id: input.tenant_id,
         session_id: input.session_id,
         turn_id: input.turn_id,
         event_id: input.turn_done_event.id,

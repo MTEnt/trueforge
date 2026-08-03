@@ -212,6 +212,7 @@ export interface ISessionStore<
   /**
    * Accepts a hydrated AgentSpec. Impl may persist the blob and/or a uri/id derived
    * from it — callers do not pass a bare pointer through this API.
+   * `session_id` is globally unique across tenants.
    * Sets `last_activity_timestamp_ms` (= now) on create.
    */
   createSession(input: CreateSessionInput<TSessionCustom>): Promise<void>;

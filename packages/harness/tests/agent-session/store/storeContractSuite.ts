@@ -130,6 +130,19 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       await seedSession(store);
       await expect(seedSession(store)).rejects.toBeInstanceOf(SessionStoreConflictError);
     });
+
+    it('createSession rejects a session_id already used by another tenant', async () => {
+      const store = createStore();
+      await seedSession(store);
+      await expect(
+        store.createSession({
+          tenant_id: 'other',
+          session_id: sessionId,
+          agent_spec: makeAgentSpec(),
+          custom: null,
+        }),
+      ).rejects.toBeInstanceOf(SessionStoreConflictError);
+    });
   });
 
   describe('listSessions', () => {

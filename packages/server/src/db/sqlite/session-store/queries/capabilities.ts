@@ -14,7 +14,6 @@ export async function patchThreadCapabilityState(
   input: PatchThreadCapabilityStateInput,
 ): Promise<void> {
   const keys: TurnKeys = {
-    tenant_id: input.tenant_id,
     session_id: input.session_id,
     turn_id: input.turn_id,
   };
@@ -24,7 +23,6 @@ export async function patchThreadCapabilityState(
     const fenceRow = await trx
       .selectFrom('turn')
       .select(sql`1`.as('one'))
-      .where('tenant_id', '=', keys.tenant_id)
       .where('session_id', '=', keys.session_id)
       .where('turn_id', '=', keys.turn_id)
       .where(sql<boolean>`state->>'status' = 'running'`)
@@ -40,7 +38,6 @@ export async function patchThreadCapabilityState(
     await trx
       .insertInto('thread_capability_state')
       .values({
-        tenant_id: input.tenant_id,
         session_id: input.session_id,
         turn_id: input.turn_id,
         thread_id: input.thread_id,
@@ -49,7 +46,7 @@ export async function patchThreadCapabilityState(
         updated_at: now,
       })
       .onConflict(oc =>
-        oc.columns(['tenant_id', 'session_id', 'turn_id', 'thread_id', 'key']).doUpdateSet({
+        oc.columns(['session_id', 'turn_id', 'thread_id', 'key']).doUpdateSet({
           state: sql`excluded.state`,
           updated_at: sql`excluded.updated_at`,
         }),
