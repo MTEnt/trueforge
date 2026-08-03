@@ -17,6 +17,7 @@ import {
   assertTurnRunning,
   classifyTurnFenceWriteFailure,
   classifyTurnThreadWriteFailure,
+  sessionOwnershipPredicate,
   turnRunningFence,
   type TurnKeys,
 } from './turns';
@@ -39,6 +40,7 @@ interface CapabilityStateInsertRow {
 export async function addThreads(db: Kysely<Database>, input: AddThreadsInput): Promise<void> {
   await db.transaction().execute(async trx => {
     await assertTurnRunning(trx, {
+      tenant_id: input.tenant_id,
       session_id: input.session_id,
       turn_id: input.turn_id,
     });
@@ -150,6 +152,7 @@ export async function removeThreads(db: Kysely<Database>, input: RemoveThreadsIn
   }
 
   const keys: TurnKeys = {
+    tenant_id: input.tenant_id,
     session_id: input.session_id,
     turn_id: input.turn_id,
   };
@@ -293,6 +296,7 @@ async function fencedTurnThreadContextUpdate(
 export async function appendToThreadContext(db: Kysely<Database>, input: AppendToThreadContextInput): Promise<void> {
   await fencedTurnThreadContextUpdate(db, {
     keys: {
+      tenant_id: input.tenant_id,
       session_id: input.session_id,
       turn_id: input.turn_id,
     },
@@ -312,6 +316,7 @@ export async function appendToThreadContext(db: Kysely<Database>, input: AppendT
 export async function overwriteThreadContext(db: Kysely<Database>, input: OverwriteThreadContextInput): Promise<void> {
   await fencedTurnThreadContextUpdate(db, {
     keys: {
+      tenant_id: input.tenant_id,
       session_id: input.session_id,
       turn_id: input.turn_id,
     },
@@ -336,6 +341,7 @@ export async function patchMCPServers(db: Kysely<Database>, input: PatchMCPServe
   }
 
   const keys: TurnKeys = {
+    tenant_id: input.tenant_id,
     session_id: input.session_id,
     turn_id: input.turn_id,
   };
@@ -351,6 +357,7 @@ export async function patchMCPServers(db: Kysely<Database>, input: PatchMCPServe
     .set({ updated_at: sql`now()` })
     .where('session_id', '=', keys.session_id)
     .where('turn_id', '=', keys.turn_id)
+    .where(sessionOwnershipPredicate(keys.tenant_id))
     .where(sql<boolean>`state->>'status' = 'running'`)
     .executeTakeFirst();
 
@@ -365,6 +372,7 @@ export async function patchMCPServers(db: Kysely<Database>, input: PatchMCPServe
  */
 export async function patchSandboxInfo(db: Kysely<Database>, input: PatchSandboxInfoInput): Promise<void> {
   const keys: TurnKeys = {
+    tenant_id: input.tenant_id,
     session_id: input.session_id,
     turn_id: input.turn_id,
   };
@@ -375,6 +383,7 @@ export async function patchSandboxInfo(db: Kysely<Database>, input: PatchSandbox
     .set({ updated_at: sql`now()` })
     .where('session_id', '=', keys.session_id)
     .where('turn_id', '=', keys.turn_id)
+    .where(sessionOwnershipPredicate(keys.tenant_id))
     .where(sql<boolean>`state->>'status' = 'running'`)
     .executeTakeFirst();
 

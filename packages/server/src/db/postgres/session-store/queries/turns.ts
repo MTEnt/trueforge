@@ -56,8 +56,18 @@ export interface NewThreadRegistration {
 }
 
 export interface TurnKeys {
+  tenant_id: string;
   session_id: string;
   turn_id: string;
+}
+
+/** Child tables omit tenant_id; ownership is verified via the parent session PK. */
+export function sessionOwnershipPredicate(tenantId: string): RawBuilder<boolean> {
+  return sql<boolean>`EXISTS (
+    SELECT 1 FROM session
+    WHERE session.session_id = turn.session_id
+      AND session.tenant_id = ${tenantId}
+  )`;
 }
 
 export interface NewContextAppend {
@@ -129,26 +139,31 @@ function terminalTurnState(state: TurnState, turn_id: string): TerminalTurnState
  * network call. Under READ COMMITTED, FOR SHARE re-checks the predicate after a
  * lock wait, so a committed freeze empties the fence and the write inserts 0 rows;
  * error classification happens on that rare 0-row path.
+ * Joins `session` so tenant ownership is checked without a child `tenant_id` column.
  *
  * Multi-statement turn-scoped writes use {@link assertTurnRunning} instead.
  */
 export function turnRunningFence(db: TurnFenceDb, keys: TurnKeys) {
   return db
-    .selectFrom('turn')
+    .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
     .select(sql`1`.as('one'))
-    .where('session_id', '=', keys.session_id)
-    .where('turn_id', '=', keys.turn_id)
-    .where(sql`state->>'status'`, '=', 'running')
+    .where('s.tenant_id', '=', keys.tenant_id)
+    .where('t.session_id', '=', keys.session_id)
+    .where('t.turn_id', '=', keys.turn_id)
+    .where(sql`t.state->>'status'`, '=', 'running')
     .forShare();
 }
 
 /** Classify a 0-row fenced write: missing turn vs frozen/non-running turn. */
 export async function classifyTurnFenceWriteFailure(db: Kysely<Database>, keys: TurnKeys): Promise<never> {
   const row = await db
-    .selectFrom('turn')
-    .select('state')
-    .where('session_id', '=', keys.session_id)
-    .where('turn_id', '=', keys.turn_id)
+    .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
+    .select('t.state')
+    .where('s.tenant_id', '=', keys.tenant_id)
+    .where('t.session_id', '=', keys.session_id)
+    .where('t.turn_id', '=', keys.turn_id)
     .executeTakeFirst();
 
   if (!row) {
@@ -166,10 +181,12 @@ export async function classifyTurnThreadWriteFailure(
   thread_id: string,
 ): Promise<never> {
   const row = await db
-    .selectFrom('turn')
-    .select('state')
-    .where('session_id', '=', keys.session_id)
-    .where('turn_id', '=', keys.turn_id)
+    .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
+    .select('t.state')
+    .where('s.tenant_id', '=', keys.tenant_id)
+    .where('t.session_id', '=', keys.session_id)
+    .where('t.turn_id', '=', keys.turn_id)
     .executeTakeFirst();
 
   if (!row) {
@@ -184,10 +201,12 @@ export async function classifyTurnThreadWriteFailure(
 export async function assertTurnRunning(db: DbOrTrx, keys: TurnKeys): Promise<void> {
   // SELECT ... FOR SHARE serializes against freezeAndGetTurn's state UPDATE.
   const row = await db
-    .selectFrom('turn')
-    .select('state')
-    .where('session_id', '=', keys.session_id)
-    .where('turn_id', '=', keys.turn_id)
+    .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
+    .select('t.state')
+    .where('s.tenant_id', '=', keys.tenant_id)
+    .where('t.session_id', '=', keys.session_id)
+    .where('t.turn_id', '=', keys.turn_id)
     .forShare()
     .executeTakeFirst();
 
@@ -206,13 +225,15 @@ interface CapabilityAggRow {
 
 async function assembleTurnRecord(
   db: DbOrTrx,
-  args: { session_id: string; turn_id: string },
+  args: { tenant_id: string; session_id: string; turn_id: string },
 ): Promise<TurnRecord<TurnCustom> | undefined> {
   const turn = await db
-    .selectFrom('turn')
-    .selectAll()
-    .where('session_id', '=', args.session_id)
-    .where('turn_id', '=', args.turn_id)
+    .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
+    .selectAll('t')
+    .where('s.tenant_id', '=', args.tenant_id)
+    .where('t.session_id', '=', args.session_id)
+    .where('t.turn_id', '=', args.turn_id)
     .executeTakeFirst();
 
   if (!turn) return undefined;
@@ -611,6 +632,7 @@ export async function freezeAndGetTurn(db: Kysely<Database>, input: FreezeAndGet
       })
       .where('session_id', '=', input.session_id)
       .where('turn_id', '=', input.turn_id)
+      .where(sessionOwnershipPredicate(input.tenant_id))
       .where(sql<boolean>`state->>'status' = 'running'`)
       .executeTakeFirst();
 
@@ -652,11 +674,13 @@ export async function getTurn(db: Kysely<Database>, input: GetTurnInput): Promis
  */
 export async function listTurns(db: Kysely<Database>, input: ListTurnsInput): Promise<ListTurnsResult> {
   const rows = await db
-    .selectFrom('turn')
-    .selectAll()
-    .where('session_id', '=', input.session_id)
-    .orderBy('created_at', 'asc')
-    .orderBy('turn_id', 'asc')
+    .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
+    .selectAll('t')
+    .where('s.tenant_id', '=', input.tenant_id)
+    .where('t.session_id', '=', input.session_id)
+    .orderBy('t.created_at', 'asc')
+    .orderBy('t.turn_id', 'asc')
     .limit(input.limit + 1)
     .offset(input.offset)
     .execute();
@@ -697,6 +721,7 @@ export async function updateTurnState(db: Kysely<Database>, input: UpdateTurnSta
       })
       .where('session_id', '=', input.session_id)
       .where('turn_id', '=', input.turn_id)
+      .where(sessionOwnershipPredicate(input.tenant_id))
       .where(sql<boolean>`state->>'status' = 'running'`)
       .executeTakeFirst();
 
@@ -707,6 +732,7 @@ export async function updateTurnState(db: Kysely<Database>, input: UpdateTurnSta
         .select('state')
         .where('session_id', '=', input.session_id)
         .where('turn_id', '=', input.turn_id)
+        .where(sessionOwnershipPredicate(input.tenant_id))
         .executeTakeFirst();
 
       if (!existing) throw new TurnNotFoundError(input.turn_id);

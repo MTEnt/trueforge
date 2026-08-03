@@ -870,6 +870,91 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     });
   });
 
+  describe('tenant ownership', () => {
+    it('hides cross-tenant turn reads and rejects cross-tenant mutations', async () => {
+      const store = createStore();
+      await seedSession(store);
+      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      const keys = { tenant_id: 'other', session_id: sessionId, turn_id: 'turn-1' };
+
+      await expect(store.getTurn(keys)).resolves.toBeUndefined();
+      await expect(
+        store.listTurnEvents({ ...keys, limit: 10, page_token: undefined, order: undefined }),
+      ).rejects.toBeInstanceOf(SessionStoreNotFoundError);
+
+      const doneState = makeDoneTurnState();
+      const mutations: (() => Promise<unknown>)[] = [
+        () => store.appendToEvents({ ...keys, events: [makeTurnCreatedEvent('turn-1')] }),
+        () =>
+          store.addThreads({
+            ...keys,
+            threads: [
+              {
+                thread_id: 'child',
+                context: [],
+                current_context_usage: getEmptyCurrentContextUsage(),
+                parent: { thread_id: MAIN_THREAD_ID, tool_call_id: 'tc1' },
+                agent_info: { type: 'dynamic', name: 'child', input: 'do work' },
+                completion: null,
+                capability_state: null,
+              },
+            ],
+          }),
+        () => store.removeThreads({ ...keys, thread_ids: [MAIN_THREAD_ID] }),
+        () =>
+          store.appendToThreadContext({
+            ...keys,
+            thread_id: MAIN_THREAD_ID,
+            context: [userMessage('cross-tenant')],
+            current_context_usage: null,
+            completion: null,
+          }),
+        () =>
+          store.overwriteThreadContext({
+            ...keys,
+            event: {
+              type: EventType.AGENT_CONTEXT_OVERWRITE,
+              id: newEventId(),
+              created_at: new Date().toISOString(),
+              thread_id: MAIN_THREAD_ID,
+              reason: 'compaction',
+              context: [userMessage('cross-tenant')],
+              current_context_usage: getEmptyCurrentContextUsage(),
+              usage: getEmptyUsage(),
+            },
+          }),
+        () =>
+          store.patchMCPServers({
+            ...keys,
+            mcp_servers: [{ id: 'svc', name: 'svc', session_id: 'mcp-1', transport_type: 'streamable-http' }],
+          }),
+        () => store.patchSandboxInfo({ ...keys, sandbox_info: { sandbox_id: 'sbx-1' } }),
+        () =>
+          store.patchThreadCapabilityState({
+            ...keys,
+            thread_id: MAIN_THREAD_ID,
+            key: 'tfy.plan',
+            state: { step: 1 },
+          }),
+        () =>
+          store.updateTurnState({
+            ...keys,
+            state: doneState,
+            turn_done_event: makeTurnDoneEvent(doneState),
+          }),
+        () =>
+          store.freezeAndGetTurn({
+            ...keys,
+            turn_done_event: makeTurnDoneEvent(makeCancelledTurnState(CancellationReason.CancelledForNextTurn)),
+          }),
+      ];
+
+      for (const mutate of mutations) {
+        await expect(mutate()).rejects.toBeInstanceOf(SessionStoreNotFoundError);
+      }
+    });
+  });
+
   describe('events + threads + capability_state', () => {
     it('appendToEvents orders by monotonic event id, not append call order', async () => {
       const store = createStore();

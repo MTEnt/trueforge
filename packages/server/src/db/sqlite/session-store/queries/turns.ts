@@ -56,8 +56,18 @@ export interface NewThreadRegistration {
 }
 
 export interface TurnKeys {
+  tenant_id: string;
   session_id: string;
   turn_id: string;
+}
+
+/** Child tables omit tenant_id; ownership is verified via the parent session PK. */
+export function sessionOwnershipPredicate(tenantId: string): RawBuilder<boolean> {
+  return sql<boolean>`EXISTS (
+    SELECT 1 FROM session
+    WHERE session.session_id = turn.session_id
+      AND session.tenant_id = ${tenantId}
+  )`;
 }
 
 export interface NewContextAppend {
@@ -125,10 +135,12 @@ function terminalTurnState(state: TurnState, turn_id: string): TerminalTurnState
 
 async function loadTurnState(db: DbOrTrx, keys: TurnKeys): Promise<TurnState | undefined> {
   const row = await db
-    .selectFrom('turn')
-    .select([jsonText<TurnState>(sql.ref('state')).as('state')])
-    .where('session_id', '=', keys.session_id)
-    .where('turn_id', '=', keys.turn_id)
+    .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
+    .select([jsonText<TurnState>(sql.ref('t.state')).as('state')])
+    .where('s.tenant_id', '=', keys.tenant_id)
+    .where('t.session_id', '=', keys.session_id)
+    .where('t.turn_id', '=', keys.turn_id)
     .executeTakeFirst();
   return row?.state;
 }
@@ -173,25 +185,27 @@ interface CapabilityAggRow {
 
 async function assembleTurnRecord(
   db: DbOrTrx,
-  args: { session_id: string; turn_id: string },
+  args: { tenant_id: string; session_id: string; turn_id: string },
 ): Promise<TurnRecord<TurnCustom> | undefined> {
   const turn = await db
-    .selectFrom('turn')
+    .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
     .select([
-      'session_id',
-      'turn_id',
-      'first_turn_id',
-      'previous_turn_id',
-      jsonText<string[]>(sql.ref('ancestor_ids')).as('ancestor_ids'),
-      jsonText<TurnInputItem[]>(sql.ref('input')).as('input'),
-      jsonText<TurnState>(sql.ref('state')).as('state'),
-      jsonText<TurnCheckpoint>(sql.ref('checkpoint')).as('checkpoint'),
-      jsonText<Record<string, unknown> | null>(sql.ref('custom')).as('custom'),
-      'created_at',
-      'updated_at',
+      't.session_id',
+      't.turn_id',
+      't.first_turn_id',
+      't.previous_turn_id',
+      jsonText<string[]>(sql.ref('t.ancestor_ids')).as('ancestor_ids'),
+      jsonText<TurnInputItem[]>(sql.ref('t.input')).as('input'),
+      jsonText<TurnState>(sql.ref('t.state')).as('state'),
+      jsonText<TurnCheckpoint>(sql.ref('t.checkpoint')).as('checkpoint'),
+      jsonText<Record<string, unknown> | null>(sql.ref('t.custom')).as('custom'),
+      't.created_at',
+      't.updated_at',
     ])
-    .where('session_id', '=', args.session_id)
-    .where('turn_id', '=', args.turn_id)
+    .where('s.tenant_id', '=', args.tenant_id)
+    .where('t.session_id', '=', args.session_id)
+    .where('t.turn_id', '=', args.turn_id)
     .executeTakeFirst();
 
   if (!turn) return undefined;
@@ -661,6 +675,7 @@ export async function freezeAndGetTurn(db: Kysely<Database>, input: FreezeAndGet
       })
       .where('session_id', '=', input.session_id)
       .where('turn_id', '=', input.turn_id)
+      .where(sessionOwnershipPredicate(input.tenant_id))
       .where(sql<boolean>`state->>'status' = 'running'`)
       .executeTakeFirst();
 
@@ -700,22 +715,24 @@ export async function getTurn(db: Kysely<Database>, input: GetTurnInput): Promis
  */
 export async function listTurns(db: Kysely<Database>, input: ListTurnsInput): Promise<ListTurnsResult> {
   const rows = await db
-    .selectFrom('turn')
+    .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
     .select([
-      'session_id',
-      'turn_id',
-      'first_turn_id',
-      'previous_turn_id',
-      jsonText<string[]>(sql.ref('ancestor_ids')).as('ancestor_ids'),
-      jsonText<TurnInputItem[]>(sql.ref('input')).as('input'),
-      jsonText<TurnState>(sql.ref('state')).as('state'),
-      jsonText<Record<string, unknown> | null>(sql.ref('custom')).as('custom'),
-      'created_at',
-      'updated_at',
+      't.session_id',
+      't.turn_id',
+      't.first_turn_id',
+      't.previous_turn_id',
+      jsonText<string[]>(sql.ref('t.ancestor_ids')).as('ancestor_ids'),
+      jsonText<TurnInputItem[]>(sql.ref('t.input')).as('input'),
+      jsonText<TurnState>(sql.ref('t.state')).as('state'),
+      jsonText<Record<string, unknown> | null>(sql.ref('t.custom')).as('custom'),
+      't.created_at',
+      't.updated_at',
     ])
-    .where('session_id', '=', input.session_id)
-    .orderBy('created_at', 'asc')
-    .orderBy('turn_id', 'asc')
+    .where('s.tenant_id', '=', input.tenant_id)
+    .where('t.session_id', '=', input.session_id)
+    .orderBy('t.created_at', 'asc')
+    .orderBy('t.turn_id', 'asc')
     .limit(input.limit + 1)
     .offset(input.offset)
     .execute();
@@ -756,6 +773,7 @@ export async function updateTurnState(db: Kysely<Database>, input: UpdateTurnSta
       })
       .where('session_id', '=', input.session_id)
       .where('turn_id', '=', input.turn_id)
+      .where(sessionOwnershipPredicate(input.tenant_id))
       .where(sql<boolean>`state->>'status' = 'running'`)
       .executeTakeFirst();
 
@@ -766,6 +784,7 @@ export async function updateTurnState(db: Kysely<Database>, input: UpdateTurnSta
         .select([jsonText<TurnState>(sql.ref('state')).as('state')])
         .where('session_id', '=', input.session_id)
         .where('turn_id', '=', input.turn_id)
+        .where(sessionOwnershipPredicate(input.tenant_id))
         .executeTakeFirst();
 
       if (!existing) throw new TurnNotFoundError(input.turn_id);

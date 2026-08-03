@@ -2,7 +2,7 @@ import type { PatchThreadCapabilityStateInput } from '@truefoundry/utils/agent-s
 import { sql, type Kysely } from 'kysely';
 import type { Database } from '../../types';
 import { jsonbBind, nowIso } from '../sqlExpressions';
-import { classifyTurnFenceWriteFailure, type TurnKeys } from './turns';
+import { classifyTurnFenceWriteFailure, sessionOwnershipPredicate, type TurnKeys } from './turns';
 
 /**
  * patchThreadCapabilityState — single-statement fenced upsert on the PER-TURN PK.
@@ -14,6 +14,7 @@ export async function patchThreadCapabilityState(
   input: PatchThreadCapabilityStateInput,
 ): Promise<void> {
   const keys: TurnKeys = {
+    tenant_id: input.tenant_id,
     session_id: input.session_id,
     turn_id: input.turn_id,
   };
@@ -25,6 +26,7 @@ export async function patchThreadCapabilityState(
       .select(sql`1`.as('one'))
       .where('session_id', '=', keys.session_id)
       .where('turn_id', '=', keys.turn_id)
+      .where(sessionOwnershipPredicate(keys.tenant_id))
       .where(sql<boolean>`state->>'status' = 'running'`)
       .executeTakeFirst();
 

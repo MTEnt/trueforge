@@ -15,12 +15,13 @@ import { SessionNotFoundError, TurnNotFoundError } from '@truefoundry/utils/agen
 import { sql, type Kysely } from 'kysely';
 import type { Database } from '../../types';
 import { jsonbBind, jsonText } from '../sqlExpressions';
-import { classifyTurnFenceWriteFailure, type TurnKeys } from './turns';
+import { classifyTurnFenceWriteFailure, sessionOwnershipPredicate, type TurnKeys } from './turns';
 
 export async function appendToEvents(db: Kysely<Database>, input: AppendToEventsInput): Promise<void> {
   if (input.events.length === 0) return;
 
   const keys: TurnKeys = {
+    tenant_id: input.tenant_id,
     session_id: input.session_id,
     turn_id: input.turn_id,
   };
@@ -32,6 +33,7 @@ export async function appendToEvents(db: Kysely<Database>, input: AppendToEvents
       .select(sql`1`.as('one'))
       .where('session_id', '=', keys.session_id)
       .where('turn_id', '=', keys.turn_id)
+      .where(sessionOwnershipPredicate(keys.tenant_id))
       .where(sql<boolean>`state->>'status' = 'running'`)
       .executeTakeFirst();
 
@@ -65,6 +67,7 @@ export async function listTurnEvents(
 
   const rows = await db
     .selectFrom('turn as t')
+    .innerJoin('session as s', 's.session_id', 't.session_id')
     .leftJoin(
       eb =>
         eb
@@ -79,6 +82,7 @@ export async function listTurnEvents(
       join => join.onRef('e.session_id', '=', 't.session_id').onRef('e.turn_id', '=', 't.turn_id'),
     )
     .select(['t.turn_id', 'e.event'])
+    .where('s.tenant_id', '=', input.tenant_id)
     .where('t.session_id', '=', input.session_id)
     .where('t.turn_id', '=', input.turn_id)
     .orderBy('e.event_id', eventOrder)
