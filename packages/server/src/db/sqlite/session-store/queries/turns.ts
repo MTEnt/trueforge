@@ -122,10 +122,10 @@ function terminalTurnState(state: TurnState, turn_id: string): TerminalTurnState
 
 async function loadTurnState(db: DbOrTrx, keys: TurnKeys): Promise<TurnState | undefined> {
   const row = await db
-    .selectFrom('turn as t')
-    .select([jsonText<TurnState>(sql.ref('t.state')).as('state')])
-    .where('t.session_id', '=', keys.session_id)
-    .where('t.turn_id', '=', keys.turn_id)
+    .selectFrom('turn')
+    .select([jsonText<TurnState>(sql.ref('state')).as('state')])
+    .where('session_id', '=', keys.session_id)
+    .where('turn_id', '=', keys.turn_id)
     .executeTakeFirst();
   return row?.state;
 }
@@ -173,22 +173,22 @@ async function assembleTurnRecord(
   args: { session_id: string; turn_id: string },
 ): Promise<TurnRecord<TurnCustom> | undefined> {
   const turn = await db
-    .selectFrom('turn as t')
+    .selectFrom('turn')
     .select([
-      't.session_id',
-      't.turn_id',
-      't.first_turn_id',
-      't.previous_turn_id',
-      jsonText<string[]>(sql.ref('t.ancestor_ids')).as('ancestor_ids'),
-      jsonText<TurnInputItem[]>(sql.ref('t.input')).as('input'),
-      jsonText<TurnState>(sql.ref('t.state')).as('state'),
-      jsonText<TurnCheckpoint>(sql.ref('t.checkpoint')).as('checkpoint'),
-      jsonText<Record<string, unknown> | null>(sql.ref('t.custom')).as('custom'),
-      't.created_at',
-      't.updated_at',
+      'session_id',
+      'turn_id',
+      'first_turn_id',
+      'previous_turn_id',
+      jsonText<string[]>(sql.ref('ancestor_ids')).as('ancestor_ids'),
+      jsonText<TurnInputItem[]>(sql.ref('input')).as('input'),
+      jsonText<TurnState>(sql.ref('state')).as('state'),
+      jsonText<TurnCheckpoint>(sql.ref('checkpoint')).as('checkpoint'),
+      jsonText<Record<string, unknown> | null>(sql.ref('custom')).as('custom'),
+      'created_at',
+      'updated_at',
     ])
-    .where('t.session_id', '=', args.session_id)
-    .where('t.turn_id', '=', args.turn_id)
+    .where('session_id', '=', args.session_id)
+    .where('turn_id', '=', args.turn_id)
     .executeTakeFirst();
 
   if (!turn) return undefined;
@@ -356,9 +356,9 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
       if (prevTurnId != null) {
         // Read previous turn + its turn_thread rows in one join.
         const prevRows = await trx
-          .selectFrom('turn as t')
+          .selectFrom('turn')
           .leftJoin('turn_thread as tt', join =>
-            join.onRef('tt.session_id', '=', 't.session_id').onRef('tt.turn_id', '=', 't.turn_id'),
+            join.onRef('tt.session_id', '=', 'turn.session_id').onRef('tt.turn_id', '=', 'turn.turn_id'),
           )
           .leftJoin(
             db
@@ -371,16 +371,16 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
             join => join.onRef('tc_agg.thread_id', '=', 'tt.thread_id').onRef('tc_agg.turn_id', '=', 'tt.turn_id'),
           )
           .select([
-            jsonText<TurnCheckpoint>(sql.ref('t.checkpoint')).as('turn_checkpoint'),
-            jsonText<TurnState>(sql.ref('t.state')).as('turn_state'),
+            jsonText<TurnCheckpoint>(sql.ref('turn.checkpoint')).as('turn_checkpoint'),
+            jsonText<TurnState>(sql.ref('turn.state')).as('turn_state'),
             'tt.thread_id',
             jsonText<TurnThreadCheckpoint | null>(sql.ref('tt.checkpoint')).as('thread_checkpoint'),
             jsonText<AgentInfo | null>(sql.ref('tt.agent_info')).as('agent_info'),
             jsonText<CurrentContextUsage | null>(sql.ref('tt.current_context_usage')).as('current_context_usage'),
             'tc_agg.max_pos',
           ])
-          .where('t.session_id', '=', input.session_id)
-          .where('t.turn_id', '=', prevTurnId)
+          .where('turn.session_id', '=', input.session_id)
+          .where('turn.turn_id', '=', prevTurnId)
           .execute();
 
         const first = prevRows[0];
@@ -695,22 +695,22 @@ export async function getTurn(db: Kysely<Database>, input: GetTurnInput): Promis
  */
 export async function listTurns(db: Kysely<Database>, input: ListTurnsInput): Promise<ListTurnsResult> {
   const rows = await db
-    .selectFrom('turn as t')
+    .selectFrom('turn')
     .select([
-      't.session_id',
-      't.turn_id',
-      't.first_turn_id',
-      't.previous_turn_id',
-      jsonText<string[]>(sql.ref('t.ancestor_ids')).as('ancestor_ids'),
-      jsonText<TurnInputItem[]>(sql.ref('t.input')).as('input'),
-      jsonText<TurnState>(sql.ref('t.state')).as('state'),
-      jsonText<Record<string, unknown> | null>(sql.ref('t.custom')).as('custom'),
-      't.created_at',
-      't.updated_at',
+      'session_id',
+      'turn_id',
+      'first_turn_id',
+      'previous_turn_id',
+      jsonText<string[]>(sql.ref('ancestor_ids')).as('ancestor_ids'),
+      jsonText<TurnInputItem[]>(sql.ref('input')).as('input'),
+      jsonText<TurnState>(sql.ref('state')).as('state'),
+      jsonText<Record<string, unknown> | null>(sql.ref('custom')).as('custom'),
+      'created_at',
+      'updated_at',
     ])
-    .where('t.session_id', '=', input.session_id)
-    .orderBy('t.created_at', 'asc')
-    .orderBy('t.turn_id', 'asc')
+    .where('session_id', '=', input.session_id)
+    .orderBy('created_at', 'asc')
+    .orderBy('turn_id', 'asc')
     .limit(input.limit + 1)
     .offset(input.offset)
     .execute();

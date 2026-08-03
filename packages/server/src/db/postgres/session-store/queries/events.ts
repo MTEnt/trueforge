@@ -70,7 +70,7 @@ export async function listTurnEvents(
   const eventOrder = input.order === 'desc' ? 'desc' : 'asc';
 
   const rows = await db
-    .selectFrom('turn as t')
+    .selectFrom('turn')
     .leftJoin(
       eb =>
         eb
@@ -82,11 +82,11 @@ export async function listTurnEvents(
           .limit(limit + 1)
           .offset(offset)
           .as('e'),
-      join => join.onRef('e.session_id', '=', 't.session_id').onRef('e.turn_id', '=', 't.turn_id'),
+      join => join.onRef('e.session_id', '=', 'turn.session_id').onRef('e.turn_id', '=', 'turn.turn_id'),
     )
-    .select(['t.turn_id', 'e.event'])
-    .where('t.session_id', '=', input.session_id)
-    .where('t.turn_id', '=', input.turn_id)
+    .select(['turn.turn_id', 'e.event'])
+    .where('turn.session_id', '=', input.session_id)
+    .where('turn.turn_id', '=', input.turn_id)
     .orderBy('e.event_id', eventOrder)
     .execute();
 

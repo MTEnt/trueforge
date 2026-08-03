@@ -130,21 +130,21 @@ function terminalTurnState(state: TurnState, turn_id: string): TerminalTurnState
  */
 export function turnRunningFence(db: TurnFenceDb, keys: TurnKeys) {
   return db
-    .selectFrom('turn as t')
+    .selectFrom('turn')
     .select(sql`1`.as('one'))
-    .where('t.session_id', '=', keys.session_id)
-    .where('t.turn_id', '=', keys.turn_id)
-    .where(sql`t.state->>'status'`, '=', 'running')
-    .forShare('t');
+    .where('session_id', '=', keys.session_id)
+    .where('turn_id', '=', keys.turn_id)
+    .where(sql`state->>'status'`, '=', 'running')
+    .forShare();
 }
 
 /** Classify a 0-row fenced write: missing turn vs frozen/non-running turn. */
 export async function classifyTurnFenceWriteFailure(db: Kysely<Database>, keys: TurnKeys): Promise<never> {
   const row = await db
-    .selectFrom('turn as t')
-    .select('t.state')
-    .where('t.session_id', '=', keys.session_id)
-    .where('t.turn_id', '=', keys.turn_id)
+    .selectFrom('turn')
+    .select('state')
+    .where('session_id', '=', keys.session_id)
+    .where('turn_id', '=', keys.turn_id)
     .executeTakeFirst();
 
   if (!row) {
@@ -162,10 +162,10 @@ export async function classifyTurnThreadWriteFailure(
   thread_id: string,
 ): Promise<never> {
   const row = await db
-    .selectFrom('turn as t')
-    .select('t.state')
-    .where('t.session_id', '=', keys.session_id)
-    .where('t.turn_id', '=', keys.turn_id)
+    .selectFrom('turn')
+    .select('state')
+    .where('session_id', '=', keys.session_id)
+    .where('turn_id', '=', keys.turn_id)
     .executeTakeFirst();
 
   if (!row) {
@@ -180,11 +180,11 @@ export async function classifyTurnThreadWriteFailure(
 export async function assertTurnRunning(db: DbOrTrx, keys: TurnKeys): Promise<void> {
   // SELECT ... FOR SHARE serializes against freezeAndGetTurn's state UPDATE.
   const row = await db
-    .selectFrom('turn as t')
-    .select('t.state')
-    .where('t.session_id', '=', keys.session_id)
-    .where('t.turn_id', '=', keys.turn_id)
-    .forShare('t')
+    .selectFrom('turn')
+    .select('state')
+    .where('session_id', '=', keys.session_id)
+    .where('turn_id', '=', keys.turn_id)
+    .forShare()
     .executeTakeFirst();
 
   if (!row) {
@@ -205,10 +205,10 @@ async function assembleTurnRecord(
   args: { session_id: string; turn_id: string },
 ): Promise<TurnRecord<TurnCustom> | undefined> {
   const turn = await db
-    .selectFrom('turn as t')
-    .selectAll('t')
-    .where('t.session_id', '=', args.session_id)
-    .where('t.turn_id', '=', args.turn_id)
+    .selectFrom('turn')
+    .selectAll()
+    .where('session_id', '=', args.session_id)
+    .where('turn_id', '=', args.turn_id)
     .executeTakeFirst();
 
   if (!turn) return undefined;
@@ -405,21 +405,21 @@ export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): 
         // One round-trip: previous turn metadata + its turn_thread rows.
         // Unknown previous_turn_id is allowed (relaxed): treat as no inheritance.
         const prevRows = await trx
-          .selectFrom('turn as t')
+          .selectFrom('turn')
           .leftJoin('turn_thread as tt', join =>
-            join.onRef('tt.session_id', '=', 't.session_id').onRef('tt.turn_id', '=', 't.turn_id'),
+            join.onRef('tt.session_id', '=', 'turn.session_id').onRef('tt.turn_id', '=', 'turn.turn_id'),
           )
           .select([
-            't.checkpoint as turn_checkpoint',
-            't.state as turn_state',
+            'turn.checkpoint as turn_checkpoint',
+            'turn.state as turn_state',
             'tt.thread_id',
             'tt.checkpoint as thread_checkpoint',
             'tt.agent_info',
             'tt.current_context_usage',
             'tt.context_ids',
           ])
-          .where('t.session_id', '=', input.session_id)
-          .where('t.turn_id', '=', prevTurnId)
+          .where('turn.session_id', '=', input.session_id)
+          .where('turn.turn_id', '=', prevTurnId)
           .execute();
 
         const first = prevRows[0];
@@ -646,11 +646,11 @@ export async function getTurn(db: Kysely<Database>, input: GetTurnInput): Promis
  */
 export async function listTurns(db: Kysely<Database>, input: ListTurnsInput): Promise<ListTurnsResult> {
   const rows = await db
-    .selectFrom('turn as t')
-    .selectAll('t')
-    .where('t.session_id', '=', input.session_id)
-    .orderBy('t.created_at', 'asc')
-    .orderBy('t.turn_id', 'asc')
+    .selectFrom('turn')
+    .selectAll()
+    .where('session_id', '=', input.session_id)
+    .orderBy('created_at', 'asc')
+    .orderBy('turn_id', 'asc')
     .limit(input.limit + 1)
     .offset(input.offset)
     .execute();
