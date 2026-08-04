@@ -4,6 +4,11 @@ import type { Logger } from 'winston';
 import type { McpCatalog } from '../catalog/McpCatalog';
 import type { IMcpServerStore, McpServerRecord } from '../db/mcpServerStore';
 import {
+  createWriteDbTransactionMiddleware,
+  type DbTransactionVariables,
+  type RunTransaction,
+} from '../db/transaction';
+import {
   authorizeConfiguredMcpServerRoute,
   getMcpServerCatalogRoute,
   listAvailableMcpServersRoute,
@@ -15,9 +20,12 @@ import type { ConfiguredMcpServer, McpServerManifest } from '../schemas/mcpServe
 import { resolveConfiguredMcpRequestHeaders, toStubAuthStatus } from '../schemas/mcpServer';
 import { TENANT_ID } from './sessions';
 
-export interface McpServersRouterDeps {
+type TxEnv<TTransaction> = { Variables: DbTransactionVariables<TTransaction> };
+
+export interface McpServersRouterDeps<TTransaction> {
   mcpCatalog: McpCatalog;
-  mcpServerStore: IMcpServerStore;
+  mcpServerStore: IMcpServerStore<TTransaction>;
+  runTransaction: RunTransaction<TTransaction>;
   logger: Logger;
 }
 
@@ -40,27 +48,26 @@ function toConfiguredMcpServer(record: McpServerRecord): ConfiguredMcpServer {
 }
 
 /** Admin/settings MCP CRUD (mounted at /api/v1/settings/mcp-servers). */
-export function createMcpServersRouter(deps: McpServersRouterDeps) {
-  const catalogHandler: RouteHandler<typeof getMcpServerCatalogRoute> = c => {
+export function createMcpServersRouter<TTransaction>(deps: McpServersRouterDeps<TTransaction>) {
+  const catalogHandler: RouteHandler<typeof getMcpServerCatalogRoute, TxEnv<TTransaction>> = c => {
     return c.json({ data: [...deps.mcpCatalog.list()] }, 200);
   };
 
-  const listConfiguredHandler: RouteHandler<typeof listConfiguredMcpServersRoute> = async c => {
+  const listConfiguredHandler: RouteHandler<typeof listConfiguredMcpServersRoute, TxEnv<TTransaction>> = async c => {
     const records = await deps.mcpServerStore.listServers(TENANT_ID);
     return c.json({ data: records.map(toConfiguredMcpServer) }, 200);
   };
 
-  const putHandler: RouteHandler<typeof putMcpServerRoute> = async c => {
+  const putHandler: RouteHandler<typeof putMcpServerRoute, TxEnv<TTransaction>> = async c => {
     const manifest: McpServerManifest = c.req.valid('json');
-    const record = await deps.mcpServerStore.upsertServer({
-      tenant_id: TENANT_ID,
-      name: manifest.name,
-      manifest,
-    });
+    const record = await deps.mcpServerStore.upsertServer(
+      { tenant_id: TENANT_ID, name: manifest.name, manifest },
+      c.get('tx'),
+    );
     return c.json({ data: toConfiguredMcpServer(record) }, 200);
   };
 
-  const listToolsHandler: RouteHandler<typeof listMcpServerToolsRoute> = async c => {
+  const listToolsHandler: RouteHandler<typeof listMcpServerToolsRoute, TxEnv<TTransaction>> = async c => {
     const { name } = c.req.valid('param');
     const record = await deps.mcpServerStore.getServer({ tenant_id: TENANT_ID, name });
     if (!record) {
@@ -93,7 +100,7 @@ export function createMcpServersRouter(deps: McpServersRouterDeps) {
     }
   };
 
-  const authorizeHandler: RouteHandler<typeof authorizeConfiguredMcpServerRoute> = async c => {
+  const authorizeHandler: RouteHandler<typeof authorizeConfiguredMcpServerRoute, TxEnv<TTransaction>> = async c => {
     const { name } = c.req.valid('param');
     const { redirect_url: redirectUrl } = c.req.valid('query');
     const record = await deps.mcpServerStore.getServer({ tenant_id: TENANT_ID, name });
@@ -109,7 +116,9 @@ export function createMcpServersRouter(deps: McpServersRouterDeps) {
     return c.json({ status: 'auth_required' as const, authorization_url: stubAuthUrl }, 200);
   };
 
-  const router = new OpenAPIHono();
+  const router = new OpenAPIHono<TxEnv<TTransaction>>();
+  // Write methods only — tools/authorize are GETs (DB read + remote I/O; must not hold a write txn).
+  router.use('*', createWriteDbTransactionMiddleware(deps.runTransaction));
   // Static `/catalog` before `/{name}/…` so "catalog" is not captured as a name.
   router.openapi(getMcpServerCatalogRoute, catalogHandler);
   router.openapi(listConfiguredMcpServersRoute, listConfiguredHandler);
@@ -120,7 +129,7 @@ export function createMcpServersRouter(deps: McpServersRouterDeps) {
 }
 
 /** Chat slim list (mounted at /api/v1/mcp-servers) — mirrors GET /api/v1/models. */
-export function createAvailableMcpServersRouter(store: IMcpServerStore) {
+export function createAvailableMcpServersRouter<TTransaction>(store: IMcpServerStore<TTransaction>) {
   const router = new OpenAPIHono();
   router.openapi(listAvailableMcpServersRoute, async c => {
     const records = await store.listServers(TENANT_ID);

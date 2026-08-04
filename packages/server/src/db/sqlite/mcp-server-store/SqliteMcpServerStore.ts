@@ -1,5 +1,5 @@
 import type { OAuthClientRecord } from '@truefoundry/utils/core';
-import type { ExpressionBuilder, Kysely } from 'kysely';
+import type { ExpressionBuilder, Kysely, Transaction } from 'kysely';
 import { ulid } from 'ulid';
 import type { McpServerManifest } from '../../../schemas/mcpServer';
 import type { OAuthClient, OAuthServer } from '../../mcpOAuthTypes';
@@ -20,7 +20,7 @@ function recordColumns(eb: ExpressionBuilder<Database, 'mcp_server'>) {
   ];
 }
 
-export class SqliteMcpServerStore implements IMcpServerStore {
+export class SqliteMcpServerStore implements IMcpServerStore<Transaction<Database>> {
   readonly #db: Kysely<Database>;
 
   constructor(db: Kysely<Database>) {
@@ -45,9 +45,9 @@ export class SqliteMcpServerStore implements IMcpServerStore {
       .executeTakeFirst();
   }
 
-  async upsertServer(input: UpsertMcpServerInput): Promise<McpServerRecord> {
+  async upsertServer(input: UpsertMcpServerInput, transaction?: Transaction<Database>): Promise<McpServerRecord> {
     const timestamp = nowIso();
-    return await this.#db
+    return await (transaction ?? this.#db)
       .insertInto('mcp_server')
       .values({
         id: ulid(),

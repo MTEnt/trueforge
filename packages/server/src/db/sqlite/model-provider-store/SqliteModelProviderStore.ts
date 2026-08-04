@@ -1,4 +1,4 @@
-import type { ExpressionBuilder, Kysely } from 'kysely';
+import type { ExpressionBuilder, Kysely, Transaction } from 'kysely';
 import type { Model, ProviderManifest } from '../../../schemas/modelProvider';
 import {
   flattenProviderModels,
@@ -21,7 +21,7 @@ function recordColumns(eb: ExpressionBuilder<Database, 'model_provider'>) {
   ];
 }
 
-export class SqliteModelProviderStore implements IModelProviderStore {
+export class SqliteModelProviderStore implements IModelProviderStore<Transaction<Database>> {
   readonly #db: Kysely<Database>;
 
   constructor(db: Kysely<Database>) {
@@ -46,9 +46,9 @@ export class SqliteModelProviderStore implements IModelProviderStore {
       .executeTakeFirst();
   }
 
-  async upsertProvider(input: UpsertProviderInput): Promise<ModelProviderRecord> {
+  async upsertProvider(input: UpsertProviderInput, transaction?: Transaction<Database>): Promise<ModelProviderRecord> {
     const timestamp = nowIso();
-    return await this.#db
+    return await (transaction ?? this.#db)
       .insertInto('model_provider')
       .values({
         tenant_id: input.tenant_id,

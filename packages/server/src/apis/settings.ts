@@ -13,16 +13,18 @@ import type { IMcpServerStore } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
+import type { RunTransaction } from '../db/transaction';
 import { createMcpServersRouter } from './mcpServers';
 import { createModelProvidersRouter } from './modelProviders';
 import { createSandboxProvidersRouter } from './sandboxProviders';
 import { createSkillsRouter } from './skills';
 
-export interface SettingsRouterDeps {
+export interface SettingsRouterDeps<TTransaction> {
   modelCatalog: ModelCatalog;
-  modelProviderStore: IModelProviderStore;
+  modelProviderStore: IModelProviderStore<TTransaction>;
+  runTransaction: RunTransaction<TTransaction>;
   mcpCatalog: McpCatalog;
-  mcpServerStore: IMcpServerStore;
+  mcpServerStore: IMcpServerStore<TTransaction>;
   skillCatalog: SkillCatalog;
   skillStore: ISkillStore;
   sandboxCatalog: SandboxCatalog;
@@ -30,13 +32,14 @@ export interface SettingsRouterDeps {
   logger: Logger;
 }
 
-export function createSettingsRouter(deps: SettingsRouterDeps) {
+export function createSettingsRouter<TTransaction>(deps: SettingsRouterDeps<TTransaction>) {
   const router = new OpenAPIHono();
   router.route(
     '/model-providers',
     createModelProvidersRouter({
       modelCatalog: deps.modelCatalog,
       modelProviderStore: deps.modelProviderStore,
+      runTransaction: deps.runTransaction,
     }),
   );
   router.route(
@@ -44,6 +47,7 @@ export function createSettingsRouter(deps: SettingsRouterDeps) {
     createMcpServersRouter({
       mcpCatalog: deps.mcpCatalog,
       mcpServerStore: deps.mcpServerStore,
+      runTransaction: deps.runTransaction,
       logger: deps.logger,
     }),
   );

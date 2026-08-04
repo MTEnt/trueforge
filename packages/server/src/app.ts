@@ -27,6 +27,7 @@ import type { IMcpServerStore } from './db/mcpServerStore';
 import type { IModelProviderStore } from './db/modelProviderStore';
 import type { ISandboxProviderStore } from './db/sandboxProviderStore';
 import type { ISkillStore } from './db/skillStore';
+import type { RunTransaction } from './db/transaction';
 import type { McpStore } from './legacy-registry-store/McpStore';
 import type { ModelStore } from './legacy-registry-store/ModelStore';
 import type { SkillStore } from './legacy-registry-store/SkillStore';
@@ -51,12 +52,13 @@ function routeNotFound(c: Context) {
   return c.json({ error: { message: `Route not found: ${c.req.method} ${c.req.path}` } }, 404);
 }
 
-export interface ServerDeps {
+export interface ServerDeps<TTransaction> {
   modelStore: ModelStore;
   modelCatalog: ModelCatalog;
-  modelProviderStore: IModelProviderStore;
+  modelProviderStore: IModelProviderStore<TTransaction>;
+  runTransaction: RunTransaction<TTransaction>;
   mcpCatalog: McpCatalog;
-  mcpServerStore: IMcpServerStore;
+  mcpServerStore: IMcpServerStore<TTransaction>;
   mcpStore: McpStore;
   skillCatalog: SkillCatalog;
   skillStore: ISkillStore;
@@ -77,7 +79,7 @@ export interface ServerDeps {
   logger: Logger;
 }
 
-export function createServerApp(deps: ServerDeps) {
+export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
   const app = new OpenAPIHono();
 
   app.get('/healthz', c => c.text('OK!'));
@@ -91,6 +93,7 @@ export function createServerApp(deps: ServerDeps) {
     createSettingsRouter({
       modelCatalog: deps.modelCatalog,
       modelProviderStore: deps.modelProviderStore,
+      runTransaction: deps.runTransaction,
       mcpCatalog: deps.mcpCatalog,
       mcpServerStore: deps.mcpServerStore,
       skillCatalog: deps.skillCatalog,

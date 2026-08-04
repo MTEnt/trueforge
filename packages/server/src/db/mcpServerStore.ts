@@ -32,12 +32,12 @@ export interface UpsertMcpServerInput {
   manifest: McpServerManifest;
 }
 
-export interface IMcpServerStore extends IOAuthClientStore {
+export interface IMcpServerStore<TTransaction = undefined> extends IOAuthClientStore {
   listServers(tenantId: string): Promise<McpServerRecord[]>;
   getServer(input: GetMcpServerInput): Promise<McpServerRecord | undefined>;
   /**
    * Creates the server or replaces `manifest` (+ `updated_at`) only.
    * Never overwrites `id`, `oauth_server`, or `oauth_client`.
    */
-  upsertServer(input: UpsertMcpServerInput): Promise<McpServerRecord>;
+  upsertServer(input: UpsertMcpServerInput, transaction?: TTransaction): Promise<McpServerRecord>;
 }

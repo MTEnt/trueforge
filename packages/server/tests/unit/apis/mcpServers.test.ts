@@ -1,9 +1,11 @@
+import type { Transaction } from 'kysely';
 import winston from 'winston';
 import { createAvailableMcpServersRouter, createMcpServersRouter } from '../../../src/apis/mcpServers';
 import { McpCatalog } from '../../../src/catalog/McpCatalog';
 import { migrateSqliteToLatest } from '../../../src/db/migrateSqlite';
 import { createSqliteDb } from '../../../src/db/sqlite/client';
 import { SqliteMcpServerStore } from '../../../src/db/sqlite/mcp-server-store/SqliteMcpServerStore';
+import type { Database } from '../../../src/db/sqlite/types';
 
 const putBody = {
   type: 'remote' as const,
@@ -37,7 +39,7 @@ function putInit(body: unknown): RequestInit {
 }
 
 describe('mcp-servers routers', () => {
-  let settingsRouter: ReturnType<typeof createMcpServersRouter>;
+  let settingsRouter: ReturnType<typeof createMcpServersRouter<Transaction<Database>>>;
   let availableRouter: ReturnType<typeof createAvailableMcpServersRouter>;
 
   beforeAll(async () => {
@@ -47,6 +49,7 @@ describe('mcp-servers routers', () => {
     settingsRouter = createMcpServersRouter({
       mcpCatalog: McpCatalog.load(),
       mcpServerStore,
+      runTransaction: callback => db.transaction().execute(callback),
       logger: winston.createLogger({ silent: true }),
     });
     availableRouter = createAvailableMcpServersRouter(mcpServerStore);
@@ -137,5 +140,53 @@ describe('mcp-servers routers', () => {
 
     const missing = await settingsRouter.request('/missing/authorize?redirect_url=https://example.com/callback');
     expect(missing.status).toBe(404);
+  });
+});
+
+describe('mcp-server PUT under transaction middleware', () => {
+  let db: ReturnType<typeof createSqliteDb>;
+  let store: SqliteMcpServerStore;
+
+  beforeEach(async () => {
+    db = createSqliteDb(':memory:');
+    await migrateSqliteToLatest(db);
+    store = new SqliteMcpServerStore(db);
+  });
+
+  afterEach(async () => {
+    await db.destroy();
+  });
+
+  it('commits the upsert when the route transaction succeeds', async () => {
+    const router = createMcpServersRouter({
+      mcpCatalog: McpCatalog.load(),
+      mcpServerStore: store,
+      runTransaction: callback => db.transaction().execute(callback),
+      logger: winston.createLogger({ silent: true }),
+    });
+
+    const response = await router.request('/', putInit(putBody));
+
+    expect(response.status).toBe(200);
+    const stored = await store.getServer({ tenant_id: 'default', name: putBody.name });
+    expect(stored?.manifest.url).toBe(putBody.url);
+  });
+
+  it('rolls back the upsert when the route transaction fails', async () => {
+    const router = createMcpServersRouter({
+      mcpCatalog: McpCatalog.load(),
+      mcpServerStore: store,
+      runTransaction: callback =>
+        db.transaction().execute(async transaction => {
+          await callback(transaction);
+          throw new Error('fail after route handler');
+        }),
+      logger: winston.createLogger({ silent: true }),
+    });
+
+    const response = await router.request('/', putInit(putBody));
+
+    expect(response.status).toBe(500);
+    await expect(store.getServer({ tenant_id: 'default', name: putBody.name })).resolves.toBeUndefined();
   });
 });
