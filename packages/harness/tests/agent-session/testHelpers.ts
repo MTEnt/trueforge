@@ -25,7 +25,7 @@ export function mintTestTurnId(): string {
   return ulid().toLowerCase();
 }
 
-/** Minimal AgentSpec for session/turn tests — interactive builtins off. */
+/** Minimal AgentSpec for session/turn tests — interactive builtins off; FQN model required. */
 export function makeAgentSpec(
   overrides: {
     instructions?: string;
@@ -44,7 +44,7 @@ export function makeAgentSpec(
   } = {},
 ): AgentSpec {
   return AgentSpecSchema.parse({
-    model: overrides.model ?? { name: 'test-model' },
+    model: overrides.model ?? { name: 'test-provider/test-model' },
     instructions: overrides.instructions ?? 'You are a test agent.',
     config: {
       iteration_limit: 5,
@@ -178,8 +178,8 @@ export function makeCreateTurnInput(input: {
 
 export function makeDoneTurnState(): TerminalTurnState {
   return {
-    // TODO: restore `output: null` alongside TurnStateDone.output.
     status: 'done',
+    output: null,
     required_actions: [],
     completed_at: new Date().toISOString(),
   };

@@ -3,25 +3,35 @@ import { createModelsRouter } from '../../../src/apis/models';
 import { createSettingsRouter } from '../../../src/apis/settings';
 import { McpCatalog } from '../../../src/catalog/McpCatalog';
 import { ModelCatalog } from '../../../src/catalog/ModelCatalog';
+import { SandboxCatalog } from '../../../src/catalog/SandboxCatalog';
 import { SkillCatalog } from '../../../src/catalog/SkillCatalog';
 import { migrateSqliteToLatest } from '../../../src/db/migrateSqlite';
 import { createSqliteDb } from '../../../src/db/sqlite/client';
 import { SqliteMcpServerStore } from '../../../src/db/sqlite/mcp-server-store/SqliteMcpServerStore';
 import { SqliteModelProviderStore } from '../../../src/db/sqlite/model-provider-store/SqliteModelProviderStore';
+import { SqliteSandboxProviderStore } from '../../../src/db/sqlite/sandbox-provider-store/SqliteSandboxProviderStore';
 import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkillStore';
+import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/SqliteOAuthTokenStore';
 
-const putBody = {
-  type: 'anthropic',
+const model = {
+  model_id: 'claude-sonnet-4-6',
+  name: 'claude-sonnet-4-6',
+  properties: { context_length: 200000, max_output_tokens: 32768, reasoning_efforts: ['low', 'high'] },
+};
+
+const anthropicBody = {
+  type: 'anthropic' as const,
   name: 'anthropic',
-  base_url: 'https://api.anthropic.com/v1',
   auth: { api_key: 'sk-ant-secret' },
-  models: [
-    {
-      model_id: 'claude-sonnet-4-6',
-      name: 'claude-sonnet-4-6',
-      properties: { context_length: 200000, max_output_tokens: 32768, reasoning_efforts: ['low', 'high'] },
-    },
-  ],
+  models: [model],
+};
+
+const customBody = {
+  type: 'custom' as const,
+  name: 'internal',
+  base_url: 'https://llm.internal.example.com/v1',
+  auth: { api_key: 'sk-custom' },
+  models: [model],
 };
 
 function putInit(body: unknown): RequestInit {
@@ -45,8 +55,11 @@ describe('settings model-providers and models routers', () => {
       modelProviderStore,
       mcpCatalog: McpCatalog.load(),
       mcpServerStore: new SqliteMcpServerStore(db),
+      tokenStore: new SqliteOAuthTokenStore(db),
       skillCatalog: SkillCatalog.load(),
       skillStore: new SqliteSkillStore(db),
+      sandboxCatalog: SandboxCatalog.load(),
+      sandboxProviderStore: new SqliteSandboxProviderStore(db),
       logger: winston.createLogger({ silent: true }),
     });
     modelsRouter = createModelsRouter(modelProviderStore);
@@ -64,22 +77,28 @@ describe('settings model-providers and models routers', () => {
     expect(body.data.every(provider => provider.type !== 'custom')).toBe(true);
   });
 
-  it('PUT upserts a provider and echoes the stored auth', async () => {
-    const response = await settingsRouter.request('/model-providers', putInit(putBody));
+  it('PUT upserts a well-known provider without base_url and echoes the stored auth', async () => {
+    const response = await settingsRouter.request('/model-providers', putInit(anthropicBody));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ data: putBody });
+    expect(await response.json()).toEqual({ data: anthropicBody });
 
     const list = await settingsRouter.request('/model-providers');
     expect(list.status).toBe(200);
-    expect(await list.json()).toEqual({ data: [putBody] });
+    expect(await list.json()).toEqual({ data: [anthropicBody] });
   });
 
-  it('PUT rejects invalid bodies at the Zod layer', async () => {
-    const { base_url: _, ...withoutBaseUrl } = putBody;
+  it('PUT requires base_url for custom providers', async () => {
+    const { base_url: _, ...withoutBaseUrl } = customBody;
     const missingBaseUrl = await settingsRouter.request('/model-providers', putInit(withoutBaseUrl));
     expect(missingBaseUrl.status).toBe(400);
 
-    const badName = await settingsRouter.request('/model-providers', putInit({ ...putBody, name: 'Not A Slug' }));
+    const created = await settingsRouter.request('/model-providers', putInit(customBody));
+    expect(created.status).toBe(200);
+    expect(await created.json()).toEqual({ data: customBody });
+  });
+
+  it('PUT rejects invalid bodies at the Zod layer', async () => {
+    const badName = await settingsRouter.request('/model-providers', putInit({ ...anthropicBody, name: 'Not A Name' }));
     expect(badName.status).toBe(400);
   });
 
@@ -91,7 +110,12 @@ describe('settings model-providers and models routers', () => {
         {
           name: 'anthropic/claude-sonnet-4-6',
           model_id: 'claude-sonnet-4-6',
-          properties: putBody.models[0]?.properties,
+          properties: model.properties,
+        },
+        {
+          name: 'internal/claude-sonnet-4-6',
+          model_id: 'claude-sonnet-4-6',
+          properties: model.properties,
         },
       ],
     });

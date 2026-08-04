@@ -1,10 +1,10 @@
 /**
- * Server entry point: validates config, migrates Postgres, loads the YAML
- * stores, wires the Postgres session store and starts the HTTP server.
- * Any config, migration, or store error aborts startup.
+ * Server entry point: validates config, migrates Postgres, wires DB stores
+ * and starts the HTTP server. Any config, migration, or store error aborts startup.
  * SQLite migrations are packaged under dist/ but are not run at startup.
  */
 import { serve } from '@hono/node-server';
+import type { TurnStreamingEvent } from '@truefoundry/utils-core/agent-session';
 import type { RedisClientType } from 'redis';
 import winston from 'winston';
 
@@ -15,42 +15,44 @@ try {
     { default: configuration },
     { createDb },
     { migrateToLatest },
-    { ModelStore },
-    { McpStore },
-    { SkillStore },
     { Sessions, CancellationReason },
     { ActiveTurnRegistry },
-    { createServerSandboxFactory },
+    { createServerSandboxProvider },
     { connectRedis },
     { RequestReplyExecutor, RequestReplyRouter },
     { PostgresSessionStore },
+    { EventSubscriptionRegistry },
     { ModelCatalog },
     { PostgresModelProviderStore },
     { McpCatalog },
     { PostgresMcpServerStore },
+    { PostgresOAuthTokenStore },
     { SkillCatalog },
     { PostgresSkillStore },
+    { SandboxCatalog },
+    { PostgresSandboxProviderStore },
   ] = await Promise.all([
     import('./app'),
     import('./frontend'),
     import('./config'),
     import('./db/postgres/client'),
     import('./db/migratePostgres'),
-    import('./legacy-registry-store/ModelStore'),
-    import('./legacy-registry-store/McpStore'),
-    import('./legacy-registry-store/SkillStore'),
-    import('@truefoundry/utils/agent-session'),
+    import('@truefoundry/utils-core/agent-session'),
     import('./runtime/activeTurns'),
     import('./runtime/sandboxFactory'),
     import('./runtime/redis'),
-    import('@truefoundry/utils/request-reply'),
+    import('@truefoundry/utils-core/request-reply'),
     import('./db/postgres/session-store/PostgresSessionStore'),
+    import('./runtime/event-subscription'),
     import('./catalog/ModelCatalog'),
     import('./db/postgres/model-provider-store/PostgresModelProviderStore'),
     import('./catalog/McpCatalog'),
     import('./db/postgres/mcp-server-store/PostgresMcpServerStore'),
+    import('./db/postgres/token-store/PostgresOAuthTokenStore'),
     import('./catalog/SkillCatalog'),
     import('./db/postgres/skill-store/PostgresSkillStore'),
+    import('./catalog/SandboxCatalog'),
+    import('./db/postgres/sandbox-provider-store/PostgresSandboxProviderStore'),
   ]);
 
   // Console logger shared by the server runtime (harness components require one).
@@ -70,8 +72,8 @@ try {
 
   const sessionStore = new PostgresSessionStore(db);
   // Throws on malformed SANDBOX_SETTINGS; undefined when sandbox is not configured.
-  const legacySkillStore = SkillStore.load();
-  const sandboxFactory = createServerSandboxFactory({ logger });
+  const skillStore = new PostgresSkillStore(db);
+  const sandboxProvider = createServerSandboxProvider({ logger });
   const activeTurns = new ActiveTurnRegistry();
 
   let redis: RedisClientType | undefined;
@@ -82,23 +84,25 @@ try {
     redis = await connectRedis({ url: configuration.REDIS_URL, logger });
   }
   const requestReplyRouter = new RequestReplyRouter();
+  const eventSubscriptions = new EventSubscriptionRegistry<TurnStreamingEvent>(redis);
 
   const app = createServerApp({
-    modelStore: ModelStore.load(),
     modelCatalog: ModelCatalog.load(),
     modelProviderStore: new PostgresModelProviderStore(db),
     mcpCatalog: McpCatalog.load(),
     mcpServerStore: new PostgresMcpServerStore(db),
-    mcpStore: McpStore.load(),
+    tokenStore: new PostgresOAuthTokenStore(db),
     skillCatalog: SkillCatalog.load(),
-    skillStore: new PostgresSkillStore(db),
-    legacySkillStore,
+    skillStore,
+    sandboxCatalog: SandboxCatalog.load(),
+    sandboxProviderStore: new PostgresSandboxProviderStore(db),
     sessionStore,
     sessions: new Sessions({ sessionStore }),
     activeTurns,
-    ...(sandboxFactory ? { sandboxFactory } : {}),
+    ...(sandboxProvider ? { sandboxProvider } : {}),
     redis,
     requestReplyRouter,
+    eventSubscriptions,
     logger,
   });
 

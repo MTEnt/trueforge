@@ -1,17 +1,15 @@
 /** The API: resource routers, the OpenAPI document and Swagger UI, all under /api/v1. */
 import { swaggerUI } from '@hono/swagger-ui';
 import { OpenAPIHono } from '@hono/zod-openapi';
-import type { ISessionStore, Sessions, TurnSandboxFactory } from '@truefoundry/utils/agent-session';
-import type { RequestReplyRouter } from '@truefoundry/utils/request-reply';
+import type { ISessionStore, Sessions, TurnStreamingEvent } from '@truefoundry/utils-core/agent-session';
+import type { IOAuthTokenStore, SandboxProvider } from '@truefoundry/utils-core/core';
+import type { RequestReplyRouter } from '@truefoundry/utils-core/request-reply';
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { RedisClientType } from 'redis';
 import type { Logger } from 'winston';
 import { createCapabilitiesRouter } from './apis/capabilities';
-import { createLegacyMcpRouter } from './apis/legacyMcp';
-import { createLegacyMcpOAuthRouter } from './apis/legacyMcpOAuth';
-import { createLegacyModelsRouter } from './apis/legacyModels';
-import { createLegacySkillsRouter } from './apis/legacySkills';
+import { createMcpOAuthRouter } from './apis/mcpOAuth';
 import { createAvailableMcpServersRouter } from './apis/mcpServers';
 import { createModelsRouter } from './apis/models';
 import { createSessionsRouter } from './apis/sessions';
@@ -20,20 +18,20 @@ import { createAvailableSkillsRouter } from './apis/skills';
 import { createTurnsRouter } from './apis/turns';
 import type { McpCatalog } from './catalog/McpCatalog';
 import type { ModelCatalog } from './catalog/ModelCatalog';
+import type { SandboxCatalog } from './catalog/SandboxCatalog';
 import type { SkillCatalog } from './catalog/SkillCatalog';
 import type { IMcpServerStore } from './db/mcpServerStore';
 import type { IModelProviderStore } from './db/modelProviderStore';
+import type { ISandboxProviderStore } from './db/sandboxProviderStore';
 import type { ISkillStore } from './db/skillStore';
-import type { McpStore } from './legacy-registry-store/McpStore';
-import type { ModelStore } from './legacy-registry-store/ModelStore';
-import type { SkillStore } from './legacy-registry-store/SkillStore';
 import type { ActiveTurnRegistry } from './runtime/activeTurns';
+import type { EventSubscriptionRegistry } from './runtime/event-subscription';
 
 const openApiDocConfig = {
   openapi: '3.1.0',
   info: {
     title: 'Agent Server',
-    description: 'Agent server exposing models, MCP servers and skills from local YAML config.',
+    description: 'Agent server with DB-backed sessions, settings catalogs, and model/MCP/skill providers.',
     version: '0.1.0',
   },
 };
@@ -48,24 +46,26 @@ function routeNotFound(c: Context) {
 }
 
 export interface ServerDeps {
-  modelStore: ModelStore;
   modelCatalog: ModelCatalog;
   modelProviderStore: IModelProviderStore;
   mcpCatalog: McpCatalog;
   mcpServerStore: IMcpServerStore;
-  mcpStore: McpStore;
+  tokenStore: IOAuthTokenStore;
   skillCatalog: SkillCatalog;
   skillStore: ISkillStore;
-  legacySkillStore: SkillStore;
+  sandboxCatalog: SandboxCatalog;
+  sandboxProviderStore: ISandboxProviderStore;
   sessionStore: ISessionStore;
   sessions: Sessions;
   activeTurns: ActiveTurnRegistry;
-  /** Built at boot from SANDBOX_SETTINGS; undefined = sandbox unsupported. */
-  sandboxFactory?: TurnSandboxFactory;
+  /** Shared SandboxProvider from SANDBOX_SETTINGS; undefined = sandbox unsupported. */
+  sandboxProvider?: SandboxProvider;
   /** Primary Redis client (server-owned); undefined in single-binary mode. */
   redis?: RedisClientType | undefined;
   /** Request-reply dispatch table served by this replica's executor. */
   requestReplyRouter: RequestReplyRouter;
+  /** Hands out each turn's resumable event stream to the create and subscribe handlers. */
+  eventSubscriptions: EventSubscriptionRegistry<TurnStreamingEvent>;
   logger: Logger;
 }
 
@@ -74,9 +74,18 @@ export function createServerApp(deps: ServerDeps) {
 
   app.get('/healthz', c => c.text('OK!'));
 
-  app.route('/api/v1/capabilities', createCapabilitiesRouter({ sandboxEnabled: deps.sandboxFactory !== undefined }));
+  app.route('/api/v1/capabilities', createCapabilitiesRouter({ sandboxProviderStore: deps.sandboxProviderStore }));
   app.route('/api/v1/models', createModelsRouter(deps.modelProviderStore));
   app.route('/api/v1/mcp-servers', createAvailableMcpServersRouter(deps.mcpServerStore));
+  // Shared OAuth callback — path must match MCP_OAUTH_CALLBACK_PATH in the harness package.
+  app.route(
+    '/api/v1/mcp-servers/oauth',
+    createMcpOAuthRouter({
+      tokenStore: deps.tokenStore,
+      mcpServerStore: deps.mcpServerStore,
+      logger: deps.logger,
+    }),
+  );
   app.route('/api/v1/skills', createAvailableSkillsRouter(deps.skillStore));
   app.route(
     '/api/v1/settings',
@@ -85,25 +94,24 @@ export function createServerApp(deps: ServerDeps) {
       modelProviderStore: deps.modelProviderStore,
       mcpCatalog: deps.mcpCatalog,
       mcpServerStore: deps.mcpServerStore,
+      tokenStore: deps.tokenStore,
       skillCatalog: deps.skillCatalog,
       skillStore: deps.skillStore,
+      sandboxCatalog: deps.sandboxCatalog,
+      sandboxProviderStore: deps.sandboxProviderStore,
       logger: deps.logger,
     }),
   );
-  // YAML registry surfaces — still used by sessions/turns and the legacy UI paths.
-  app.route('/api/v1/legacy/models', createLegacyModelsRouter(deps.modelStore));
-  app.route('/api/v1/legacy/mcp-servers', createLegacyMcpRouter({ mcpStore: deps.mcpStore, logger: deps.logger }));
-  app.route('/api/v1/legacy/mcp-servers/oauth', createLegacyMcpOAuthRouter({ logger: deps.logger }));
-  app.route('/api/v1/legacy/skills', createLegacySkillsRouter(deps.legacySkillStore));
   app.route(
     '/api/v1/sessions',
     createSessionsRouter({
       sessions: deps.sessions,
       sessionStore: deps.sessionStore,
       activeTurns: deps.activeTurns,
-      modelStore: deps.modelStore,
-      mcpStore: deps.mcpStore,
-      sandboxSupported: deps.sandboxFactory !== undefined,
+      modelProviderStore: deps.modelProviderStore,
+      mcpServerStore: deps.mcpServerStore,
+      skillStore: deps.skillStore,
+      sandboxSupported: deps.sandboxProvider !== undefined,
       redis: deps.redis,
       requestReplyRouter: deps.requestReplyRouter,
     }),
@@ -112,10 +120,14 @@ export function createServerApp(deps: ServerDeps) {
     '/api/v1/sessions',
     createTurnsRouter({
       sessions: deps.sessions,
+      sessionStore: deps.sessionStore,
       activeTurns: deps.activeTurns,
-      modelStore: deps.modelStore,
-      mcpStore: deps.mcpStore,
-      ...(deps.sandboxFactory ? { sandboxFactory: deps.sandboxFactory } : {}),
+      modelProviderStore: deps.modelProviderStore,
+      mcpServerStore: deps.mcpServerStore,
+      tokenStore: deps.tokenStore,
+      skillStore: deps.skillStore,
+      eventSubscriptions: deps.eventSubscriptions,
+      ...(deps.sandboxProvider ? { sandboxProvider: deps.sandboxProvider } : {}),
       logger: deps.logger,
     }),
   );

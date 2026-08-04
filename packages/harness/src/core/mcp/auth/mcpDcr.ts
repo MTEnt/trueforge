@@ -1,9 +1,11 @@
 import {
   discoverOAuthServerInfo,
+  exchangeAuthorization,
   refreshAuthorization,
   registerClient,
   startAuthorization,
 } from '@modelcontextprotocol/sdk/client/auth.js';
+import { InvalidClientError, InvalidClientMetadataError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { resourceUrlFromServerUrl } from '@modelcontextprotocol/sdk/shared/auth-utils.js';
 import type {
   AuthorizationServerMetadata,
@@ -12,13 +14,15 @@ import type {
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { randomBytes } from 'node:crypto';
 import type { IOAuthClientStore, OAuthClientRecord } from '../../auth/IOAuthClientStore';
-import type { IOAuthTokenStore, OAuthToken } from '../../auth/IOAuthTokenStore';
-import { McpConnectionError } from '../../errors';
+import type { IOAuthTokenStore } from '../../auth/IOAuthTokenStore';
+import { isOAuthAccessTokenUsable } from '../../auth/oauthToken';
+import { McpConnectionError, McpDcrConfigurationError } from '../../errors';
 import {
   mcpAuthorizationServerMetadata,
   mcpAuthorizationServerOrigin,
   mcpClientInformation,
   mcpOAuthCallbackUrl,
+  oauthTokensToOAuthToken,
 } from './mcpOAuthHelpers';
 
 export interface McpAuthResolvedResult {
@@ -35,16 +39,19 @@ export function isMcpAuthRequired(result: ResolveMcpAuthResult): result is McpAu
   return 'authUrl' in result;
 }
 
-/**
- * When the token response omits `expires_in` (allowed by RFC 6749), use a 1h TTL so
- * the saved token is not treated as already expired on the next `resolveMcpAuth`.
- */
-export const DEFAULT_MCP_ACCESS_TOKEN_TTL_SECONDS = 3600;
+/** Result of a successful `completeMcpAuthorization` (token saved, pending cleared). */
+export interface CompleteMcpAuthorizationResult {
+  serverId: string;
+  /** FE post-OAuth landing URL from the original authorize call. */
+  redirectUrl: string | null;
+}
 
 /**
  * Prefer `client_secret_post` (confidential). Authorization servers that only issue public
  * clients or only accept other methods can reject that; retry once without the field (same as
  * servicefoundry outbound DCR), then surface. Not a loop.
+ * When the token response omits `expires_in` (allowed by RFC 6749), use a 1h TTL so
+ * the saved token is not treated as already expired on the next `resolveMcpAuth`.
  */
 async function registerMcpClientWithAuthMethodFallback(params: {
   authorizationServerUrl: string;
@@ -64,8 +71,15 @@ async function registerMcpClientWithAuthMethodFallback(params: {
       clientMetadata: { ...clientMetadata, token_endpoint_auth_method: 'client_secret_post' },
     });
   } catch (firstError: unknown) {
+    if (!(firstError instanceof InvalidClientMetadataError)) {
+      throw new McpConnectionError(
+        `Failed to dynamically register OAuth client for MCP server '${mcpServerName}'`,
+        400,
+        { cause: firstError instanceof Error ? firstError : undefined },
+      );
+    }
     try {
-      // Omit method so the authorization server applies its default (parity with servicefoundry).
+      // Omit method so the authorization server applies its default.
       fullInfo = await registerClient(authorizationServerUrl, {
         metadata,
         clientMetadata,
@@ -110,16 +124,23 @@ export async function createMcpOAuthClient(params: {
   const { authorizationServerUrl, authorizationServerMetadata: metadata } = await discoverOAuthServerInfo(mcpServerUrl);
 
   if (!metadata?.registration_endpoint) {
-    throw new McpConnectionError(
+    throw new McpDcrConfigurationError(
       `MCP server '${mcpServerName}' has no DCR support (missing registration_endpoint); auth.type: dcr is misconfigured for this server`,
-      400,
     );
   }
 
   if (!metadata.authorization_endpoint || !metadata.token_endpoint) {
-    throw new McpConnectionError(
+    throw new McpDcrConfigurationError(
       `Authorization server for MCP server '${mcpServerName}' is missing authorization_endpoint or token_endpoint`,
-      400,
+    );
+  }
+
+  // Only reject when the AS explicitly advertises PKCE methods that omit S256.
+  // Missing/omitted advertisement → still try S256 (many servers support it but do not publish).
+  const pkceMethods = metadata.code_challenge_methods_supported;
+  if (pkceMethods && !pkceMethods.includes('S256')) {
+    throw new McpDcrConfigurationError(
+      `Authorization server for MCP server '${mcpServerName}' advertises PKCE methods without S256`,
     );
   }
 
@@ -139,14 +160,13 @@ export async function createMcpOAuthClient(params: {
 }
 
 export async function ensureMcpClientRegistered(params: {
-  clientStore: IOAuthClientStore;
+  mcpServerStore: IOAuthClientStore;
   serverId: string;
   mcpServerUrl: string;
   mcpServerName: string;
-  publicBaseUrl: string;
   clientName: string;
 }): Promise<OAuthClientRecord> {
-  const existing = await params.clientStore.getClient({ id: params.serverId });
+  const existing = await params.mcpServerStore.getClient({ id: params.serverId });
   if (existing) {
     return existing;
   }
@@ -154,90 +174,83 @@ export async function ensureMcpClientRegistered(params: {
   const client = await createMcpOAuthClient({
     mcpServerUrl: params.mcpServerUrl,
     mcpServerName: params.mcpServerName,
-    redirectUri: mcpOAuthCallbackUrl(params.publicBaseUrl),
+    redirectUri: mcpOAuthCallbackUrl(),
     clientName: params.clientName,
   });
 
-  await params.clientStore.saveClient({ id: params.serverId, record: client });
+  await params.mcpServerStore.saveClient({ id: params.serverId, record: client });
   return client;
 }
 
 export async function buildMcpAuthorizationUrl(params: {
   tokenStore: IOAuthTokenStore;
-  clientStore: IOAuthClientStore;
+  mcpServerStore: IOAuthClientStore;
   serverId: string;
   mcpServerUrl: string;
   mcpServerName: string;
-  publicBaseUrl: string;
   clientName: string;
   /** FE post-OAuth landing URL (not the OAuth redirect_uri). */
   redirectUrl?: string;
 }): Promise<URL> {
   const client = await ensureMcpClientRegistered({
-    clientStore: params.clientStore,
+    mcpServerStore: params.mcpServerStore,
     serverId: params.serverId,
     mcpServerUrl: params.mcpServerUrl,
     mcpServerName: params.mcpServerName,
-    publicBaseUrl: params.publicBaseUrl,
     clientName: params.clientName,
   });
 
   const state = randomBytes(32).toString('base64url');
-  const { authorizationUrl, codeVerifier } = await startAuthorization(mcpAuthorizationServerOrigin(client.server), {
-    metadata: mcpAuthorizationServerMetadata(client.server),
-    clientInformation: mcpClientInformation(client.client),
-    redirectUrl: mcpOAuthCallbackUrl(params.publicBaseUrl),
-    resource: resourceUrlFromServerUrl(params.mcpServerUrl),
-    state,
-  });
+  const redirectUri = mcpOAuthCallbackUrl();
+  const resource = resourceUrlFromServerUrl(params.mcpServerUrl);
+
+  // MCP SDK always sends PKCE S256; it only rejects when metadata lists methods that omit S256.
+  // When we stored null (AS did not advertise), reconstructed metadata omits the field → try S256.
+  let started: Awaited<ReturnType<typeof startAuthorization>>;
+  try {
+    started = await startAuthorization(mcpAuthorizationServerOrigin(client.server), {
+      metadata: mcpAuthorizationServerMetadata(client.server),
+      clientInformation: mcpClientInformation(client.client),
+      redirectUrl: redirectUri,
+      resource,
+      state,
+    });
+  } catch (error: unknown) {
+    throw new McpConnectionError(`Failed to start OAuth authorization for MCP server '${params.mcpServerName}'`, 400, {
+      cause: error instanceof Error ? error : undefined,
+    });
+  }
 
   await params.tokenStore.savePendingAuthorization({
     state,
     id: params.serverId,
-    codeVerifier,
+    mcpServerUrl: params.mcpServerUrl,
+    codeVerifier: started.codeVerifier,
     redirectUrl: params.redirectUrl ?? null,
   });
 
-  return authorizationUrl;
-}
-
-function isMcpAccessTokenUsable(expiresAtIso: string, nowMs: number): boolean {
-  const expiresAtMs = Date.parse(expiresAtIso);
-  return !Number.isNaN(expiresAtMs) && expiresAtMs > nowMs;
-}
-
-function oauthTokensToOAuthToken(tokens: OAuthTokens, nowMs: number, fallbackRefreshToken: string | null): OAuthToken {
-  const expiresInSeconds = tokens.expires_in ?? DEFAULT_MCP_ACCESS_TOKEN_TTL_SECONDS;
-  const expiresAtMs = nowMs + expiresInSeconds * 1000;
-  return {
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token ?? fallbackRefreshToken,
-    expiresAt: new Date(expiresAtMs).toISOString(),
-    scope: tokens.scope ?? null,
-  };
+  return started.authorizationUrl;
 }
 
 export async function resolveMcpAuth(params: {
   tokenStore: IOAuthTokenStore;
-  clientStore: IOAuthClientStore;
+  mcpServerStore: IOAuthClientStore;
   serverId: string;
   mcpServerUrl: string;
   mcpServerName: string;
-  publicBaseUrl: string;
   clientName: string;
   /** FE post-OAuth landing URL (not the OAuth redirect_uri). */
   redirectUrl?: string;
-  nowMs?: number;
 }): Promise<ResolveMcpAuthResult> {
-  const nowMs = params.nowMs ?? Date.now();
+  const nowMs = Date.now();
   const token = await params.tokenStore.getToken({ id: params.serverId });
 
-  if (token && isMcpAccessTokenUsable(token.expiresAt, nowMs)) {
+  if (token && isOAuthAccessTokenUsable(token.expiresAt, nowMs)) {
     return { headers: { Authorization: `Bearer ${token.accessToken}` } };
   }
 
   if (token?.refreshToken) {
-    const client = await params.clientStore.getClient({ id: params.serverId });
+    const client = await params.mcpServerStore.getClient({ id: params.serverId });
     if (client) {
       try {
         const refreshed = await refreshAuthorization(mcpAuthorizationServerOrigin(client.server), {
@@ -250,24 +263,89 @@ export async function resolveMcpAuth(params: {
         await params.tokenStore.saveToken({ id: params.serverId, token: saved });
         return { headers: { Authorization: `Bearer ${saved.accessToken}` } };
       } catch {
-        // Any refresh failure → full re-authorize (do not inspect the error).
+        // Refresh failed → drop the unusable token and fall through to full re-authorize.
       }
     }
   }
 
+  // Only reached when there is no usable/refreshable token. Clear the stale row before re-auth
+  // (successful refresh returns above and never deletes).
   if (token) {
     await params.tokenStore.deleteToken({ id: params.serverId });
   }
 
   const authUrl = await buildMcpAuthorizationUrl({
     tokenStore: params.tokenStore,
-    clientStore: params.clientStore,
+    mcpServerStore: params.mcpServerStore,
     serverId: params.serverId,
     mcpServerUrl: params.mcpServerUrl,
     mcpServerName: params.mcpServerName,
-    publicBaseUrl: params.publicBaseUrl,
     clientName: params.clientName,
     ...(params.redirectUrl !== undefined ? { redirectUrl: params.redirectUrl } : {}),
   });
   return { authUrl };
+}
+
+/**
+ * OAuth callback: exchange `code` for tokens. Route must already reject IdP `error` params.
+ * Claims pending state atomically (`consumePendingAuthorization`) so duplicate callbacks lose
+ * the race; `mcpServerUrl` for the RFC 8707 `resource` comes from that pending row.
+ * On `invalid_client`, clears stored client + token so the next authorize re-registers.
+ */
+export async function completeMcpAuthorization(params: {
+  tokenStore: IOAuthTokenStore;
+  mcpServerStore: IOAuthClientStore;
+  state: string;
+  code: string;
+}): Promise<CompleteMcpAuthorizationResult> {
+  const nowMs = Date.now();
+
+  // Consume first so a concurrent/duplicate callback cannot redeem the same state.
+  const pending = await params.tokenStore.consumePendingAuthorization({ state: params.state });
+  if (!pending) {
+    throw new McpConnectionError('Unknown or expired OAuth state', 400);
+  }
+
+  const client = await params.mcpServerStore.getClient({ id: pending.id });
+  if (!client) {
+    throw new McpConnectionError(
+      `No OAuth client registered for MCP server id '${pending.id}'; re-run authorize first`,
+      400,
+    );
+  }
+
+  const { codeVerifier } = pending;
+  if (codeVerifier === null) {
+    throw new McpConnectionError('Pending authorization is missing PKCE code_verifier; re-run authorize', 400);
+  }
+
+  let tokens: OAuthTokens;
+  try {
+    tokens = await exchangeAuthorization(mcpAuthorizationServerOrigin(client.server), {
+      metadata: mcpAuthorizationServerMetadata(client.server),
+      clientInformation: mcpClientInformation(client.client),
+      authorizationCode: params.code,
+      codeVerifier,
+      redirectUri: mcpOAuthCallbackUrl(),
+      resource: resourceUrlFromServerUrl(pending.mcpServerUrl),
+    });
+  } catch (error: unknown) {
+    if (error instanceof InvalidClientError) {
+      await params.tokenStore.deleteToken({ id: pending.id });
+      await params.mcpServerStore.deleteClient({ id: pending.id });
+      throw new McpConnectionError('OAuth client registration is invalid; please retry connecting', 400, {
+        cause: error,
+      });
+    }
+    throw new McpConnectionError('OAuth token exchange failed', 400, {
+      cause: error instanceof Error ? error : undefined,
+    });
+  }
+
+  await params.tokenStore.saveToken({
+    id: pending.id,
+    token: oauthTokensToOAuthToken(tokens, nowMs, null),
+  });
+
+  return { serverId: pending.id, redirectUrl: pending.redirectUrl };
 }

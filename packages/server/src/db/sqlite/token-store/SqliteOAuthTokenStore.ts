@@ -1,13 +1,9 @@
-import type { IOAuthTokenStore, OAuthPendingAuthorization, OAuthToken } from '@truefoundry/utils/core';
+import type { IOAuthTokenStore, OAuthPendingAuthorization, OAuthToken } from '@truefoundry/utils-core/core';
 import type { Kysely } from 'kysely';
 import { fromStoredOAuthToken, toStoredOAuthToken } from '../../mcpOAuthTypes';
 import type { Database } from '../types';
-import {
-  deletePendingAuthorization,
-  getPendingAuthorization,
-  savePendingAuthorization,
-} from './queries/pendingAuthorization';
-import { deleteToken, getToken, saveToken } from './queries/token';
+import { consumePendingAuthorization, savePendingAuthorization } from './queries/pendingAuthorization';
+import { deleteToken, getToken, getTokens, saveToken } from './queries/token';
 
 export class SqliteOAuthTokenStore implements IOAuthTokenStore {
   constructor(private readonly db: Kysely<Database>) {}
@@ -16,12 +12,8 @@ export class SqliteOAuthTokenStore implements IOAuthTokenStore {
     return savePendingAuthorization(this.db, pending);
   }
 
-  getPendingAuthorization(params: { state: string }): Promise<OAuthPendingAuthorization | undefined> {
-    return getPendingAuthorization(this.db, params);
-  }
-
-  deletePendingAuthorization(params: { state: string }): Promise<void> {
-    return deletePendingAuthorization(this.db, params);
+  consumePendingAuthorization(params: { state: string }): Promise<OAuthPendingAuthorization | undefined> {
+    return consumePendingAuthorization(this.db, params);
   }
 
   saveToken(params: { id: string; token: OAuthToken }): Promise<void> {
@@ -31,6 +23,11 @@ export class SqliteOAuthTokenStore implements IOAuthTokenStore {
   async getToken(params: { id: string }): Promise<OAuthToken | undefined> {
     const stored = await getToken(this.db, params);
     return stored === undefined ? undefined : fromStoredOAuthToken(stored);
+  }
+
+  async getTokens(params: { ids: string[] }): Promise<Map<string, OAuthToken>> {
+    const stored = await getTokens(this.db, params);
+    return new Map([...stored].map(([id, token]) => [id, fromStoredOAuthToken(token)]));
   }
 
   deleteToken(params: { id: string }): Promise<void> {

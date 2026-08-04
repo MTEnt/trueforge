@@ -101,8 +101,8 @@ describe("SessionsClient", () => {
                         name: "name",
                         properties: { context_length: 1, max_output_tokens: 1 },
                     },
-                    response_format: { type: "text" },
-                    skills: [{ description: "description", name: "name", ref: "ref", type: "git", url: "url" }],
+                    response_format: { type: "json_object" },
+                    skills: [{ name: "name" }],
                     variables: { key: "value" },
                 },
                 created_at: "created_at",
@@ -157,15 +157,11 @@ describe("SessionsClient", () => {
                         },
                     },
                     responseFormat: {
-                        type: "text",
+                        type: "json_object",
                     },
                     skills: [
                         {
-                            description: "description",
                             name: "name",
-                            ref: "ref",
-                            type: "git",
-                            url: "url",
                         },
                     ],
                     variables: {
@@ -265,8 +261,8 @@ describe("SessionsClient", () => {
                         name: "name",
                         properties: { context_length: 1, max_output_tokens: 1 },
                     },
-                    response_format: { type: "text" },
-                    skills: [{ description: "description", name: "name", ref: "ref", type: "git", url: "url" }],
+                    response_format: { type: "json_object" },
+                    skills: [{ name: "name" }],
                     variables: { key: "value" },
                 },
                 created_at: "created_at",
@@ -309,15 +305,11 @@ describe("SessionsClient", () => {
                         },
                     },
                     responseFormat: {
-                        type: "text",
+                        type: "json_object",
                     },
                     skills: [
                         {
-                            description: "description",
                             name: "name",
-                            ref: "ref",
-                            type: "git",
-                            url: "url",
                         },
                     ],
                     variables: {
@@ -376,8 +368,8 @@ describe("SessionsClient", () => {
                         name: "name",
                         properties: { context_length: 1, max_output_tokens: 1 },
                     },
-                    response_format: { type: "text" },
-                    skills: [{ description: "description", name: "name", ref: "ref", type: "git", url: "url" }],
+                    response_format: { type: "json_object" },
+                    skills: [{ name: "name" }],
                     variables: { key: "value" },
                 },
                 created_at: "created_at",
@@ -421,15 +413,11 @@ describe("SessionsClient", () => {
                         },
                     },
                     responseFormat: {
-                        type: "text",
+                        type: "json_object",
                     },
                     skills: [
                         {
-                            description: "description",
                             name: "name",
-                            ref: "ref",
-                            type: "git",
-                            url: "url",
                         },
                     ],
                     variables: {
@@ -1013,5 +1001,99 @@ describe("SessionsClient", () => {
         await expect(async () => {
             return await client.sessions.listTurnEvents("sessionId", "turnId");
         }).rejects.toThrow(TrueHarnessTypes.NotFoundError);
+    });
+
+    test("subscribe_to_turn (1)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueHarness({ maxRetries: 0, environment: server.baseUrl });
+
+        const rawResponseBody =
+            'event: \ndata: {"created_at":"created_at","id":"id","thread_id":"thread_id","mcp_servers":[{"auth_url":"auth_url","id":"id","name":"name"}],"type":"mcp.auth_required"}\n\n';
+
+        server
+            .mockEndpoint()
+            .get("/api/v1/sessions/sessionId/turns/turnId/subscribe")
+            .respondWith()
+            .statusCode(200)
+            .sseBody(rawResponseBody)
+            .build();
+
+        const response = await client.sessions.subscribeToTurn("sessionId", "turnId");
+        const events: unknown[] = [];
+        for await (const event of response) {
+            events.push(event);
+        }
+        expect(events).toEqual([
+            {
+                createdAt: "created_at",
+                id: "id",
+                threadId: "thread_id",
+                mcpServers: [
+                    {
+                        authUrl: "auth_url",
+                        id: "id",
+                        name: "name",
+                    },
+                ],
+                type: "mcp.auth_required",
+            },
+        ]);
+    });
+
+    test("subscribe_to_turn (2)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueHarness({ maxRetries: 0, environment: server.baseUrl });
+
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .get("/api/v1/sessions/sessionId/turns/turnId/subscribe")
+            .respondWith()
+            .statusCode(400)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.sessions.subscribeToTurn("sessionId", "turnId");
+        }).rejects.toThrow(TrueHarnessTypes.BadRequestError);
+    });
+
+    test("subscribe_to_turn (3)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueHarness({ maxRetries: 0, environment: server.baseUrl });
+
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .get("/api/v1/sessions/sessionId/turns/turnId/subscribe")
+            .respondWith()
+            .statusCode(404)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.sessions.subscribeToTurn("sessionId", "turnId");
+        }).rejects.toThrow(TrueHarnessTypes.NotFoundError);
+    });
+
+    test("subscribe_to_turn (4)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueHarness({ maxRetries: 0, environment: server.baseUrl });
+
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .get("/api/v1/sessions/sessionId/turns/turnId/subscribe")
+            .respondWith()
+            .statusCode(412)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.sessions.subscribeToTurn("sessionId", "turnId");
+        }).rejects.toThrow(TrueHarnessTypes.PreconditionFailedError);
     });
 });
