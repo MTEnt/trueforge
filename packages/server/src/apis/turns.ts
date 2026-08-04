@@ -56,12 +56,12 @@ export function toWireTurn(record: TurnRecordWithoutSnapshot): Turn {
   };
 }
 
-export interface TurnsRouterDeps {
+export interface TurnsRouterDeps<TTransaction = undefined> {
   sessions: Sessions;
   sessionStore: ISessionStore;
   activeTurns: ActiveTurnRegistry;
-  modelProviderStore: IModelProviderStore;
-  mcpServerStore: IMcpServerStore;
+  modelProviderStore: IModelProviderStore<TTransaction>;
+  mcpServerStore: IMcpServerStore<TTransaction>;
   skillStore: ISkillStore;
   /** Resumable live turn-event transport: create-turn writes, subscribe polls. */
   eventSubscriptions: EventSubscriptionRegistry<TurnStreamingEvent>;
@@ -74,8 +74,8 @@ export interface TurnsRouterDeps {
  * TurnResourceResolver requires a sync llm factory; preload the session model
  * config so the factory stays sync while the store read stays async.
  */
-function createTurnResolver(deps: {
-  mcpServerStore: IMcpServerStore;
+function createTurnResolver<TTransaction>(deps: {
+  mcpServerStore: IMcpServerStore<TTransaction>;
   skillStore: ISkillStore;
   sandboxProvider?: SandboxProvider | undefined;
   logger: Logger;
@@ -203,7 +203,7 @@ export function resolveAfterSequenceNumber(c: Context, bodyAfterSequenceNumber?:
 }
 
 /** DB-backed turns (mounted at /api/v1/sessions). */
-export function createTurnsRouter(deps: TurnsRouterDeps) {
+export function createTurnsRouter<TTransaction = undefined>(deps: TurnsRouterDeps<TTransaction>) {
   const listTurnsHandler: RouteHandler<typeof listTurnsRoute> = async c => {
     const { sessionId } = c.req.valid('param');
     const query = c.req.valid('query');

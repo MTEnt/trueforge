@@ -26,14 +26,14 @@ export function parseModelFqn(name: string): { providerName: string; modelName: 
  * Missing provider/model → HTTPException(400) (e.g. deleted after admit).
  * Malformed FQN after admit is an invariant → plain Error (500).
  */
-export async function getDbProviderConfig({
+export async function getDbProviderConfig<TTransaction>({
   tenant_id,
   name,
   store,
 }: {
   tenant_id: string;
   name: string;
-  store: IModelProviderStore;
+  store: IModelProviderStore<TTransaction>;
 }): Promise<VercelAIProviderConfig> {
   // AgentSpecSchema already required provider/model; failure here is corrupt stored spec.
   const parsed = parseModelFqn(name);
@@ -66,14 +66,14 @@ export async function getDbProviderConfig({
  * Load MCP url + request headers for a DB-configured server name.
  * Throws HTTPException(400) if the server is not registered.
  */
-export async function getDbMcpConnection({
+export async function getDbMcpConnection<TTransaction>({
   tenant_id,
   name,
   store,
 }: {
   tenant_id: string;
   name: string;
-  store: IMcpServerStore;
+  store: IMcpServerStore<TTransaction>;
 }): Promise<{ url: string; headers: Record<string, string> }> {
   const record = await store.getServer({ tenant_id, name });
   if (record === undefined) {
@@ -125,7 +125,7 @@ export async function resolveDbGitSkills({
  * sandbox capability. Throws HTTPException: 400 unknown refs, 422 missing sandbox.
  * Skills are admitted by name only; mounts expand at turn time.
  */
-export async function validateAgentSpecDb({
+export async function validateAgentSpecDb<TTransaction>({
   spec,
   tenant_id,
   modelProviderStore,
@@ -135,8 +135,8 @@ export async function validateAgentSpecDb({
 }: {
   spec: AgentSpec;
   tenant_id: string;
-  modelProviderStore: IModelProviderStore;
-  mcpServerStore: IMcpServerStore;
+  modelProviderStore: IModelProviderStore<TTransaction>;
+  mcpServerStore: IMcpServerStore<TTransaction>;
   skillStore: ISkillStore;
   sandboxSupported: boolean;
 }): Promise<void> {

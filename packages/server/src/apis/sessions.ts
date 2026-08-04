@@ -59,12 +59,12 @@ export function toWireSession(record: SessionRecord): Session {
   };
 }
 
-export interface SessionsRouterDeps {
+export interface SessionsRouterDeps<TTransaction = undefined> {
   sessions: Sessions;
   sessionStore: ISessionStore;
   activeTurns: ActiveTurnRegistry;
-  modelProviderStore: IModelProviderStore;
-  mcpServerStore: IMcpServerStore;
+  modelProviderStore: IModelProviderStore<TTransaction>;
+  mcpServerStore: IMcpServerStore<TTransaction>;
   skillStore: ISkillStore;
   sandboxSupported: boolean;
   redis?: RedisClientType | undefined;
@@ -180,7 +180,7 @@ export async function cancelSessionTurn(
 }
 
 /** DB-backed sessions (mounted at /api/v1/sessions). */
-export function createSessionsRouter(deps: SessionsRouterDeps) {
+export function createSessionsRouter<TTransaction = undefined>(deps: SessionsRouterDeps<TTransaction>) {
   const createSessionHandler: RouteHandler<typeof createSessionRoute> = async c => {
     const body = c.req.valid('json');
     await validateAgentSpecDb({
