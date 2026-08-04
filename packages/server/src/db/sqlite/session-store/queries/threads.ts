@@ -26,141 +26,144 @@ type DbOrTrx = Kysely<Database> | Transaction<Database>;
  * INSERT turn_thread_context rows, INSERT capability rows.
  */
 export async function addThreads(db: Kysely<Database>, input: AddThreadsInput): Promise<void> {
-  await db.transaction().execute(async trx => {
-    await assertTurnRunning(trx, {
-      session_id: input.session_id,
-      turn_id: input.turn_id,
-    });
-
-    const now = nowIso();
-    const logRows: {
-      session_id: string;
-      thread_id: string;
-      turn_id: string;
-      body: RawBuilder<string>;
-      created_at: string;
-    }[] = [];
-    const capabilityStateRows: {
-      session_id: string;
-      turn_id: string;
-      thread_id: string;
-      key: string;
-      state: RawBuilder<string> | null;
-      updated_at: string;
-    }[] = [];
-    const turnThreadPlans: {
-      thread_id: string;
-      checkpoint: TurnThreadCheckpoint;
-      agent_info: RawBuilder<string> | null;
-      current_context_usage: CurrentContextUsage;
-    }[] = [];
-
-    for (const thread of input.threads) {
-      const threadCheckpoint: TurnThreadCheckpoint = {
-        parent: thread.parent ?? null,
-        completion: thread.completion ?? null,
-      };
-      turnThreadPlans.push({
-        thread_id: thread.thread_id,
-        checkpoint: threadCheckpoint,
-        agent_info: thread.agent_info != null ? jsonbBind(thread.agent_info) : null,
-        current_context_usage: thread.current_context_usage,
+  await db
+    .transaction()
+    .setAccessMode('read write')
+    .execute(async trx => {
+      await assertTurnRunning(trx, {
+        session_id: input.session_id,
+        turn_id: input.turn_id,
       });
 
-      for (const body of thread.context) {
-        logRows.push({
-          session_id: input.session_id,
+      const now = nowIso();
+      const logRows: {
+        session_id: string;
+        thread_id: string;
+        turn_id: string;
+        body: RawBuilder<string>;
+        created_at: string;
+      }[] = [];
+      const capabilityStateRows: {
+        session_id: string;
+        turn_id: string;
+        thread_id: string;
+        key: string;
+        state: RawBuilder<string> | null;
+        updated_at: string;
+      }[] = [];
+      const turnThreadPlans: {
+        thread_id: string;
+        checkpoint: TurnThreadCheckpoint;
+        agent_info: RawBuilder<string> | null;
+        current_context_usage: CurrentContextUsage;
+      }[] = [];
+
+      for (const thread of input.threads) {
+        const threadCheckpoint: TurnThreadCheckpoint = {
+          parent: thread.parent ?? null,
+          completion: thread.completion ?? null,
+        };
+        turnThreadPlans.push({
           thread_id: thread.thread_id,
-          turn_id: input.turn_id,
-          body: jsonbBind(body),
-          created_at: now,
+          checkpoint: threadCheckpoint,
+          agent_info: thread.agent_info != null ? jsonbBind(thread.agent_info) : null,
+          current_context_usage: thread.current_context_usage,
         });
-      }
 
-      const capabilityState = thread.capability_state;
-      if (capabilityState != null) {
-        for (const key of Object.keys(capabilityState)) {
-          const state = capabilityState[key];
-          if (state === undefined) {
-            throw new Error(
-              `capability_state['${key}'] for thread '${thread.thread_id}' is undefined — undefined is banned from capability state`,
-            );
-          }
-          capabilityStateRows.push({
+        for (const body of thread.context) {
+          logRows.push({
             session_id: input.session_id,
-            turn_id: input.turn_id,
             thread_id: thread.thread_id,
-            key,
-            state: state !== null ? jsonbBind(state) : null,
-            updated_at: now,
-          });
-        }
-      }
-    }
-
-    const newIdsByThread = new Map<string, number[]>();
-    if (logRows.length > 0) {
-      const inserted = await trx
-        .insertInto('thread_context_log')
-        .values(logRows)
-        .returning(['thread_id', 'append_id'])
-        .execute();
-      for (const row of sortedByAppendId(inserted)) {
-        const list = newIdsByThread.get(row.thread_id);
-        if (list === undefined) {
-          newIdsByThread.set(row.thread_id, [row.append_id]);
-        } else {
-          list.push(row.append_id);
-        }
-      }
-    }
-
-    const turnThreadRows = turnThreadPlans.map(plan => ({
-      session_id: input.session_id,
-      turn_id: input.turn_id,
-      thread_id: plan.thread_id,
-      checkpoint: jsonbBind(plan.checkpoint),
-      agent_info: plan.agent_info,
-      current_context_usage: jsonbBind(plan.current_context_usage),
-      updated_at: now,
-    }));
-
-    if (turnThreadRows.length > 0) {
-      await trx.insertInto('turn_thread').values(turnThreadRows).execute();
-    }
-
-    const contextMappingRows: {
-      session_id: string;
-      turn_id: string;
-      thread_id: string;
-      pos: number;
-      append_id: number;
-    }[] = [];
-
-    for (const plan of turnThreadPlans) {
-      const newIds = newIdsByThread.get(plan.thread_id) ?? [];
-      for (let i = 0; i < newIds.length; i++) {
-        const appendId = newIds[i];
-        if (appendId !== undefined) {
-          contextMappingRows.push({
-            session_id: input.session_id,
             turn_id: input.turn_id,
-            thread_id: plan.thread_id,
-            pos: i + 1,
-            append_id: appendId,
+            body: jsonbBind(body),
+            created_at: now,
           });
         }
+
+        const capabilityState = thread.capability_state;
+        if (capabilityState != null) {
+          for (const key of Object.keys(capabilityState)) {
+            const state = capabilityState[key];
+            if (state === undefined) {
+              throw new Error(
+                `capability_state['${key}'] for thread '${thread.thread_id}' is undefined — undefined is banned from capability state`,
+              );
+            }
+            capabilityStateRows.push({
+              session_id: input.session_id,
+              turn_id: input.turn_id,
+              thread_id: thread.thread_id,
+              key,
+              state: state !== null ? jsonbBind(state) : null,
+              updated_at: now,
+            });
+          }
+        }
       }
-    }
 
-    if (contextMappingRows.length > 0) {
-      await trx.insertInto('turn_thread_context').values(contextMappingRows).execute();
-    }
+      const newIdsByThread = new Map<string, number[]>();
+      if (logRows.length > 0) {
+        const inserted = await trx
+          .insertInto('thread_context_log')
+          .values(logRows)
+          .returning(['thread_id', 'append_id'])
+          .execute();
+        for (const row of sortedByAppendId(inserted)) {
+          const list = newIdsByThread.get(row.thread_id);
+          if (list === undefined) {
+            newIdsByThread.set(row.thread_id, [row.append_id]);
+          } else {
+            list.push(row.append_id);
+          }
+        }
+      }
 
-    if (capabilityStateRows.length > 0) {
-      await trx.insertInto('thread_capability_state').values(capabilityStateRows).execute();
-    }
-  });
+      const turnThreadRows = turnThreadPlans.map(plan => ({
+        session_id: input.session_id,
+        turn_id: input.turn_id,
+        thread_id: plan.thread_id,
+        checkpoint: jsonbBind(plan.checkpoint),
+        agent_info: plan.agent_info,
+        current_context_usage: jsonbBind(plan.current_context_usage),
+        updated_at: now,
+      }));
+
+      if (turnThreadRows.length > 0) {
+        await trx.insertInto('turn_thread').values(turnThreadRows).execute();
+      }
+
+      const contextMappingRows: {
+        session_id: string;
+        turn_id: string;
+        thread_id: string;
+        pos: number;
+        append_id: number;
+      }[] = [];
+
+      for (const plan of turnThreadPlans) {
+        const newIds = newIdsByThread.get(plan.thread_id) ?? [];
+        for (let i = 0; i < newIds.length; i++) {
+          const appendId = newIds[i];
+          if (appendId !== undefined) {
+            contextMappingRows.push({
+              session_id: input.session_id,
+              turn_id: input.turn_id,
+              thread_id: plan.thread_id,
+              pos: i + 1,
+              append_id: appendId,
+            });
+          }
+        }
+      }
+
+      if (contextMappingRows.length > 0) {
+        await trx.insertInto('turn_thread_context').values(contextMappingRows).execute();
+      }
+
+      if (capabilityStateRows.length > 0) {
+        await trx.insertInto('thread_capability_state').values(capabilityStateRows).execute();
+      }
+    });
 }
 
 /**
@@ -174,33 +177,36 @@ export async function removeThreads(db: Kysely<Database>, input: RemoveThreadsIn
     return;
   }
 
-  await db.transaction().execute(async trx => {
-    await assertTurnRunning(trx, {
-      session_id: input.session_id,
-      turn_id: input.turn_id,
+  await db
+    .transaction()
+    .setAccessMode('read write')
+    .execute(async trx => {
+      await assertTurnRunning(trx, {
+        session_id: input.session_id,
+        turn_id: input.turn_id,
+      });
+
+      await trx
+        .deleteFrom('turn_thread_context')
+        .where('session_id', '=', input.session_id)
+        .where('turn_id', '=', input.turn_id)
+        .where('thread_id', 'in', input.thread_ids)
+        .execute();
+
+      await trx
+        .deleteFrom('turn_thread')
+        .where('session_id', '=', input.session_id)
+        .where('turn_id', '=', input.turn_id)
+        .where('thread_id', 'in', input.thread_ids)
+        .execute();
+
+      await trx
+        .deleteFrom('thread_capability_state')
+        .where('session_id', '=', input.session_id)
+        .where('turn_id', '=', input.turn_id)
+        .where('thread_id', 'in', input.thread_ids)
+        .execute();
     });
-
-    await trx
-      .deleteFrom('turn_thread_context')
-      .where('session_id', '=', input.session_id)
-      .where('turn_id', '=', input.turn_id)
-      .where('thread_id', 'in', input.thread_ids)
-      .execute();
-
-    await trx
-      .deleteFrom('turn_thread')
-      .where('session_id', '=', input.session_id)
-      .where('turn_id', '=', input.turn_id)
-      .where('thread_id', 'in', input.thread_ids)
-      .execute();
-
-    await trx
-      .deleteFrom('thread_capability_state')
-      .where('session_id', '=', input.session_id)
-      .where('turn_id', '=', input.turn_id)
-      .where('thread_id', 'in', input.thread_ids)
-      .execute();
-  });
 }
 
 async function getNextPos(db: DbOrTrx, keys: TurnKeys, thread_id: string): Promise<number> {
@@ -243,78 +249,81 @@ async function fencedTurnThreadContextUpdate(
 ): Promise<void> {
   const { keys, thread_id, context, replace_array } = args;
 
-  await db.transaction().execute(async trx => {
-    await assertTurnRunning(trx, keys);
+  await db
+    .transaction()
+    .setAccessMode('read write')
+    .execute(async trx => {
+      await assertTurnRunning(trx, keys);
 
-    const now = nowIso();
+      const now = nowIso();
 
-    if (replace_array) {
-      await trx
-        .deleteFrom('turn_thread_context')
+      if (replace_array) {
+        await trx
+          .deleteFrom('turn_thread_context')
+          .where('session_id', '=', keys.session_id)
+          .where('turn_id', '=', keys.turn_id)
+          .where('thread_id', '=', thread_id)
+          .execute();
+      }
+
+      if (context.length > 0) {
+        const logRows = context.map(body => ({
+          session_id: keys.session_id,
+          thread_id,
+          turn_id: keys.turn_id,
+          body: jsonbBind(body),
+          created_at: now,
+        }));
+
+        const inserted = await trx.insertInto('thread_context_log').values(logRows).returning(['append_id']).execute();
+
+        let nextPos = replace_array ? 1 : await getNextPos(trx, keys, thread_id);
+
+        const contextMappingRows: {
+          session_id: string;
+          turn_id: string;
+          thread_id: string;
+          pos: number;
+          append_id: number;
+        }[] = [];
+
+        for (const row of sortedByAppendId(inserted)) {
+          contextMappingRows.push({
+            session_id: keys.session_id,
+            turn_id: keys.turn_id,
+            thread_id,
+            pos: nextPos,
+            append_id: row.append_id,
+          });
+          nextPos++;
+        }
+
+        if (contextMappingRows.length > 0) {
+          await trx.insertInto('turn_thread_context').values(contextMappingRows).execute();
+        }
+      }
+
+      const usageExpr =
+        args.usage_unconditional !== null
+          ? jsonbBind(args.usage_unconditional)
+          : usageSetExpr(args.current_context_usage);
+
+      const updateResult = await trx
+        .updateTable('turn_thread')
+        .set({
+          checkpoint: completionPatchExpr(args.completion),
+          current_context_usage: usageExpr,
+          updated_at: now,
+        })
         .where('session_id', '=', keys.session_id)
         .where('turn_id', '=', keys.turn_id)
         .where('thread_id', '=', thread_id)
-        .execute();
-    }
+        .executeTakeFirst();
 
-    if (context.length > 0) {
-      const logRows = context.map(body => ({
-        session_id: keys.session_id,
-        thread_id,
-        turn_id: keys.turn_id,
-        body: jsonbBind(body),
-        created_at: now,
-      }));
-
-      const inserted = await trx.insertInto('thread_context_log').values(logRows).returning(['append_id']).execute();
-
-      let nextPos = replace_array ? 1 : await getNextPos(trx, keys, thread_id);
-
-      const contextMappingRows: {
-        session_id: string;
-        turn_id: string;
-        thread_id: string;
-        pos: number;
-        append_id: number;
-      }[] = [];
-
-      for (const row of sortedByAppendId(inserted)) {
-        contextMappingRows.push({
-          session_id: keys.session_id,
-          turn_id: keys.turn_id,
-          thread_id,
-          pos: nextPos,
-          append_id: row.append_id,
-        });
-        nextPos++;
+      if (Number(updateResult.numUpdatedRows) === 0) {
+        await classifyTurnThreadWriteFailure(trx, keys, thread_id);
       }
-
-      if (contextMappingRows.length > 0) {
-        await trx.insertInto('turn_thread_context').values(contextMappingRows).execute();
-      }
-    }
-
-    const usageExpr =
-      args.usage_unconditional !== null
-        ? jsonbBind(args.usage_unconditional)
-        : usageSetExpr(args.current_context_usage);
-
-    const updateResult = await trx
-      .updateTable('turn_thread')
-      .set({
-        checkpoint: completionPatchExpr(args.completion),
-        current_context_usage: usageExpr,
-        updated_at: now,
-      })
-      .where('session_id', '=', keys.session_id)
-      .where('turn_id', '=', keys.turn_id)
-      .where('thread_id', '=', thread_id)
-      .executeTakeFirst();
-
-    if (Number(updateResult.numUpdatedRows) === 0) {
-      await classifyTurnThreadWriteFailure(trx, keys, thread_id);
-    }
-  });
+    });
 }
 
 /**

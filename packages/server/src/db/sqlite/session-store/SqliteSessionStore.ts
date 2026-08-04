@@ -83,7 +83,7 @@ type TurnCustom = Record<string, never>;
  *    finished tip can leave more than one turn `running` at once.
  * 2. Every turn-scoped write is fenced on `state->>'status' = 'running'`.
  * 3. Terminal turns are IMMUTABLE — a terminal read is a final read.
- * 4. SQLite has no FOR SHARE / FOR UPDATE; default txns are DEFERRED BEGIN.
+ * 4. SQLite has no FOR SHARE / FOR UPDATE; fence+write txns use BEGIN IMMEDIATE via setAccessMode('read write').
  */
 export class SqliteSessionStore implements ISessionStore<SessionCustom, TurnCustom> {
   constructor(private readonly db: Kysely<Database>) {}
