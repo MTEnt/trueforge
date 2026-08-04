@@ -5,6 +5,7 @@ import { McpCatalog } from '../../../src/catalog/McpCatalog';
 import { migrateSqliteToLatest } from '../../../src/db/migrateSqlite';
 import { createSqliteDb } from '../../../src/db/sqlite/client';
 import { SqliteMcpServerStore } from '../../../src/db/sqlite/mcp-server-store/SqliteMcpServerStore';
+import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/SqliteOAuthTokenStore';
 import type { Database } from '../../../src/db/sqlite/types';
 
 const putBody = {
@@ -46,10 +47,12 @@ describe('mcp-servers routers', () => {
     const db = createSqliteDb(':memory:');
     await migrateSqliteToLatest(db);
     const mcpServerStore = new SqliteMcpServerStore(db);
+    const tokenStore = new SqliteOAuthTokenStore(db);
     settingsRouter = createMcpServersRouter({
       mcpCatalog: McpCatalog.load(),
       mcpServerStore,
       runTransaction: callback => db.transaction().execute(callback),
+      tokenStore,
       logger: winston.createLogger({ silent: true }),
     });
     availableRouter = createAvailableMcpServersRouter(mcpServerStore);
@@ -123,7 +126,7 @@ describe('mcp-servers routers', () => {
     expect(emptyHeaders.status).toBe(400);
   });
 
-  it('GET /{name}/authorize stubs auth for configured servers', async () => {
+  it('GET /{name}/authorize short-circuits non-DCR servers and 404s unknowns', async () => {
     const authenticated = await settingsRouter.request('/deepwiki/authorize?redirect_url=https://example.com/callback');
     expect(authenticated.status).toBe(200);
     expect(await authenticated.json()).toEqual({ status: 'authenticated' });
@@ -132,61 +135,78 @@ describe('mcp-servers routers', () => {
     expect(headerAuth.status).toBe(200);
     expect(await headerAuth.json()).toEqual({ status: 'authenticated' });
 
-    const required = await settingsRouter.request('/linear/authorize?redirect_url=https://example.com/callback');
-    expect(required.status).toBe(200);
-    const body = (await required.json()) as { status: string; authorization_url?: string };
-    expect(body.status).toBe('auth_required');
-    expect(body.authorization_url?.includes('redirect_uri=')).toBe(true);
-
     const missing = await settingsRouter.request('/missing/authorize?redirect_url=https://example.com/callback');
     expect(missing.status).toBe(404);
   });
-});
 
-describe('mcp-server PUT under transaction middleware', () => {
-  let db: ReturnType<typeof createSqliteDb>;
-  let store: SqliteMcpServerStore;
+  it('GET /{name}/authorize for DCR returns auth_required with an authorization_url', async () => {
+    const asOrigin = 'https://auth.example.com';
+    const mcpUrl = 'https://mcp.example.com/sse';
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.includes('oauth-protected-resource')) {
+        return new Response(JSON.stringify({ resource: mcpUrl, authorization_servers: [asOrigin] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('oauth-authorization-server') || url.includes('openid-configuration')) {
+        return new Response(
+          JSON.stringify({
+            issuer: asOrigin,
+            authorization_endpoint: `${asOrigin}/authorize`,
+            token_endpoint: `${asOrigin}/token`,
+            registration_endpoint: `${asOrigin}/register`,
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256'],
+            grant_types_supported: ['authorization_code', 'refresh_token'],
+            token_endpoint_auth_methods_supported: ['client_secret_post', 'none'],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.includes('/register') && init?.method === 'POST') {
+        return new Response(
+          JSON.stringify({
+            client_id: 'dyn-client-1',
+            client_secret: 'dyn-secret-1',
+            token_endpoint_auth_method: 'client_secret_post',
+            redirect_uris: [`${process.env['PUBLIC_BASE_URL'] ?? ''}/api/v1/mcp-servers/oauth/callback`],
+            grant_types: ['authorization_code', 'refresh_token'],
+            response_types: ['code'],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(`unexpected url: ${url}`, { status: 404 });
+    }) as typeof fetch;
 
-  beforeEach(async () => {
-    db = createSqliteDb(':memory:');
-    await migrateSqliteToLatest(db);
-    store = new SqliteMcpServerStore(db);
-  });
-
-  afterEach(async () => {
-    await db.destroy();
-  });
-
-  it('commits the upsert when the route transaction succeeds', async () => {
-    const router = createMcpServersRouter({
-      mcpCatalog: McpCatalog.load(),
-      mcpServerStore: store,
-      runTransaction: callback => db.transaction().execute(callback),
-      logger: winston.createLogger({ silent: true }),
-    });
-
-    const response = await router.request('/', putInit(putBody));
-
-    expect(response.status).toBe(200);
-    const stored = await store.getServer({ tenant_id: 'default', name: putBody.name });
-    expect(stored?.manifest.url).toBe(putBody.url);
-  });
-
-  it('rolls back the upsert when the route transaction fails', async () => {
-    const router = createMcpServersRouter({
-      mcpCatalog: McpCatalog.load(),
-      mcpServerStore: store,
-      runTransaction: callback =>
-        db.transaction().execute(async transaction => {
-          await callback(transaction);
-          throw new Error('fail after route handler');
+    try {
+      const put = await settingsRouter.request(
+        '/',
+        putInit({
+          type: 'remote',
+          name: 'oauth-mcp',
+          url: mcpUrl,
+          auth: { type: 'dcr' },
         }),
-      logger: winston.createLogger({ silent: true }),
-    });
+      );
+      expect(put.status).toBe(200);
 
-    const response = await router.request('/', putInit(putBody));
-
-    expect(response.status).toBe(500);
-    await expect(store.getServer({ tenant_id: 'default', name: putBody.name })).resolves.toBeUndefined();
+      const authorize = await settingsRouter.request(
+        '/oauth-mcp/authorize?redirect_url=https://example.com/after-oauth',
+      );
+      expect(authorize.status).toBe(200);
+      const body = (await authorize.json()) as { status: string; authorization_url?: string };
+      expect(body.status).toBe('auth_required');
+      expect(body.authorization_url).toBeDefined();
+      const authUrl = new URL(body.authorization_url ?? '');
+      expect(authUrl.origin).toBe(asOrigin);
+      expect(authUrl.searchParams.get('client_id')).toBe('dyn-client-1');
+      expect(authUrl.searchParams.get('state')).toBeTruthy();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

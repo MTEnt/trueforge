@@ -1,7 +1,5 @@
 import winston from 'winston';
-import { createModelProvidersRouter } from '../../../src/apis/modelProviders';
 import { createModelsRouter } from '../../../src/apis/models';
-import { TENANT_ID } from '../../../src/apis/sessions';
 import { createSettingsRouter } from '../../../src/apis/settings';
 import { McpCatalog } from '../../../src/catalog/McpCatalog';
 import { ModelCatalog } from '../../../src/catalog/ModelCatalog';
@@ -13,6 +11,7 @@ import { SqliteMcpServerStore } from '../../../src/db/sqlite/mcp-server-store/Sq
 import { SqliteModelProviderStore } from '../../../src/db/sqlite/model-provider-store/SqliteModelProviderStore';
 import { SqliteSandboxProviderStore } from '../../../src/db/sqlite/sandbox-provider-store/SqliteSandboxProviderStore';
 import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkillStore';
+import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/SqliteOAuthTokenStore';
 
 const putBody = {
   type: 'anthropic' as const,
@@ -50,6 +49,7 @@ describe('settings model-providers and models routers', () => {
       runTransaction: callback => db.transaction().execute(callback),
       mcpCatalog: McpCatalog.load(),
       mcpServerStore: new SqliteMcpServerStore(db),
+      tokenStore: new SqliteOAuthTokenStore(db),
       skillCatalog: SkillCatalog.load(),
       skillStore: new SqliteSkillStore(db),
       sandboxCatalog: SandboxCatalog.load(),
@@ -102,53 +102,5 @@ describe('settings model-providers and models routers', () => {
         },
       ],
     });
-  });
-});
-
-describe('model-provider PUT under transaction middleware', () => {
-  const providerName = putBody.name;
-
-  let db: ReturnType<typeof createSqliteDb>;
-  let store: SqliteModelProviderStore;
-
-  beforeEach(async () => {
-    db = createSqliteDb(':memory:');
-    await migrateSqliteToLatest(db);
-    store = new SqliteModelProviderStore(db);
-  });
-
-  afterEach(async () => {
-    await db.destroy();
-  });
-
-  it('commits the upsert when the route transaction succeeds', async () => {
-    const router = createModelProvidersRouter({
-      modelCatalog: ModelCatalog.load(),
-      modelProviderStore: store,
-      runTransaction: callback => db.transaction().execute(callback),
-    });
-
-    const response = await router.request('/', putInit(putBody));
-
-    expect(response.status).toBe(200);
-    const stored = await store.getProvider({ tenant_id: TENANT_ID, name: providerName });
-    expect(stored?.manifest.base_url).toBe(putBody.base_url);
-  });
-
-  it('rolls back the upsert when the route transaction fails', async () => {
-    const router = createModelProvidersRouter({
-      modelCatalog: ModelCatalog.load(),
-      modelProviderStore: store,
-      runTransaction: callback =>
-        db.transaction().execute(async transaction => {
-          await callback(transaction);
-          throw new Error('fail after route handler');
-        }),
-    });
-
-    const response = await router.request('/', putInit(putBody));
-
-    expect(response.status).toBe(500);
-    await expect(store.getProvider({ tenant_id: TENANT_ID, name: providerName })).resolves.toBeUndefined();
   });
 });

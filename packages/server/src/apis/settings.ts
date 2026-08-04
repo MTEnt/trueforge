@@ -4,6 +4,7 @@
  * a single policy can wrap the whole tree later without touching each resource.
  */
 import { OpenAPIHono } from '@hono/zod-openapi';
+import type { IOAuthTokenStore } from '@truefoundry/utils/core';
 import type { Logger } from 'winston';
 import type { McpCatalog } from '../catalog/McpCatalog';
 import type { ModelCatalog } from '../catalog/ModelCatalog';
@@ -25,6 +26,7 @@ export interface SettingsRouterDeps<TTransaction> {
   runTransaction: RunTransaction<TTransaction>;
   mcpCatalog: McpCatalog;
   mcpServerStore: IMcpServerStore<TTransaction>;
+  tokenStore: IOAuthTokenStore;
   skillCatalog: SkillCatalog;
   skillStore: ISkillStore;
   sandboxCatalog: SandboxCatalog;
@@ -48,6 +50,7 @@ export function createSettingsRouter<TTransaction>(deps: SettingsRouterDeps<TTra
       mcpCatalog: deps.mcpCatalog,
       mcpServerStore: deps.mcpServerStore,
       runTransaction: deps.runTransaction,
+      tokenStore: deps.tokenStore,
       logger: deps.logger,
     }),
   );
