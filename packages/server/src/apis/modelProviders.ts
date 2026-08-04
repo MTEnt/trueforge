@@ -7,7 +7,7 @@ import {
   listModelProvidersRoute,
   putModelProviderRoute,
 } from '../routes/modelProviderRoutes';
-import type { ModelProvider, ProviderManifest } from '../schemas/modelProvider';
+import { toModelProviderManifest, type ModelProvider } from '../schemas/modelProvider';
 import { TENANT_ID } from './sessions';
 
 export interface ModelProvidersRouterDeps<TTransaction> {
@@ -35,10 +35,16 @@ export function createModelProvidersRouter<TTransaction>(deps: ModelProvidersRou
   };
 
   const putHandler: RouteHandler<typeof putModelProviderRoute> = async c => {
-    const { name, ...manifestFields } = c.req.valid('json');
-    const manifest: ProviderManifest = manifestFields;
+    const body = c.req.valid('json');
     const record = await deps.withTransaction(transaction =>
-      deps.modelProviderStore.upsertProvider({ tenant_id: TENANT_ID, name, manifest }, transaction),
+      deps.modelProviderStore.upsertProvider(
+        {
+          tenant_id: TENANT_ID,
+          name: body.name,
+          manifest: toModelProviderManifest(body),
+        },
+        transaction,
+      ),
     );
     return c.json({ data: toModelProvider(record) }, 200);
   };
