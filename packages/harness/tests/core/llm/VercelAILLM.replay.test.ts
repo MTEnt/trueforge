@@ -137,7 +137,8 @@ type ReasoningRoundTripCase = {
   metadataKey: string;
   signatureField: string;
   signatureValue: string;
-  expectedProviderOptions: Record<string, unknown>;
+  /** `undefined` for providers whose adapter has nowhere to put the token. */
+  expectedProviderOptions: Record<string, unknown> | undefined;
 };
 
 const REASONING_CASES: ReasoningRoundTripCase[] = [
@@ -146,7 +147,7 @@ const REASONING_CASES: ReasoningRoundTripCase[] = [
     metadataKey: 'openai',
     signatureField: 'reasoningEncryptedContent',
     signatureValue: 'enc-content-openai',
-    expectedProviderOptions: { openai: { encryptedContent: 'enc-content-openai' } },
+    expectedProviderOptions: { openai: { reasoningEncryptedContent: 'enc-content-openai' } },
   },
   {
     provider: 'anthropic',
@@ -160,7 +161,8 @@ const REASONING_CASES: ReasoningRoundTripCase[] = [
     metadataKey: 'generic',
     signatureField: 'reasoningEncryptedContent',
     signatureValue: 'enc-content-generic',
-    expectedProviderOptions: { generic: { encryptedContent: 'enc-content-generic' } },
+    // OpenAI-compatible replays reasoning as `reasoning_content` text and ignores providerOptions.
+    expectedProviderOptions: undefined,
   },
 ];
 

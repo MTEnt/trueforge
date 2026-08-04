@@ -204,6 +204,31 @@ describe('mapStreamToChunks', () => {
     });
   });
 
+  // Anthropic's real wire shape: signature_delta surfaces as a text-less reasoning-delta, not on
+  // reasoning-end. Missing it leaves the block unsigned, and Anthropic drops unsigned thinking
+  // blocks when they are replayed, silently losing the reasoning chain.
+  it('attaches signature from a text-less reasoning-delta (Anthropic signature_delta)', async () => {
+    const providerMetadata: ProviderMetadata = { anthropic: { signature: 'ant-delta-sig' } };
+    const { final } = await drainStream(
+      mapStreamToChunks({
+        stream: makeStream([
+          { type: 'reasoning-start', id: 'r1' },
+          { type: 'reasoning-delta', id: 'r1', text: 'thought' },
+          { type: 'reasoning-delta', id: 'r1', text: '', providerMetadata },
+          { type: 'reasoning-end', id: 'r1' },
+          makeFinishStep('stop'),
+        ]),
+        chunkMeta: CHUNK_META,
+      }),
+    );
+
+    expect(final.output.thinking_blocks?.[0]).toMatchObject({
+      type: 'thinking',
+      thinking: 'thought',
+      signature: 'ant-delta-sig',
+    });
+  });
+
   it('assigns unique ascending indices to interleaved tool-input-* parts', async () => {
     const { chunks } = await drainStream(
       mapStreamToChunks({
@@ -303,6 +328,34 @@ describe('mapStreamToChunks', () => {
         }),
       ),
     ).rejects.toMatchObject({ message: 'LLM stream error', cause });
+  });
+
+  it('keeps the provider message when the error part carries a plain object', async () => {
+    await expect(
+      drainStream(
+        mapStreamToChunks({
+          stream: makeStream([{ type: 'error', error: { message: 'The requested model does not exist.' } }]),
+          chunkMeta: CHUNK_META,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      message: 'LLM stream error',
+      cause: { message: 'The requested model does not exist.' },
+    });
+  });
+
+  it('serialises a message-less error object rather than stringifying it to [object Object]', async () => {
+    await expect(
+      drainStream(
+        mapStreamToChunks({
+          stream: makeStream([{ type: 'error', error: { code: 'model_not_found', status: 404 } }]),
+          chunkMeta: CHUNK_META,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      message: 'LLM stream error',
+      cause: { message: '{"code":"model_not_found","status":404}' },
+    });
   });
 
   it('wraps non-Error error values in an Error with cause', async () => {

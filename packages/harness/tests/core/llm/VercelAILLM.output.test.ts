@@ -87,9 +87,12 @@ describe('toStructuredOutputSpec', () => {
 // ─────────── toReasoningLevel ───────────
 
 describe('toReasoningLevel', () => {
-  it('returns undefined for non-google-gemini providers regardless of effort', () => {
+  it('returns the level for anthropic, whose adapter derives the per-model thinking shape from it', () => {
+    expect(toReasoningLevel({ provider: 'anthropic', reasoningEffort: 'medium' })).toBe('medium');
+  });
+
+  it('returns undefined for providers that carry the effort in their own provider options', () => {
     expect(toReasoningLevel({ provider: 'openai', reasoningEffort: 'high' })).toBeUndefined();
-    expect(toReasoningLevel({ provider: 'anthropic', reasoningEffort: 'medium' })).toBeUndefined();
     expect(toReasoningLevel({ provider: 'generic', reasoningEffort: 'low' })).toBeUndefined();
   });
 
@@ -229,35 +232,18 @@ describe('buildProviderOptions', () => {
       expect(opts).toEqual({});
     });
 
-    it('maps low → 1024, medium → 8192, high → 32768', () => {
-      expect(
-        buildProviderOptions({ config: config, reasoningEffort: 'low', structuredOutputSpec: textSpec, rawBody: {} })[
-          'anthropic'
-        ],
-      ).toEqual({ thinking: { type: 'enabled', budgetTokens: 1024 } });
-      expect(
-        buildProviderOptions({
+    it('leaves thinking to the SDK so per-model shapes stay correct', () => {
+      // Pinning `thinking` here would override the SDK's per-model mapping and send
+      // `thinking.type: 'enabled'` to Claude 5, which only accepts 'adaptive'.
+      for (const effort of ['low', 'medium', 'high', 'ultra']) {
+        const opts = buildProviderOptions({
           config: config,
-          reasoningEffort: 'medium',
+          reasoningEffort: effort,
           structuredOutputSpec: textSpec,
           rawBody: {},
-        })['anthropic'],
-      ).toEqual({ thinking: { type: 'enabled', budgetTokens: 8192 } });
-      expect(
-        buildProviderOptions({ config: config, reasoningEffort: 'high', structuredOutputSpec: textSpec, rawBody: {} })[
-          'anthropic'
-        ],
-      ).toEqual({ thinking: { type: 'enabled', budgetTokens: 32768 } });
-    });
-
-    it('falls back to 8192 for an unrecognised effort level', () => {
-      const opts = buildProviderOptions({
-        config: config,
-        reasoningEffort: 'ultra',
-        structuredOutputSpec: textSpec,
-        rawBody: {},
-      });
-      expect(opts['anthropic']).toEqual({ thinking: { type: 'enabled', budgetTokens: 8192 } });
+        });
+        expect(opts['anthropic']).toBeUndefined();
+      }
     });
 
     it('ignores strictJsonSchema (no anthropic key for structured-output strictness)', () => {
@@ -361,9 +347,6 @@ describe('buildProviderOptions', () => {
         }),
       ).toEqual({});
       expect(
-        buildProviderOptions({ config: config, reasoningEffort: 'high', structuredOutputSpec: textSpec, rawBody: {} }),
-      ).toEqual({});
-      expect(
         buildProviderOptions({
           config: config,
           reasoningEffort: undefined,
@@ -371,6 +354,23 @@ describe('buildProviderOptions', () => {
           rawBody: {},
         }),
       ).toEqual({});
+    });
+
+    it('requests thought summaries when a reasoning effort is set', () => {
+      expect(
+        buildProviderOptions({ config, reasoningEffort: 'high', structuredOutputSpec: textSpec, rawBody: {} }),
+      ).toEqual({ google: { thinkingConfig: { includeThoughts: true } } });
+    });
+
+    it('keeps an explicit thinking_config while still requesting thought summaries', () => {
+      expect(
+        buildProviderOptions({
+          config,
+          reasoningEffort: 'high',
+          structuredOutputSpec: textSpec,
+          rawBody: { thinking_config: { thinkingBudget: 2048 } },
+        }),
+      ).toEqual({ google: { thinkingConfig: { includeThoughts: true, thinkingBudget: 2048 } } });
     });
 
     it('forwards safety_settings, thinking_config, cached_content from rawBody', () => {
