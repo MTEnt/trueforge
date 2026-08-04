@@ -183,6 +183,14 @@ function isReasoningLevel(v: string): v is ReasoningLevel {
  */
 const REASONING_LEVEL_PROVIDERS: readonly VercelAIProviderName[] = ['google-gemini', 'anthropic'];
 
+/**
+ * Efforts that models advertise but the SDK's cross-provider union cannot express. `xhigh` is its
+ * ceiling, and each adapter lowers that to the strongest effort its model actually accepts —
+ * Claude 4.6 rejects `xhigh` and resolves it to `max`. Dropping these instead would send no
+ * thinking config at all.
+ */
+const EFFORT_ALIASES: Readonly<Record<string, ReasoningLevel>> = { max: 'xhigh' };
+
 export function toReasoningLevel({
   provider,
   reasoningEffort,
@@ -190,14 +198,14 @@ export function toReasoningLevel({
   provider: VercelAIProviderName;
   reasoningEffort: string | undefined;
 }): ReasoningLevel | undefined {
-  if (
-    !REASONING_LEVEL_PROVIDERS.includes(provider) ||
-    reasoningEffort === undefined ||
-    !isReasoningLevel(reasoningEffort)
-  ) {
+  if (!REASONING_LEVEL_PROVIDERS.includes(provider) || reasoningEffort === undefined) {
     return undefined;
   }
-  return reasoningEffort;
+  const aliased = EFFORT_ALIASES[reasoningEffort];
+  if (aliased !== undefined) {
+    return aliased;
+  }
+  return isReasoningLevel(reasoningEffort) ? reasoningEffort : undefined;
 }
 
 /**

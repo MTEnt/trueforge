@@ -111,6 +111,16 @@ describe('toReasoningLevel', () => {
       expect(toReasoningLevel({ provider: 'google-gemini', reasoningEffort: level })).toBe(level);
     }
   });
+
+  it('maps `max` onto the SDK ceiling, which adapters lower to the strongest effort the model takes', () => {
+    expect(toReasoningLevel({ provider: 'anthropic', reasoningEffort: 'max' })).toBe('xhigh');
+    expect(toReasoningLevel({ provider: 'google-gemini', reasoningEffort: 'max' })).toBe('xhigh');
+  });
+
+  it('leaves `max` to the provider options of providers that forward the effort verbatim', () => {
+    expect(toReasoningLevel({ provider: 'openai', reasoningEffort: 'max' })).toBeUndefined();
+    expect(toReasoningLevel({ provider: 'generic', reasoningEffort: 'max' })).toBeUndefined();
+  });
 });
 
 // ─────────── buildProviderOptions ───────────
