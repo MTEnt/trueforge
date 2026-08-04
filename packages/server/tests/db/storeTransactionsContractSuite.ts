@@ -3,11 +3,11 @@
  */
 import type { IModelProviderStore } from '../../src/db/modelProviderStore';
 import type { RunTransaction } from '../../src/db/transaction';
-import type { ProviderManifest } from '../../src/schemas/modelProvider';
+import type { ModelProviderManifest } from '../../src/schemas/modelProvider';
 
 const TENANT_ID = 'default';
 
-const providerManifest: ProviderManifest = {
+const providerManifest: ModelProviderManifest = {
   type: 'anthropic',
   base_url: 'https://api.anthropic.com/v1',
   auth: { api_key: 'sk-ant-secret' },

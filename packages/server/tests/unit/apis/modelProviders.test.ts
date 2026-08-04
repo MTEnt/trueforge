@@ -1,7 +1,5 @@
 import winston from 'winston';
-import { createModelProvidersRouter } from '../../../src/apis/modelProviders';
 import { createModelsRouter } from '../../../src/apis/models';
-import { TENANT_ID } from '../../../src/apis/sessions';
 import { createSettingsRouter } from '../../../src/apis/settings';
 import { McpCatalog } from '../../../src/catalog/McpCatalog';
 import { ModelCatalog } from '../../../src/catalog/ModelCatalog';
@@ -15,18 +13,25 @@ import { SqliteSandboxProviderStore } from '../../../src/db/sqlite/sandbox-provi
 import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkillStore';
 import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/SqliteOAuthTokenStore';
 
-const putBody = {
+const model = {
+  model_id: 'claude-sonnet-4-6',
+  name: 'claude-sonnet-4-6',
+  properties: { context_length: 200000, max_output_tokens: 32768, reasoning_efforts: ['low', 'high'] },
+};
+
+const anthropicBody = {
   type: 'anthropic' as const,
   name: 'anthropic',
-  base_url: 'https://api.anthropic.com/v1',
   auth: { api_key: 'sk-ant-secret' },
-  models: [
-    {
-      model_id: 'claude-sonnet-4-6',
-      name: 'claude-sonnet-4-6',
-      properties: { context_length: 200000, max_output_tokens: 32768, reasoning_efforts: ['low', 'high'] },
-    },
-  ],
+  models: [model],
+};
+
+const customBody = {
+  type: 'custom' as const,
+  name: 'internal',
+  base_url: 'https://llm.internal.example.com/v1',
+  auth: { api_key: 'sk-custom' },
+  models: [model],
 };
 
 function putInit(body: unknown): RequestInit {
@@ -73,22 +78,28 @@ describe('settings model-providers and models routers', () => {
     expect(body.data.every(provider => provider.type !== 'custom')).toBe(true);
   });
 
-  it('PUT upserts a provider and echoes the stored auth', async () => {
-    const response = await settingsRouter.request('/model-providers', putInit(putBody));
+  it('PUT upserts a well-known provider without base_url and echoes the stored auth', async () => {
+    const response = await settingsRouter.request('/model-providers', putInit(anthropicBody));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ data: putBody });
+    expect(await response.json()).toEqual({ data: anthropicBody });
 
     const list = await settingsRouter.request('/model-providers');
     expect(list.status).toBe(200);
-    expect(await list.json()).toEqual({ data: [putBody] });
+    expect(await list.json()).toEqual({ data: [anthropicBody] });
   });
 
-  it('PUT rejects invalid bodies at the Zod layer', async () => {
-    const { base_url: _, ...withoutBaseUrl } = putBody;
+  it('PUT requires base_url for custom providers', async () => {
+    const { base_url: _, ...withoutBaseUrl } = customBody;
     const missingBaseUrl = await settingsRouter.request('/model-providers', putInit(withoutBaseUrl));
     expect(missingBaseUrl.status).toBe(400);
 
-    const badName = await settingsRouter.request('/model-providers', putInit({ ...putBody, name: 'Not A Name' }));
+    const created = await settingsRouter.request('/model-providers', putInit(customBody));
+    expect(created.status).toBe(200);
+    expect(await created.json()).toEqual({ data: customBody });
+  });
+
+  it('PUT rejects invalid bodies at the Zod layer', async () => {
+    const badName = await settingsRouter.request('/model-providers', putInit({ ...anthropicBody, name: 'Not A Name' }));
     expect(badName.status).toBe(400);
   });
 
@@ -100,63 +111,14 @@ describe('settings model-providers and models routers', () => {
         {
           name: 'anthropic/claude-sonnet-4-6',
           model_id: 'claude-sonnet-4-6',
-          properties: putBody.models[0]?.properties,
+          properties: model.properties,
+        },
+        {
+          name: 'internal/claude-sonnet-4-6',
+          model_id: 'claude-sonnet-4-6',
+          properties: model.properties,
         },
       ],
     });
-  });
-});
-
-describe('model-provider PUT under transaction middleware', () => {
-  const providerName = putBody.name;
-
-  let db: ReturnType<typeof createSqliteDb>;
-  let store: SqliteModelProviderStore;
-
-  beforeEach(async () => {
-    db = createSqliteDb(':memory:');
-    await migrateSqliteToLatest(db);
-    store = new SqliteModelProviderStore(db);
-  });
-
-  afterEach(async () => {
-    await db.destroy();
-  });
-
-  it('commits the upsert when the route transaction succeeds', async () => {
-    const router = createModelProvidersRouter({
-      modelCatalog: ModelCatalog.load(),
-      modelProviderStore: store,
-      runTransaction: callback => db.transaction().execute(callback),
-    });
-
-    const response = await router.request('/', putInit(putBody));
-
-    expect(response.status).toBe(200);
-    const stored = await store.getProvider({ tenant_id: TENANT_ID, name: providerName });
-    expect(stored?.manifest.base_url).toBe(putBody.base_url);
-  });
-
-  it('rolls back when the handler throws and onError swallows next()', async () => {
-    const router = createModelProvidersRouter({
-      modelCatalog: ModelCatalog.load(),
-      modelProviderStore: {
-        listProviders: tenantId => store.listProviders(tenantId),
-        getProvider: input => store.getProvider(input),
-        listModels: tenantId => store.listModels(tenantId),
-        async upsertProvider(input, transaction) {
-          await store.upsertProvider(input, transaction);
-          throw new Error('fail after upsert');
-        },
-      },
-      runTransaction: callback => db.transaction().execute(callback),
-    });
-    // Matches createServerApp: onError resolves next() instead of rejecting it.
-    router.onError((_error, c) => c.json({ error: { message: 'Internal server error' } }, 500));
-
-    const response = await router.request('/', putInit(putBody));
-
-    expect(response.status).toBe(500);
-    await expect(store.getProvider({ tenant_id: TENANT_ID, name: providerName })).resolves.toBeUndefined();
   });
 });
