@@ -56,19 +56,20 @@ interface ReasoningPart {
 /** Providers with a dedicated code path in {@link buildLanguageModel}. */
 export type VercelAIProviderName = 'openai' | 'anthropic' | 'google-gemini' | 'custom';
 
-/** Structural config accepted by VercelAILLM; compatible with server's ProviderConfig. */
+/**
+ * Adapter-facing config, camelCase throughout. Callers translate from the snake_case wire and
+ * storage shapes, which stay as they are because they are the published contract.
+ */
 export interface VercelAIProviderConfig {
   provider: VercelAIProviderName;
-  /** Display name / alias. Also used as the provider model identifier when `model_id` is absent. */
+  /** Display name / alias. Also used as the provider model identifier when `modelId` is absent. */
   name: string;
   /** Provider-facing model identifier, sent instead of `name` when present. */
-  model_id?: string | undefined;
+  modelId?: string | undefined;
   /** Optional base URL override. Explicitly includes `undefined` for Zod-derived type compat. */
-  base_url?: string | undefined;
+  baseUrl?: string | undefined;
   apiKey: string;
   headers: Record<string, string>;
-  /** API format for the `custom` provider. Only option today; defaults when absent. */
-  api_format?: 'openai-chat-completions' | undefined;
 }
 
 export interface VercelAILLMConfig {
@@ -78,42 +79,42 @@ export interface VercelAILLMConfig {
 }
 
 export function buildLanguageModel(config: VercelAIProviderConfig): LanguageModel {
-  const { provider, name, model_id, base_url, apiKey, headers } = config;
-  const modelId = model_id ?? name;
+  const { provider, name, modelId, baseUrl, apiKey, headers } = config;
+  const resolvedModelId = modelId ?? name;
   const extraHeaders = Object.keys(headers).length > 0 ? headers : undefined;
 
   switch (provider) {
     case 'openai': {
       const client = createOpenAI({
         apiKey,
-        ...(base_url !== undefined ? { baseURL: base_url } : {}),
+        ...(baseUrl !== undefined ? { baseURL: baseUrl } : {}),
         ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
       });
-      return client.responses(modelId);
+      return client.responses(resolvedModelId);
     }
     case 'anthropic': {
       const client = createAnthropic({
         apiKey,
-        ...(base_url !== undefined ? { baseURL: base_url } : {}),
+        ...(baseUrl !== undefined ? { baseURL: baseUrl } : {}),
         ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
       });
-      return client(modelId);
+      return client(resolvedModelId);
     }
     case 'google-gemini': {
       const client = createGoogle({
         apiKey,
-        ...(base_url !== undefined ? { baseURL: base_url } : {}),
+        ...(baseUrl !== undefined ? { baseURL: baseUrl } : {}),
         ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
       });
-      return client(modelId);
+      return client(resolvedModelId);
     }
     case 'custom': {
-      if (base_url === undefined) {
-        throw new Error('Provider "custom" requires a base_url in models.yaml');
+      if (baseUrl === undefined) {
+        throw new Error('Provider "custom" requires a baseUrl: it has no canonical endpoint');
       }
       const client = createOpenAICompatible({
         name: 'custom',
-        baseURL: base_url,
+        baseURL: baseUrl,
         apiKey,
         // Without this the adapter silently downgrades json_schema to a schema-less json_object.
         supportsStructuredOutputs: true,
@@ -121,7 +122,7 @@ export function buildLanguageModel(config: VercelAIProviderConfig): LanguageMode
         includeUsage: true,
         ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
       });
-      return client(modelId);
+      return client(resolvedModelId);
     }
     default: {
       const _exhaustive: never = provider;
@@ -385,8 +386,7 @@ export function buildProviderOptions({
     const google = googleGeminiProviderOptions({ rawBody, reasoningRequested: reasoningEffort !== undefined });
     return google !== undefined ? { google } : {};
   } else {
-    // Key must match the `name` passed to createOpenAICompatible; becomes api_format-specific once
-    // more than one OpenAI-compatible format is supported.
+    // Key must match the `name` passed to createOpenAICompatible.
     const custom = customProviderOptions({ rawBody, reasoningEffort, strictJsonSchema });
     return custom !== undefined ? { custom } : {};
   }

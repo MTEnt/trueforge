@@ -21,9 +21,9 @@ function makeConfig(
 // ─────────── buildLanguageModel ───────────
 
 describe('buildLanguageModel', () => {
-  it('throws for custom provider without base_url', () => {
+  it('throws for custom provider without baseUrl', () => {
     const config = makeConfig({ provider: 'custom' });
-    expect(() => buildLanguageModel(config)).toThrow('base_url');
+    expect(() => buildLanguageModel(config)).toThrow('baseUrl');
   });
 
   it('throws for unknown provider string (exhaustive default branch)', () => {
@@ -46,22 +46,20 @@ describe('buildLanguageModel', () => {
     expect(model).toBeDefined();
   });
 
-  it('constructs custom model without throwing when base_url is provided', () => {
-    const model = buildLanguageModel(makeConfig({ provider: 'custom', base_url: 'http://localhost:11434/v1' }));
+  it('constructs custom model without throwing when baseUrl is provided', () => {
+    const model = buildLanguageModel(makeConfig({ provider: 'custom', baseUrl: 'http://localhost:11434/v1' }));
     expect(model).toBeDefined();
   });
 
   it('sets supportsStructuredOutputs:true on the custom model instance', () => {
-    const model: unknown = buildLanguageModel(
-      makeConfig({ provider: 'custom', base_url: 'http://localhost:11434/v1' }),
-    );
+    const model: unknown = buildLanguageModel(makeConfig({ provider: 'custom', baseUrl: 'http://localhost:11434/v1' }));
     if (typeof model !== 'object' || model === null) throw new Error('Expected model to be an object');
     expect(Reflect.get(model, 'supportsStructuredOutputs')).toBe(true);
   });
 
-  it('uses model_id over name when provided', () => {
+  it('uses modelId over name when provided', () => {
     const model: unknown = buildLanguageModel(
-      makeConfig({ provider: 'anthropic', name: 'alias', model_id: 'claude-sonnet-5' }),
+      makeConfig({ provider: 'anthropic', name: 'alias', modelId: 'claude-sonnet-5' }),
     );
     if (typeof model !== 'object' || model === null) throw new Error('Expected model to be an object');
     expect(Reflect.get(model, 'modelId')).toBe('claude-sonnet-5');

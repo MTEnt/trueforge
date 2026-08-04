@@ -66,8 +66,8 @@ export async function getDbProviderConfig({
   return {
     provider: provider.manifest.type,
     name,
-    model_id: model.model_id,
-    base_url: provider.manifest.base_url,
+    modelId: model.model_id,
+    baseUrl: provider.manifest.base_url,
     apiKey: provider.manifest.auth.api_key,
     headers: {},
   };

@@ -305,7 +305,7 @@ describe('buildProviderOptions', () => {
   });
 
   describe('custom provider', () => {
-    const config = makeConfig({ provider: 'custom', base_url: 'http://localhost/v1' });
+    const config = makeConfig({ provider: 'custom', baseUrl: 'http://localhost/v1' });
 
     it('returns empty options when both reasoningEffort and strictJsonSchema are absent', () => {
       const opts = buildProviderOptions({
@@ -423,7 +423,7 @@ describe('buildProviderOptions', () => {
     it.each(providers)('%s: reasoningEffort reaches providerOptions or toReasoningLevel', provider => {
       const config = makeConfig({
         provider,
-        ...(provider === 'custom' ? { base_url: 'http://localhost/v1' } : {}),
+        ...(provider === 'custom' ? { baseUrl: 'http://localhost/v1' } : {}),
       });
       const opts = buildProviderOptions({
         config: config,
