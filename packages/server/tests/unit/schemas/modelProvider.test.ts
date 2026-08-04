@@ -24,4 +24,16 @@ describe('ModelProviderManifestObjectSchema', () => {
       expect([type, parses({ type })]).toEqual([type, hasEndpoint]);
     }
   });
+
+  // An effort the adapter cannot map is dropped on the way to the provider, so a session that
+  // requests it runs at the provider default and reports success.
+  it('rejects a reasoning effort no adapter can honour', () => {
+    const withEfforts = (efforts: string[]): boolean =>
+      parses({
+        type: 'anthropic',
+        models: [{ model_id: 'a-model', name: 'a-model', properties: { reasoning_efforts: efforts } }],
+      });
+    expect(withEfforts(['low', 'medium', 'high', 'max'])).toBe(true);
+    expect(withEfforts(['ultra'])).toBe(false);
+  });
 });

@@ -1,5 +1,8 @@
+import { createAlibaba } from '@ai-sdk/alibaba';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogle } from '@ai-sdk/google';
+import type { MoonshotAIProviderOptions } from '@ai-sdk/moonshotai';
+import { createMoonshotAI } from '@ai-sdk/moonshotai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { JSONObject } from '@ai-sdk/provider';
@@ -88,9 +91,9 @@ export interface VercelAILLMConfig {
 /**
  * Every OpenAI-compatible provider shares this adapter and differs only by endpoint, which the
  * caller resolves. The provider name doubles as the `providerOptions` key, which is why
- * {@link buildProviderOptions} can key on it directly. Official `@ai-sdk` packages exist for
- * Fireworks and Alibaba but both lose ground here: the Fireworks one downgrades `json_schema` to a
- * schema-less `json_object`, and the Alibaba one never reads `strictJsonSchema`.
+ * {@link buildProviderOptions} can key on it directly. Fireworks and Z AI stay here on purpose:
+ * `@ai-sdk/fireworks` downgrades `json_schema` to a schema-less `json_object`, and the only Z AI
+ * package is a community one that drops replayed reasoning.
  */
 function compatibleModel(config: VercelAIProviderConfig): LanguageModel {
   const { provider, modelId, apiKey, headers, baseUrl } = config;
@@ -139,10 +142,28 @@ export function buildLanguageModel(config: VercelAIProviderConfig): LanguageMode
       });
       return client(modelId);
     }
+    case 'moonshot': {
+      const client = createMoonshotAI({
+        apiKey,
+        ...(baseUrl !== undefined ? { baseURL: baseUrl } : {}),
+        ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
+      });
+      return client(modelId);
+    }
+    case 'alibaba': {
+      // Endpoints are workspace-scoped, so the package default would address the wrong tenant.
+      if (baseUrl === undefined) {
+        throw new Error(`Provider "alibaba" requires a baseUrl`);
+      }
+      const client = createAlibaba({
+        apiKey,
+        baseURL: baseUrl,
+        ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
+      });
+      return client(modelId);
+    }
     case 'fireworks':
     case 'zai':
-    case 'moonshot':
-    case 'alibaba':
     case 'custom': {
       return compatibleModel(config);
     }
@@ -206,6 +227,12 @@ function isReasoningLevel(v: string): v is ReasoningLevel {
  * levels — the gpt-5.6 family — is one step below what was asked for.
  */
 const EFFORT_ALIASES: Readonly<Record<string, ReasoningLevel>> = { max: 'xhigh' };
+
+/**
+ * What a model may advertise in `reasoning_efforts`. Anything else reaches `toReasoningLevel`,
+ * resolves to `undefined`, and runs at the provider default without a word of complaint.
+ */
+export const SUPPORTED_REASONING_EFFORTS: readonly string[] = [...REASONING_LEVELS, ...Object.keys(EFFORT_ALIASES)];
 
 /**
  * Every provider takes the effort through the top-level `reasoning` setting, leaving the adapters
@@ -353,6 +380,44 @@ function googleGeminiProviderOptions({
 }
 
 /**
+ * Moonshot is the only adapter that accepts `max` directly, so it escapes the `xhigh` alias every
+ * other provider settles for. `thinking` and `reasoning_history` are forwarded but never pinned:
+ * they are the caller's route to turning thinking off, or to replaying it verbatim.
+ */
+function moonshotProviderOptions({
+  rawBody,
+  reasoningEffort,
+}: {
+  rawBody: unknown;
+  reasoningEffort: string | undefined;
+}): JSONObject | undefined {
+  // Typed against the package so a change to the literal it accepts breaks the build, not the call.
+  const effort: Pick<MoonshotAIProviderOptions, 'reasoningEffort'> =
+    reasoningEffort === 'max' ? { reasoningEffort: 'max' } : {};
+  const thinking = readBodyField({ rawBody, key: 'thinking' });
+  const reasoningHistory = readBodyField({ rawBody, key: 'reasoning_history' });
+  const opts: JSONObject = {
+    ...effort,
+    ...(thinking !== undefined ? { thinking } : {}),
+    ...(reasoningHistory !== undefined ? { reasoningHistory } : {}),
+  };
+  return Object.keys(opts).length > 0 ? opts : undefined;
+}
+
+/** Qwen resolves the top-level effort into a thinking budget; these override that resolution. */
+function alibabaProviderOptions(rawBody: unknown): JSONObject | undefined {
+  const enableThinking = readBodyField({ rawBody, key: 'enable_thinking' });
+  const thinkingBudget = readBodyField({ rawBody, key: 'thinking_budget' });
+  const parallelToolCalls = readBodyField({ rawBody, key: 'parallel_tool_calls' });
+  const opts: JSONObject = {
+    ...(enableThinking !== undefined ? { enableThinking } : {}),
+    ...(thinkingBudget !== undefined ? { thinkingBudget } : {}),
+    ...(parallelToolCalls !== undefined ? { parallelToolCalls } : {}),
+  };
+  return Object.keys(opts).length > 0 ? opts : undefined;
+}
+
+/**
  * `parallel_tool_calls` is deliberately not forwarded: `OpenAICompatibleProviderOptions` has no
  * field for it, so it never reached the wire.
  */
@@ -370,13 +435,13 @@ function compatibleProviderOptions({
  */
 export function buildProviderOptions({
   config,
-  reasoningRequested,
+  reasoningEffort,
   structuredOutputSpec,
   rawBody,
 }: {
   config: VercelAIProviderConfig;
-  /** Only Gemini needs this, to ask for thought summaries alongside the effort. */
-  reasoningRequested: boolean;
+  /** The requested effort, which rides in the top-level `reasoning` setting for every provider. */
+  reasoningEffort: string | undefined;
   structuredOutputSpec: StructuredOutputSpec;
   rawBody: unknown;
 }): ProviderOptions {
@@ -387,8 +452,15 @@ export function buildProviderOptions({
     const anthropic = anthropicProviderOptions(rawBody);
     return anthropic !== undefined ? { anthropic } : {};
   } else if (config.provider === 'google-gemini') {
-    const google = googleGeminiProviderOptions({ rawBody, reasoningRequested });
+    const google = googleGeminiProviderOptions({ rawBody, reasoningRequested: reasoningEffort !== undefined });
     return google !== undefined ? { google } : {};
+  } else if (config.provider === 'moonshot') {
+    // The package names its options key after itself, not after the provider.
+    const moonshotai = moonshotProviderOptions({ rawBody, reasoningEffort });
+    return moonshotai !== undefined ? { moonshotai } : {};
+  } else if (config.provider === 'alibaba') {
+    const alibaba = alibabaProviderOptions(rawBody);
+    return alibaba !== undefined ? { alibaba } : {};
   } else {
     // The remaining providers all share the compatible adapter, which reads its options from a key
     // matching the `name` it was built with — the provider name itself.
@@ -467,6 +539,9 @@ export function toUserContent(content: string | ChatCompletionContentPart[]): Us
  * - `'anthropic'`     → `anthropic.signature`
  * - `'google-gemini'` → per-tool-call `google.thoughtSignature`, no standalone reasoning block
  * - `'custom'`        → OpenAI-compatible ignores providerOptions, so the token has nowhere to go
+ *
+ * Alibaba gets no reasoning at all: its adapter appends replayed thinking to the visible answer,
+ * and Qwen issues no signature, so there is nothing to lose by leaving it out.
  */
 export function toAssistantModelMessage({
   msg,
@@ -479,7 +554,7 @@ export function toAssistantModelMessage({
 
   // `thinking_blocks` is attached at runtime by AgentThread and absent from the OpenAI SDK type.
   const rawThinking: unknown = Reflect.get(msg, 'thinking_blocks');
-  if (Array.isArray(rawThinking)) {
+  if (Array.isArray(rawThinking) && provider !== 'alibaba') {
     // Widen any[] → unknown[] so the in-guards below narrow safely.
     const blocks: unknown[] = rawThinking;
     for (const tb of blocks) {
@@ -1003,6 +1078,12 @@ export async function* mapStreamToChunks({
         throw new Error('LLM stream error', { cause: err });
       }
 
+      case 'abort': {
+        const aborted = new Error('LLM stream aborted');
+        aborted.name = 'AbortError';
+        throw aborted;
+      }
+
       case 'start':
       case 'text-start':
       case 'text-end':
@@ -1019,7 +1100,6 @@ export async function* mapStreamToChunks({
       case 'tool-approval-response':
       case 'start-step':
       case 'finish':
-      case 'abort':
       case 'raw':
         // Structural/bookkeeping events — no harness chunk is emitted for these.
         break;
@@ -1080,7 +1160,7 @@ export class VercelAILLM implements ILLM {
     const reasoningEffort = typeof rawReasoningEffort === 'string' ? rawReasoningEffort : undefined;
     const providerOptions = buildProviderOptions({
       config: providerConfig,
-      reasoningRequested: reasoningEffort !== undefined,
+      reasoningEffort,
       structuredOutputSpec,
       rawBody: body,
     });

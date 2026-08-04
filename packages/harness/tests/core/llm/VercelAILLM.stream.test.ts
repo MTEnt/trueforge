@@ -368,6 +368,17 @@ describe('mapStreamToChunks', () => {
     ).rejects.toMatchObject({ message: 'LLM stream error', cause });
   });
 
+  it('rejects on an abort part rather than returning the partial message as a clean stop', async () => {
+    await expect(
+      drainStream(
+        mapStreamToChunks({
+          stream: makeStream([{ type: 'text-delta', id: 't1', text: 'partial' }, { type: 'abort' }]),
+          chunkMeta: CHUNK_META,
+        }),
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it('keeps the provider message when the error part carries a plain object', async () => {
     await expect(
       drainStream(

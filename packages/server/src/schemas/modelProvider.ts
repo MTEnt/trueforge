@@ -5,6 +5,7 @@
  */
 import { z } from '@hono/zod-openapi';
 import type { VercelAIProviderName } from '@truefoundry/utils-core/core';
+import { SUPPORTED_REASONING_EFFORTS } from '@truefoundry/utils-core/core';
 import { NameSchema, uniqueNames } from './common';
 
 /**
@@ -48,7 +49,17 @@ export const ModelPropertiesSchema = z
   .object({
     context_length: z.number().int().positive().optional(),
     max_output_tokens: z.number().int().positive().optional(),
-    reasoning_efforts: z.array(z.string().min(1)).min(1).optional(),
+    reasoning_efforts: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .refine(effort => SUPPORTED_REASONING_EFFORTS.includes(effort), {
+            message: `Reasoning effort must be one of: ${SUPPORTED_REASONING_EFFORTS.join(', ')}`,
+          }),
+      )
+      .min(1)
+      .optional(),
   })
   .strict()
   .openapi('ModelProperties');

@@ -131,7 +131,7 @@ describe('buildProviderOptions', () => {
     it('always includes store:false and include array', () => {
       const opts = buildProviderOptions({
         config: config,
-        reasoningRequested: false,
+        reasoningEffort: undefined,
         structuredOutputSpec: textSpec,
         rawBody: {},
       });
@@ -141,7 +141,7 @@ describe('buildProviderOptions', () => {
     it('includes strictJsonSchema:true when spec is json_schema with strict:true', () => {
       const opts = buildProviderOptions({
         config: config,
-        reasoningRequested: false,
+        reasoningEffort: undefined,
         structuredOutputSpec: schemaSpecStrict,
         rawBody: {},
       });
@@ -151,7 +151,7 @@ describe('buildProviderOptions', () => {
     it('omits strictJsonSchema for non-json_schema modes', () => {
       const opts = buildProviderOptions({
         config: config,
-        reasoningRequested: false,
+        reasoningEffort: undefined,
         structuredOutputSpec: jsonSpec,
         rawBody: {},
       });
@@ -161,7 +161,7 @@ describe('buildProviderOptions', () => {
     it('omits strictJsonSchema when strict is undefined in spec', () => {
       const opts = buildProviderOptions({
         config: config,
-        reasoningRequested: false,
+        reasoningEffort: undefined,
         structuredOutputSpec: schemaSpecNoStrict,
         rawBody: {},
       });
@@ -171,7 +171,7 @@ describe('buildProviderOptions', () => {
     it('forwards service_tier, user, and prompt_cache_key from rawBody', () => {
       const opts = buildProviderOptions({
         config,
-        reasoningRequested: false,
+        reasoningEffort: undefined,
         structuredOutputSpec: textSpec,
         rawBody: { service_tier: 'auto', user: 'u-123', prompt_cache_key: 'key-abc' },
       });
@@ -181,7 +181,7 @@ describe('buildProviderOptions', () => {
     it('omits service_tier/user/prompt_cache_key when absent from rawBody', () => {
       const opts = buildProviderOptions({
         config,
-        reasoningRequested: false,
+        reasoningEffort: undefined,
         structuredOutputSpec: textSpec,
         rawBody: {},
       });
@@ -197,10 +197,10 @@ describe('buildProviderOptions', () => {
     it('leaves thinking to the SDK so per-model shapes stay correct', () => {
       // Pinning `thinking` here would override the SDK's per-model mapping and send
       // `thinking.type: 'enabled'` to Claude 5, which only accepts 'adaptive'.
-      for (const reasoningRequested of [false, true]) {
+      for (const reasoningEffort of [undefined, 'high']) {
         const opts = buildProviderOptions({
           config: config,
-          reasoningRequested,
+          reasoningEffort,
           structuredOutputSpec: textSpec,
           rawBody: {},
         });
@@ -212,7 +212,7 @@ describe('buildProviderOptions', () => {
       // The caller's only route to disabling thinking, a raw effort, or Claude 5's `display`.
       const opts = buildProviderOptions({
         config,
-        reasoningRequested: true,
+        reasoningEffort: 'high',
         structuredOutputSpec: textSpec,
         rawBody: { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'max' },
       });
@@ -225,7 +225,7 @@ describe('buildProviderOptions', () => {
     it('ignores strictJsonSchema (no anthropic key for structured-output strictness)', () => {
       const opts = buildProviderOptions({
         config: config,
-        reasoningRequested: false,
+        reasoningEffort: undefined,
         structuredOutputSpec: schemaSpecStrict,
         rawBody: {},
       });
@@ -235,7 +235,7 @@ describe('buildProviderOptions', () => {
     it('forwards cache_control and disable_parallel_tool_use from rawBody', () => {
       const opts = buildProviderOptions({
         config,
-        reasoningRequested: false,
+        reasoningEffort: undefined,
         structuredOutputSpec: textSpec,
         rawBody: { cache_control: { type: 'ephemeral' }, disable_parallel_tool_use: true },
       });
@@ -251,24 +251,79 @@ describe('buildProviderOptions', () => {
 
     // The compatible adapter reads options from a key matching the name it was built with, so each
     // OpenAI-compatible provider gets its own bucket rather than a shared one.
-    it.each(['custom', 'fireworks', 'zai', 'moonshot'] as const)(
-      '%s: passes strictJsonSchema under its own key',
-      provider => {
-        const opts = buildProviderOptions({
-          config: makeConfig({ provider, baseUrl: 'http://localhost/v1' }),
-          reasoningRequested: false,
-          structuredOutputSpec: schemaSpecStrict,
-          rawBody: {},
-        });
-        expect(opts).toEqual({ [provider]: { strictJsonSchema: true } });
-      },
-    );
+    it.each(['custom', 'fireworks', 'zai'] as const)('%s: passes strictJsonSchema under its own key', provider => {
+      const opts = buildProviderOptions({
+        config: makeConfig({ provider, baseUrl: 'http://localhost/v1' }),
+        reasoningEffort: undefined,
+        structuredOutputSpec: schemaSpecStrict,
+        rawBody: {},
+      });
+      expect(opts).toEqual({ [provider]: { strictJsonSchema: true } });
+    });
 
     it('omits the custom key when the resulting object would be empty', () => {
       const opts = buildProviderOptions({
         config: config,
-        reasoningRequested: true,
+        reasoningEffort: 'high',
         structuredOutputSpec: textSpec,
+        rawBody: {},
+      });
+      expect(opts).toEqual({});
+    });
+  });
+
+  describe('moonshot provider', () => {
+    const config = makeConfig({ provider: 'moonshot' });
+
+    it('sends `max` as an effort of its own, since the top-level setting caps at xhigh', () => {
+      const opts = buildProviderOptions({
+        config,
+        reasoningEffort: 'max',
+        structuredOutputSpec: textSpec,
+        rawBody: {},
+      });
+      expect(opts).toEqual({ moonshotai: { reasoningEffort: 'max' } });
+    });
+
+    it('leaves every other effort to the top-level setting', () => {
+      const opts = buildProviderOptions({
+        config,
+        reasoningEffort: 'high',
+        structuredOutputSpec: textSpec,
+        rawBody: {},
+      });
+      expect(opts).toEqual({});
+    });
+
+    it('forwards thinking and reasoning_history from rawBody', () => {
+      const opts = buildProviderOptions({
+        config,
+        reasoningEffort: undefined,
+        structuredOutputSpec: textSpec,
+        rawBody: { thinking: { type: 'disabled' }, reasoning_history: 'preserved' },
+      });
+      expect(opts['moonshotai']).toEqual({ thinking: { type: 'disabled' }, reasoningHistory: 'preserved' });
+    });
+  });
+
+  describe('alibaba provider', () => {
+    const config = makeConfig({ provider: 'alibaba', baseUrl: 'http://localhost/v1' });
+
+    it('forwards thinking overrides and parallel_tool_calls, which the compatible adapter drops', () => {
+      const opts = buildProviderOptions({
+        config,
+        reasoningEffort: 'high',
+        structuredOutputSpec: textSpec,
+        rawBody: { enable_thinking: false, thinking_budget: 512, parallel_tool_calls: false },
+      });
+      expect(opts['alibaba']).toEqual({ enableThinking: false, thinkingBudget: 512, parallelToolCalls: false });
+    });
+
+    it('sends nothing of its own when rawBody carries no overrides', () => {
+      const opts = buildProviderOptions({
+        config,
+        reasoningEffort: 'high',
+        structuredOutputSpec: schemaSpecStrict,
         rawBody: {},
       });
       expect(opts).toEqual({});
@@ -282,7 +337,7 @@ describe('buildProviderOptions', () => {
       expect(
         buildProviderOptions({
           config: config,
-          reasoningRequested: false,
+          reasoningEffort: undefined,
           structuredOutputSpec: textSpec,
           rawBody: {},
         }),
@@ -290,7 +345,7 @@ describe('buildProviderOptions', () => {
       expect(
         buildProviderOptions({
           config: config,
-          reasoningRequested: false,
+          reasoningEffort: undefined,
           structuredOutputSpec: schemaSpecStrict,
           rawBody: {},
         }),
@@ -299,7 +354,7 @@ describe('buildProviderOptions', () => {
 
     it('requests thought summaries when a reasoning effort is set', () => {
       expect(
-        buildProviderOptions({ config, reasoningRequested: true, structuredOutputSpec: textSpec, rawBody: {} }),
+        buildProviderOptions({ config, reasoningEffort: 'high', structuredOutputSpec: textSpec, rawBody: {} }),
       ).toEqual({ google: { thinkingConfig: { includeThoughts: true } } });
     });
 
@@ -307,7 +362,7 @@ describe('buildProviderOptions', () => {
       expect(
         buildProviderOptions({
           config,
-          reasoningRequested: true,
+          reasoningEffort: 'high',
           structuredOutputSpec: textSpec,
           rawBody: { thinking_config: { thinkingBudget: 2048 } },
         }),
@@ -317,7 +372,7 @@ describe('buildProviderOptions', () => {
     it('forwards safety_settings, thinking_config, cached_content from rawBody', () => {
       const opts = buildProviderOptions({
         config,
-        reasoningRequested: false,
+        reasoningEffort: undefined,
         structuredOutputSpec: textSpec,
         rawBody: {
           safety_settings: [{ category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' }],
@@ -334,18 +389,26 @@ describe('buildProviderOptions', () => {
   });
 
   describe('cross-provider completeness', () => {
-    const providers: VercelAIProviderConfig['provider'][] = ['openai', 'anthropic', 'custom', 'google-gemini'];
+    const providers: VercelAIProviderConfig['provider'][] = [
+      'openai',
+      'anthropic',
+      'custom',
+      'google-gemini',
+      'moonshot',
+      'alibaba',
+    ];
 
     // Reasoning travels only on the top-level setting. A providerOptions copy would take precedence
-    // over it, so any provider growing one here would silently shadow the requested effort.
+    // over it, so any provider growing one here would silently shadow the requested effort. Moonshot
+    // is the deliberate exception, and only for `max`, which the top-level setting cannot express.
     it.each(providers)('%s: no providerOptions entry carries the effort', provider => {
       const config = makeConfig({
         provider,
-        ...(provider === 'custom' ? { baseUrl: 'http://localhost/v1' } : {}),
+        ...(provider === 'custom' || provider === 'alibaba' ? { baseUrl: 'http://localhost/v1' } : {}),
       });
       const opts = buildProviderOptions({
         config,
-        reasoningRequested: true,
+        reasoningEffort: 'high',
         structuredOutputSpec: textSpec,
         rawBody: {},
       });

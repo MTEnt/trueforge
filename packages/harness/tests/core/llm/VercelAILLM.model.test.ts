@@ -22,7 +22,7 @@ function makeConfig(
 
 describe('buildLanguageModel', () => {
   it('builds the providers whose adapter carries its own endpoint', () => {
-    for (const provider of ['openai', 'anthropic', 'google-gemini'] as const) {
+    for (const provider of ['openai', 'anthropic', 'google-gemini', 'moonshot'] as const) {
       expect(buildLanguageModel(makeConfig({ provider }))).toBeDefined();
     }
   });
@@ -30,12 +30,19 @@ describe('buildLanguageModel', () => {
   // The compatible providers take their endpoint from the caller, which the server resolves from
   // its own defaults. Throwing here beats letting the adapter build a request against no host.
   it('demands a baseUrl from every compatible provider', () => {
-    for (const provider of ['fireworks', 'zai', 'moonshot', 'alibaba', 'custom'] as const) {
+    for (const provider of ['fireworks', 'zai', 'custom'] as const) {
       expect(() => buildLanguageModel(makeConfig({ provider }))).toThrow('baseUrl');
       const model: unknown = buildLanguageModel(makeConfig({ provider, baseUrl: 'http://localhost:11434/v1' }));
       if (typeof model !== 'object' || model === null) throw new Error('Expected model to be an object');
       expect(Reflect.get(model, 'supportsStructuredOutputs')).toBe(true);
     }
+  });
+
+  // Alibaba endpoints are per-workspace, so falling back to the package default would quietly
+  // address someone else's tenant.
+  it('demands a baseUrl from alibaba even though its adapter ships a default', () => {
+    expect(() => buildLanguageModel(makeConfig({ provider: 'alibaba' }))).toThrow('baseUrl');
+    expect(buildLanguageModel(makeConfig({ provider: 'alibaba', baseUrl: 'http://localhost/v1' }))).toBeDefined();
   });
 
   it('throws for unknown provider string (exhaustive default branch)', () => {
