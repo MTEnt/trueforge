@@ -263,10 +263,7 @@ await client.sessions.create({
         model: {
             modelId: "model_id",
             name: "name",
-            properties: {
-                contextLength: 1,
-                maxOutputTokens: 1
-            }
+            properties: {}
         }
     }
 });
@@ -1479,13 +1476,10 @@ await client.settings.modelProviders.upsert({
     models: [{
             modelId: "model_id",
             name: "name",
-            properties: {
-                contextLength: 1,
-                maxOutputTokens: 1
-            }
+            properties: {}
         }],
     name: "name",
-    type: "anthropic"
+    type: "openai"
 });
 
 ```

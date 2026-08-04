@@ -9,10 +9,7 @@ import type * as TrueHarness from "../../../../index.js";
  *             model: {
  *                 modelId: "model_id",
  *                 name: "name",
- *                 properties: {
- *                     contextLength: 1,
- *                     maxOutputTokens: 1
- *                 }
+ *                 properties: {}
  *             }
  *         }
  *     }

@@ -15,15 +15,27 @@ import {
 function makeConfig(
   overrides: Partial<VercelAIProviderConfig> & { provider: VercelAIProviderConfig['provider'] },
 ): VercelAIProviderConfig {
-  return { name: 'test', apiKey: 'sk-test', headers: {}, ...overrides };
+  return { name: 'test', modelId: 'test-model', apiKey: 'sk-test', headers: {}, ...overrides };
 }
 
 // ─────────── buildLanguageModel ───────────
 
 describe('buildLanguageModel', () => {
-  it('throws for custom provider without baseUrl', () => {
-    const config = makeConfig({ provider: 'custom' });
-    expect(() => buildLanguageModel(config)).toThrow('baseUrl');
+  it('builds the providers whose adapter carries its own endpoint', () => {
+    for (const provider of ['openai', 'anthropic', 'google-gemini'] as const) {
+      expect(buildLanguageModel(makeConfig({ provider }))).toBeDefined();
+    }
+  });
+
+  // The compatible providers take their endpoint from the caller, which the server resolves from
+  // its own defaults. Throwing here beats letting the adapter build a request against no host.
+  it('demands a baseUrl from every compatible provider', () => {
+    for (const provider of ['fireworks', 'zai', 'moonshot', 'alibaba', 'custom'] as const) {
+      expect(() => buildLanguageModel(makeConfig({ provider }))).toThrow('baseUrl');
+      const model: unknown = buildLanguageModel(makeConfig({ provider, baseUrl: 'http://localhost:11434/v1' }));
+      if (typeof model !== 'object' || model === null) throw new Error('Expected model to be an object');
+      expect(Reflect.get(model, 'supportsStructuredOutputs')).toBe(true);
+    }
   });
 
   it('throws for unknown provider string (exhaustive default branch)', () => {
@@ -31,35 +43,10 @@ describe('buildLanguageModel', () => {
     expect(() => buildLanguageModel(badConfig)).toThrow('Unknown provider');
   });
 
-  it('constructs openai model without throwing', () => {
-    const model = buildLanguageModel(makeConfig({ provider: 'openai' }));
-    expect(model).toBeDefined();
-  });
-
-  it('constructs anthropic model without throwing', () => {
-    const model = buildLanguageModel(makeConfig({ provider: 'anthropic' }));
-    expect(model).toBeDefined();
-  });
-
-  it('constructs google-gemini model without throwing', () => {
-    const model = buildLanguageModel(makeConfig({ provider: 'google-gemini' }));
-    expect(model).toBeDefined();
-  });
-
-  it('constructs custom model without throwing when baseUrl is provided', () => {
-    const model = buildLanguageModel(makeConfig({ provider: 'custom', baseUrl: 'http://localhost:11434/v1' }));
-    expect(model).toBeDefined();
-  });
-
-  it('sets supportsStructuredOutputs:true on the custom model instance', () => {
-    const model: unknown = buildLanguageModel(makeConfig({ provider: 'custom', baseUrl: 'http://localhost:11434/v1' }));
-    if (typeof model !== 'object' || model === null) throw new Error('Expected model to be an object');
-    expect(Reflect.get(model, 'supportsStructuredOutputs')).toBe(true);
-  });
-
-  it('uses modelId over name when provided', () => {
+  // `name` carries the provider-qualified alias, which no provider would accept as a model id.
+  it('sends modelId, never name', () => {
     const model: unknown = buildLanguageModel(
-      makeConfig({ provider: 'anthropic', name: 'alias', modelId: 'claude-sonnet-5' }),
+      makeConfig({ provider: 'anthropic', name: 'anthropic/alias', modelId: 'claude-sonnet-5' }),
     );
     if (typeof model !== 'object' || model === null) throw new Error('Expected model to be an object');
     expect(Reflect.get(model, 'modelId')).toBe('claude-sonnet-5');

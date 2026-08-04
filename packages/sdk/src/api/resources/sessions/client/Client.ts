@@ -150,10 +150,7 @@ export class SessionsClient {
      *             model: {
      *                 modelId: "model_id",
      *                 name: "name",
-     *                 properties: {
-     *                     contextLength: 1,
-     *                     maxOutputTokens: 1
-     *                 }
+     *                 properties: {}
      *             }
      *         }
      *     })

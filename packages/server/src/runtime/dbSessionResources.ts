@@ -14,6 +14,7 @@ import { HTTPException } from 'hono/http-exception';
 import type { IMcpServerStore, McpServerRecord } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISkillStore } from '../db/skillStore';
+import { PROVIDER_DEFAULT_BASE_URLS } from '../schemas/modelProvider';
 
 export interface DbMcpConnection {
   url: string;
@@ -63,11 +64,14 @@ export async function getDbProviderConfig({
       message: `Unknown model "${name}" — not configured on provider`,
     });
   }
+  // Provider types are adapter names, so this assignment is what keeps them so: a type with no
+  // `buildLanguageModel` case fails to compile here. An explicit base_url always wins.
+  const { type, base_url } = provider.manifest;
   return {
-    provider: provider.manifest.type,
+    provider: type,
     name,
     modelId: model.model_id,
-    baseUrl: provider.manifest.base_url,
+    baseUrl: base_url ?? PROVIDER_DEFAULT_BASE_URLS[type],
     apiKey: provider.manifest.auth.api_key,
     headers: {},
   };

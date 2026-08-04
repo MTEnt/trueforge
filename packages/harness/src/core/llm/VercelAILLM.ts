@@ -2,8 +2,11 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import type { JSONObject } from '@ai-sdk/provider';
+import type { ProviderOptions, ReasoningPart } from '@ai-sdk/provider-utils';
 import type {
   AssistantContent,
+  CallWarning,
   FilePart,
   FinishReason,
   JSONValue,
@@ -38,23 +41,27 @@ import {
   type ThinkingBlock,
 } from './LLMTypes';
 
-/** Structurally identical to ProviderOptions from @ai-sdk/provider-utils, not re-exported by `ai`. */
-type ProviderOptions = ProviderMetadata;
-
 /** Narrows to an indexable record. */
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** Structurally matches ReasoningPart from @ai-sdk/provider-utils. */
-interface ReasoningPart {
-  type: 'reasoning';
-  text: string;
-  providerOptions?: ProviderOptions;
-}
+/**
+ * Providers with a case in {@link buildLanguageModel}. Canonical: the server derives the provider
+ * types it will configure from this, so anything it accepts has an adapter behind it.
+ */
+export const VERCEL_AI_PROVIDER_NAMES = [
+  'openai',
+  'anthropic',
+  'google-gemini',
+  'fireworks',
+  'zai',
+  'moonshot',
+  'alibaba',
+  'custom',
+] as const;
 
-/** Providers with a dedicated code path in {@link buildLanguageModel}. */
-export type VercelAIProviderName = 'openai' | 'anthropic' | 'google-gemini' | 'custom';
+export type VercelAIProviderName = (typeof VERCEL_AI_PROVIDER_NAMES)[number];
 
 /**
  * Adapter-facing config, camelCase throughout. Callers translate from the snake_case wire and
@@ -62,10 +69,10 @@ export type VercelAIProviderName = 'openai' | 'anthropic' | 'google-gemini' | 'c
  */
 export interface VercelAIProviderConfig {
   provider: VercelAIProviderName;
-  /** Display name / alias. Also used as the provider model identifier when `modelId` is absent. */
+  /** Display name / alias, used for logs and errors. Often provider-qualified, so never sent. */
   name: string;
-  /** Provider-facing model identifier, sent instead of `name` when present. */
-  modelId?: string | undefined;
+  /** Provider-facing model identifier. */
+  modelId: string;
   /** Optional base URL override. Explicitly includes `undefined` for Zod-derived type compat. */
   baseUrl?: string | undefined;
   apiKey: string;
@@ -78,9 +85,33 @@ export interface VercelAILLMConfig {
   signal?: AbortSignal;
 }
 
+/**
+ * Every OpenAI-compatible provider shares this adapter and differs only by endpoint, which the
+ * caller resolves. The provider name doubles as the `providerOptions` key, which is why
+ * {@link buildProviderOptions} can key on it directly. Official `@ai-sdk` packages exist for
+ * Fireworks and Alibaba but both lose ground here: the Fireworks one downgrades `json_schema` to a
+ * schema-less `json_object`, and the Alibaba one never reads `strictJsonSchema`.
+ */
+function compatibleModel(config: VercelAIProviderConfig): LanguageModel {
+  const { provider, modelId, apiKey, headers, baseUrl } = config;
+  if (baseUrl === undefined) {
+    throw new Error(`Provider "${provider}" requires a baseUrl`);
+  }
+  const client = createOpenAICompatible({
+    name: provider,
+    baseURL: baseUrl,
+    apiKey,
+    // Without this the adapter silently downgrades json_schema to a schema-less json_object.
+    supportsStructuredOutputs: true,
+    // These endpoints omit token counts from streamed responses unless asked.
+    includeUsage: true,
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+  });
+  return client(modelId);
+}
+
 export function buildLanguageModel(config: VercelAIProviderConfig): LanguageModel {
-  const { provider, name, modelId, baseUrl, apiKey, headers } = config;
-  const resolvedModelId = modelId ?? name;
+  const { provider, modelId, baseUrl, apiKey, headers } = config;
   const extraHeaders = Object.keys(headers).length > 0 ? headers : undefined;
 
   switch (provider) {
@@ -90,7 +121,7 @@ export function buildLanguageModel(config: VercelAIProviderConfig): LanguageMode
         ...(baseUrl !== undefined ? { baseURL: baseUrl } : {}),
         ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
       });
-      return client.responses(resolvedModelId);
+      return client.responses(modelId);
     }
     case 'anthropic': {
       const client = createAnthropic({
@@ -98,7 +129,7 @@ export function buildLanguageModel(config: VercelAIProviderConfig): LanguageMode
         ...(baseUrl !== undefined ? { baseURL: baseUrl } : {}),
         ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
       });
-      return client(resolvedModelId);
+      return client(modelId);
     }
     case 'google-gemini': {
       const client = createGoogle({
@@ -106,23 +137,14 @@ export function buildLanguageModel(config: VercelAIProviderConfig): LanguageMode
         ...(baseUrl !== undefined ? { baseURL: baseUrl } : {}),
         ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
       });
-      return client(resolvedModelId);
+      return client(modelId);
     }
+    case 'fireworks':
+    case 'zai':
+    case 'moonshot':
+    case 'alibaba':
     case 'custom': {
-      if (baseUrl === undefined) {
-        throw new Error('Provider "custom" requires a baseUrl: it has no canonical endpoint');
-      }
-      const client = createOpenAICompatible({
-        name: 'custom',
-        baseURL: baseUrl,
-        apiKey,
-        // Without this the adapter silently downgrades json_schema to a schema-less json_object.
-        supportsStructuredOutputs: true,
-        // These endpoints omit token counts from streamed responses unless asked.
-        includeUsage: true,
-        ...(extraHeaders !== undefined ? { headers: extraHeaders } : {}),
-      });
-      return client(resolvedModelId);
+      return compatibleModel(config);
     }
     default: {
       const _exhaustive: never = provider;
@@ -178,28 +200,21 @@ function isReasoningLevel(v: string): v is ReasoningLevel {
 }
 
 /**
- * Providers whose adapters derive their thinking config from the top-level `reasoning` setting:
- * google builds `thinkingConfig`, anthropic picks the per-model thinking shape. `openai` and
- * `custom` carry the effort in their own provider options instead.
- */
-const REASONING_LEVEL_PROVIDERS: readonly VercelAIProviderName[] = ['google-gemini', 'anthropic'];
-
-/**
- * Efforts that models advertise but the SDK's cross-provider union cannot express. `xhigh` is its
- * ceiling, and each adapter lowers that to the strongest effort its model actually accepts —
- * Claude 4.6 rejects `xhigh` and resolves it to `max`. Dropping these instead would send no
- * thinking config at all.
+ * Efforts models advertise that the SDK's cross-provider union cannot express. `xhigh` is its
+ * ceiling, so `max` rides in as `xhigh`. Anthropic's adapter raises that back to `max` for models
+ * without an `xhigh` level; everyone else receives `xhigh` as sent, which for models offering both
+ * levels — the gpt-5.6 family — is one step below what was asked for.
  */
 const EFFORT_ALIASES: Readonly<Record<string, ReasoningLevel>> = { max: 'xhigh' };
 
-export function toReasoningLevel({
-  provider,
-  reasoningEffort,
-}: {
-  provider: VercelAIProviderName;
-  reasoningEffort: string | undefined;
-}): ReasoningLevel | undefined {
-  if (!REASONING_LEVEL_PROVIDERS.includes(provider) || reasoningEffort === undefined) {
+/**
+ * Every provider takes the effort through the top-level `reasoning` setting, leaving the adapters
+ * to translate it: an effort string for OpenAI-shaped APIs, a per-model thinking shape for
+ * Anthropic, `thinkingLevel` or `thinkingBudget` for Gemini. Reasoning-related `providerOptions`
+ * would override this rather than merge with it, so nothing here sets them.
+ */
+export function toReasoningLevel(reasoningEffort: string | undefined): ReasoningLevel | undefined {
+  if (reasoningEffort === undefined) {
     return undefined;
   }
   const aliased = EFFORT_ALIASES[reasoningEffort];
@@ -249,9 +264,6 @@ export function mapFinishReason(reason: FinishReason): RawAssistantMessageWithUs
   }
 }
 
-/** Opaque alias — each provider bucket is an arbitrary JSON object from the request body. */
-type JSONObject = Record<string, JSONValue | undefined>;
-
 /** `rawBody` is a parsed JSON request body, so any value present is a valid JSONValue. */
 function readBodyField({ rawBody, key }: { rawBody: unknown; key: string }): JSONValue | undefined {
   const val: unknown = Reflect.get(Object(rawBody), key);
@@ -260,11 +272,9 @@ function readBodyField({ rawBody, key }: { rawBody: unknown; key: string }): JSO
 
 function openaiProviderOptions({
   rawBody,
-  reasoningEffort,
   strictJsonSchema,
 }: {
   rawBody: unknown;
-  reasoningEffort: string | undefined;
   strictJsonSchema: boolean | undefined;
 }): JSONObject {
   const serviceTier = readBodyField({ rawBody, key: 'service_tier' });
@@ -275,7 +285,6 @@ function openaiProviderOptions({
   return {
     store: false,
     include: ['reasoning.encrypted_content'],
-    ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
     ...(strictJsonSchema !== undefined ? { strictJsonSchema } : {}),
     ...(serviceTier !== undefined ? { serviceTier } : {}),
     ...(user !== undefined ? { user } : {}),
@@ -343,22 +352,16 @@ function googleGeminiProviderOptions({
   return Object.keys(opts).length > 0 ? opts : undefined;
 }
 
-function customProviderOptions({
-  rawBody,
-  reasoningEffort,
+/**
+ * `parallel_tool_calls` is deliberately not forwarded: `OpenAICompatibleProviderOptions` has no
+ * field for it, so it never reached the wire.
+ */
+function compatibleProviderOptions({
   strictJsonSchema,
 }: {
-  rawBody: unknown;
-  reasoningEffort: string | undefined;
   strictJsonSchema: boolean | undefined;
 }): JSONObject | undefined {
-  const parallelToolCalls = readBodyField({ rawBody, key: 'parallel_tool_calls' });
-  const opts: JSONObject = {
-    ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
-    ...(strictJsonSchema !== undefined ? { strictJsonSchema } : {}),
-    ...(parallelToolCalls !== undefined ? { parallelToolCalls } : {}),
-  };
-  return Object.keys(opts).length > 0 ? opts : undefined;
+  return strictJsonSchema !== undefined ? { strictJsonSchema } : undefined;
 }
 
 /**
@@ -367,28 +370,30 @@ function customProviderOptions({
  */
 export function buildProviderOptions({
   config,
-  reasoningEffort,
+  reasoningRequested,
   structuredOutputSpec,
   rawBody,
 }: {
   config: VercelAIProviderConfig;
-  reasoningEffort: string | undefined;
+  /** Only Gemini needs this, to ask for thought summaries alongside the effort. */
+  reasoningRequested: boolean;
   structuredOutputSpec: StructuredOutputSpec;
   rawBody: unknown;
 }): ProviderOptions {
   const strictJsonSchema = structuredOutputSpec.mode === 'json_schema' ? structuredOutputSpec.strict : undefined;
   if (config.provider === 'openai') {
-    return { openai: openaiProviderOptions({ rawBody, reasoningEffort, strictJsonSchema }) };
+    return { openai: openaiProviderOptions({ rawBody, strictJsonSchema }) };
   } else if (config.provider === 'anthropic') {
     const anthropic = anthropicProviderOptions(rawBody);
     return anthropic !== undefined ? { anthropic } : {};
   } else if (config.provider === 'google-gemini') {
-    const google = googleGeminiProviderOptions({ rawBody, reasoningRequested: reasoningEffort !== undefined });
+    const google = googleGeminiProviderOptions({ rawBody, reasoningRequested });
     return google !== undefined ? { google } : {};
   } else {
-    // Key must match the `name` passed to createOpenAICompatible.
-    const custom = customProviderOptions({ rawBody, reasoningEffort, strictJsonSchema });
-    return custom !== undefined ? { custom } : {};
+    // The remaining providers all share the compatible adapter, which reads its options from a key
+    // matching the `name` it was built with — the provider name itself.
+    const compatible = compatibleProviderOptions({ strictJsonSchema });
+    return compatible !== undefined ? { [config.provider]: compatible } : {};
   }
 }
 
@@ -799,6 +804,28 @@ function applyReasoningSignature({
   }
 }
 
+/**
+ * Where the SDK reports what it changed about our request: an effort a model cannot honour and so
+ * was coerced, a setting the provider ignored. Nothing else surfaces these.
+ */
+export function describeCallWarning(warning: CallWarning): string {
+  switch (warning.type) {
+    case 'unsupported':
+    case 'compatibility':
+      return warning.details !== undefined
+        ? `${warning.type}: ${warning.feature} (${warning.details})`
+        : `${warning.type}: ${warning.feature}`;
+    case 'deprecated':
+      return `deprecated: ${warning.setting} - ${warning.message}`;
+    case 'other':
+      return `other: ${warning.message}`;
+    default: {
+      const _exhaustive: never = warning;
+      throw new Error(`Unknown call warning: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
+}
+
 /** Synthetic chunk fields shared by every chunk emitted for a single stream. */
 interface ChunkMeta {
   id: string;
@@ -1053,11 +1080,11 @@ export class VercelAILLM implements ILLM {
     const reasoningEffort = typeof rawReasoningEffort === 'string' ? rawReasoningEffort : undefined;
     const providerOptions = buildProviderOptions({
       config: providerConfig,
-      reasoningEffort,
+      reasoningRequested: reasoningEffort !== undefined,
       structuredOutputSpec,
       rawBody: body,
     });
-    const reasoning = toReasoningLevel({ provider: providerConfig.provider, reasoningEffort });
+    const reasoning = toReasoningLevel(reasoningEffort);
 
     // top_k is injected by AgentThread via Object.assign; not in the SDK type.
     const rawTopK: unknown = Reflect.get(body, 'top_k');
@@ -1093,6 +1120,23 @@ export class VercelAILLM implements ILLM {
       }
       throw error;
     }
+
+    // Detached: warnings resolve at stream start, and a pending or rejected promise must never
+    // stall the stream. Stream failures are reported by the error paths below.
+    void streamResult.warnings.then(
+      warnings => {
+        if (warnings !== undefined && warnings.length > 0) {
+          this.logger.warn('Provider adjusted the request', {
+            model: body.model,
+            warnings: warnings.map(describeCallWarning),
+          });
+        }
+      },
+      (reason: unknown) => {
+        // Rejects with the same failure the stream throws, which the error paths below already log.
+        this.logger.debug('Provider warnings unavailable', extractErrorLogFields(reason));
+      },
+    );
 
     // Synthetic chunk fields; id is unique per stream instance.
     const chunkMeta: ChunkMeta = {

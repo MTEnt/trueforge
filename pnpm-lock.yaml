@@ -121,6 +121,12 @@ importers:
       '@ai-sdk/openai-compatible':
         specifier: ^3.0.18
         version: 3.0.18(zod@3.25.76)
+      '@ai-sdk/provider':
+        specifier: ^4.0.4
+        version: 4.0.4
+      '@ai-sdk/provider-utils':
+        specifier: ^5.0.16
+        version: 5.0.16(zod@3.25.76)
       '@daytona/sdk':
         specifier: ^0.190.0
         version: 0.190.1(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)(ws@8.21.1)
