@@ -9,9 +9,13 @@ import {
 import type { ModelProvider, ProviderManifest } from '../schemas/modelProvider';
 import { TENANT_ID } from './sessions';
 
+/** Opens a transaction boundary at the route and hands back a store bound to it. */
+export type WithTransaction<TStore> = <T>(callback: (store: TStore) => Promise<T>) => Promise<T>;
+
 export interface ModelProvidersRouterDeps {
   modelCatalog: ModelCatalog;
   modelProviderStore: IModelProviderStore;
+  withTransaction: WithTransaction<IModelProviderStore>;
 }
 
 /** Wire view of a stored provider: identity `name` plus persisted manifest. */
@@ -35,11 +39,7 @@ export function createModelProvidersRouter(deps: ModelProvidersRouterDeps) {
   const putHandler: RouteHandler<typeof putModelProviderRoute> = async c => {
     const { name, ...manifestFields } = c.req.valid('json');
     const manifest: ProviderManifest = manifestFields;
-    const record = await deps.modelProviderStore.upsertProvider({
-      tenant_id: TENANT_ID,
-      name,
-      manifest,
-    });
+    const record = await deps.withTransaction(store => store.upsertProvider({ tenant_id: TENANT_ID, name, manifest }));
     return c.json({ data: toModelProvider(record) }, 200);
   };
 

@@ -12,12 +12,13 @@ import type { IMcpServerStore } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISkillStore } from '../db/skillStore';
 import { createMcpServersRouter } from './mcpServers';
-import { createModelProvidersRouter } from './modelProviders';
+import { createModelProvidersRouter, type WithTransaction } from './modelProviders';
 import { createSkillsRouter } from './skills';
 
 export interface SettingsRouterDeps {
   modelCatalog: ModelCatalog;
   modelProviderStore: IModelProviderStore;
+  withTransaction: WithTransaction<IModelProviderStore>;
   mcpCatalog: McpCatalog;
   mcpServerStore: IMcpServerStore;
   skillCatalog: SkillCatalog;
@@ -32,6 +33,7 @@ export function createSettingsRouter(deps: SettingsRouterDeps) {
     createModelProvidersRouter({
       modelCatalog: deps.modelCatalog,
       modelProviderStore: deps.modelProviderStore,
+      withTransaction: deps.withTransaction,
     }),
   );
   router.route(

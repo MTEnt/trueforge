@@ -13,6 +13,7 @@ import { createLegacyMcpOAuthRouter } from './apis/legacyMcpOAuth';
 import { createLegacyModelsRouter } from './apis/legacyModels';
 import { createLegacySkillsRouter } from './apis/legacySkills';
 import { createAvailableMcpServersRouter } from './apis/mcpServers';
+import type { WithTransaction } from './apis/modelProviders';
 import { createModelsRouter } from './apis/models';
 import { createSessionsRouter } from './apis/sessions';
 import { createSettingsRouter } from './apis/settings';
@@ -51,6 +52,8 @@ export interface ServerDeps {
   modelStore: ModelStore;
   modelCatalog: ModelCatalog;
   modelProviderStore: IModelProviderStore;
+  /** Route-owned transaction boundary; yields a store bound to the transaction. */
+  withTransaction: WithTransaction<IModelProviderStore>;
   mcpCatalog: McpCatalog;
   mcpServerStore: IMcpServerStore;
   mcpStore: McpStore;
@@ -83,6 +86,7 @@ export function createServerApp(deps: ServerDeps) {
     createSettingsRouter({
       modelCatalog: deps.modelCatalog,
       modelProviderStore: deps.modelProviderStore,
+      withTransaction: deps.withTransaction,
       mcpCatalog: deps.mcpCatalog,
       mcpServerStore: deps.mcpServerStore,
       skillCatalog: deps.skillCatalog,

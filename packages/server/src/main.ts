@@ -82,6 +82,7 @@ try {
     modelStore: ModelStore.load(),
     modelCatalog: ModelCatalog.load(),
     modelProviderStore: new PostgresModelProviderStore(db),
+    withTransaction: callback => db.transaction().execute(trx => callback(new PostgresModelProviderStore(trx))),
     mcpCatalog: McpCatalog.load(),
     mcpServerStore: new PostgresMcpServerStore(db),
     mcpStore: McpStore.load(),
