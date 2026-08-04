@@ -5,8 +5,17 @@ import * as core from "../../core/index.js";
 import type * as serializers from "../index.js";
 
 export const ProviderType: core.serialization.Schema<serializers.ProviderType.Raw, TrueHarness.ProviderType> =
-    core.serialization.enum_(["openai", "anthropic", "custom"]);
+    core.serialization.enum_([
+        "openai",
+        "anthropic",
+        "google-gemini",
+        "fireworks",
+        "zai",
+        "moonshot",
+        "alibaba",
+        "custom",
+    ]);
 
 export declare namespace ProviderType {
-    export type Raw = "openai" | "anthropic" | "custom";
+    export type Raw = "openai" | "anthropic" | "google-gemini" | "fireworks" | "zai" | "moonshot" | "alibaba" | "custom";
 }

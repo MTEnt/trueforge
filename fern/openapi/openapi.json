@@ -346,7 +346,11 @@
             "enum": [
               "openai",
               "anthropic",
-              "google-gemini"
+              "google-gemini",
+              "fireworks",
+              "zai",
+              "moonshot",
+              "alibaba"
             ],
             "type": "string"
           }
@@ -2001,6 +2005,10 @@
           "openai",
           "anthropic",
           "google-gemini",
+          "fireworks",
+          "zai",
+          "moonshot",
+          "alibaba",
           "custom"
         ],
         "type": "string"

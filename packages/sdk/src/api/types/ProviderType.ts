@@ -3,6 +3,11 @@
 export const ProviderType = {
     Openai: "openai",
     Anthropic: "anthropic",
+    GoogleGemini: "google-gemini",
+    Fireworks: "fireworks",
+    Zai: "zai",
+    Moonshot: "moonshot",
+    Alibaba: "alibaba",
     Custom: "custom",
 } as const;
 export type ProviderType = (typeof ProviderType)[keyof typeof ProviderType];

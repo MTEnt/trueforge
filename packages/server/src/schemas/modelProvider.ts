@@ -6,7 +6,14 @@
 import { z } from '@hono/zod-openapi';
 import { NameSchema, uniqueNames } from './common';
 
-export const ProviderTypeSchema = z.enum(['openai', 'anthropic', 'google-gemini', 'custom']).openapi('ProviderType');
+/**
+ * `openai`, `anthropic` and `google-gemini` have dedicated Vercel AI SDK adapters. The rest are
+ * OpenAI-compatible endpoints distinguished only by `base_url`, named individually so the catalog
+ * can ship their model lists; `custom` covers any other compatible endpoint.
+ */
+export const ProviderTypeSchema = z
+  .enum(['openai', 'anthropic', 'google-gemini', 'fireworks', 'zai', 'moonshot', 'alibaba', 'custom'])
+  .openapi('ProviderType');
 
 export const ModelPropertiesSchema = z
   .object({
