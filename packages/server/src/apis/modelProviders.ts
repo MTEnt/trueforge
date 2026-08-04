@@ -14,7 +14,9 @@ import {
 import type { ModelProvider, ProviderManifest } from '../schemas/modelProvider';
 import { TENANT_ID } from './sessions';
 
-type TxEnv<TTransaction> = { Variables: DbTransactionVariables<TTransaction> };
+interface TxEnv<TTransaction> {
+  Variables: DbTransactionVariables<TTransaction>;
+}
 
 export interface ModelProvidersRouterDeps<TTransaction> {
   modelCatalog: ModelCatalog;

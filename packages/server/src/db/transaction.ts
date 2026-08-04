@@ -3,9 +3,9 @@ import type { MiddlewareHandler } from 'hono';
 /** Opens a DB transaction and runs the callback with the handle (commit on resolve, rollback on throw). */
 export type RunTransaction<TTransaction> = <T>(callback: (transaction: TTransaction) => Promise<T>) => Promise<T>;
 
-export type DbTransactionVariables<TTransaction> = {
+export interface DbTransactionVariables<TTransaction> {
   tx: TTransaction;
-};
+}
 
 /**
  * HTTP methods that may mutate state.

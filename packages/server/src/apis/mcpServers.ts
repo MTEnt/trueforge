@@ -30,7 +30,9 @@ import type { ConfiguredMcpServer, McpServerManifest } from '../schemas/mcpServe
 import { resolveConfiguredMcpRequestHeaders, toStubAuthStatus } from '../schemas/mcpServer';
 import { TENANT_ID } from './sessions';
 
-type TxEnv<TTransaction> = { Variables: DbTransactionVariables<TTransaction> };
+interface TxEnv<TTransaction> {
+  Variables: DbTransactionVariables<TTransaction>;
+}
 
 export interface McpServersRouterDeps<TTransaction> {
   mcpCatalog: McpCatalog;
