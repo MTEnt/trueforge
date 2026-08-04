@@ -1,6 +1,7 @@
 import { OpenAPIHono, type RouteHandler } from '@hono/zod-openapi';
 import type { ModelCatalog } from '../catalog/ModelCatalog';
 import type { IModelProviderStore, ModelProviderRecord } from '../db/modelProviderStore';
+import type { WithTransaction } from '../db/transaction';
 import {
   getModelProviderCatalogRoute,
   listModelProvidersRoute,
@@ -9,13 +10,10 @@ import {
 import type { ModelProvider, ProviderManifest } from '../schemas/modelProvider';
 import { TENANT_ID } from './sessions';
 
-/** Opens a transaction boundary at the route and hands back a store bound to it. */
-export type WithTransaction<TStore> = <T>(callback: (store: TStore) => Promise<T>) => Promise<T>;
-
-export interface ModelProvidersRouterDeps {
+export interface ModelProvidersRouterDeps<TTransaction> {
   modelCatalog: ModelCatalog;
-  modelProviderStore: IModelProviderStore;
-  withTransaction: WithTransaction<IModelProviderStore>;
+  modelProviderStore: IModelProviderStore<TTransaction>;
+  withTransaction: WithTransaction<TTransaction>;
 }
 
 /** Wire view of a stored provider: identity `name` plus persisted manifest. */
@@ -26,7 +24,7 @@ function toModelProvider(record: ModelProviderRecord): ModelProvider {
   };
 }
 
-export function createModelProvidersRouter(deps: ModelProvidersRouterDeps) {
+export function createModelProvidersRouter<TTransaction>(deps: ModelProvidersRouterDeps<TTransaction>) {
   const catalogHandler: RouteHandler<typeof getModelProviderCatalogRoute> = c => {
     return c.json({ data: [...deps.modelCatalog.list()] }, 200);
   };
@@ -39,7 +37,9 @@ export function createModelProvidersRouter(deps: ModelProvidersRouterDeps) {
   const putHandler: RouteHandler<typeof putModelProviderRoute> = async c => {
     const { name, ...manifestFields } = c.req.valid('json');
     const manifest: ProviderManifest = manifestFields;
-    const record = await deps.withTransaction(store => store.upsertProvider({ tenant_id: TENANT_ID, name, manifest }));
+    const record = await deps.withTransaction(transaction =>
+      deps.modelProviderStore.upsertProvider({ tenant_id: TENANT_ID, name, manifest }, transaction),
+    );
     return c.json({ data: toModelProvider(record) }, 200);
   };
 

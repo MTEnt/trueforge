@@ -13,7 +13,7 @@ import { SqliteModelProviderStore } from '../../../src/db/sqlite/model-provider-
 import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkillStore';
 
 const putBody = {
-  type: 'anthropic',
+  type: 'anthropic' as const,
   name: 'anthropic',
   base_url: 'https://api.anthropic.com/v1',
   auth: { api_key: 'sk-ant-secret' },
@@ -45,7 +45,7 @@ describe('settings model-providers and models routers', () => {
     settingsRouter = createSettingsRouter({
       modelCatalog: ModelCatalog.load(),
       modelProviderStore,
-      withTransaction: callback => db.transaction().execute(trx => callback(new SqliteModelProviderStore(trx))),
+      withTransaction: callback => db.transaction().execute(callback),
       mcpCatalog: McpCatalog.load(),
       mcpServerStore: new SqliteMcpServerStore(db),
       skillCatalog: SkillCatalog.load(),
@@ -121,7 +121,7 @@ describe('model-provider PUT under the route transaction', () => {
     const router = createModelProvidersRouter({
       modelCatalog: ModelCatalog.load(),
       modelProviderStore: store,
-      withTransaction: callback => db.transaction().execute(trx => callback(new SqliteModelProviderStore(trx))),
+      withTransaction: callback => db.transaction().execute(callback),
     });
 
     const response = await router.request('/', putInit(putBody));
@@ -136,8 +136,8 @@ describe('model-provider PUT under the route transaction', () => {
       modelCatalog: ModelCatalog.load(),
       modelProviderStore: store,
       withTransaction: callback =>
-        db.transaction().execute(async trx => {
-          await callback(new SqliteModelProviderStore(trx));
+        db.transaction().execute(async transaction => {
+          await callback(transaction);
           throw new Error('fail after route handler');
         }),
     });

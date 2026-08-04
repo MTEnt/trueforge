@@ -13,7 +13,6 @@ import { createLegacyMcpOAuthRouter } from './apis/legacyMcpOAuth';
 import { createLegacyModelsRouter } from './apis/legacyModels';
 import { createLegacySkillsRouter } from './apis/legacySkills';
 import { createAvailableMcpServersRouter } from './apis/mcpServers';
-import type { WithTransaction } from './apis/modelProviders';
 import { createModelsRouter } from './apis/models';
 import { createSessionsRouter } from './apis/sessions';
 import { createSettingsRouter } from './apis/settings';
@@ -25,6 +24,7 @@ import type { SkillCatalog } from './catalog/SkillCatalog';
 import type { IMcpServerStore } from './db/mcpServerStore';
 import type { IModelProviderStore } from './db/modelProviderStore';
 import type { ISkillStore } from './db/skillStore';
+import type { WithTransaction } from './db/transaction';
 import type { McpStore } from './legacy-registry-store/McpStore';
 import type { ModelStore } from './legacy-registry-store/ModelStore';
 import type { SkillStore } from './legacy-registry-store/SkillStore';
@@ -48,14 +48,14 @@ function routeNotFound(c: Context) {
   return c.json({ error: { message: `Route not found: ${c.req.method} ${c.req.path}` } }, 404);
 }
 
-export interface ServerDeps {
+export interface ServerDeps<TTransaction> {
   modelStore: ModelStore;
   modelCatalog: ModelCatalog;
-  modelProviderStore: IModelProviderStore;
-  /** Route-owned transaction boundary; yields a store bound to the transaction. */
-  withTransaction: WithTransaction<IModelProviderStore>;
+  modelProviderStore: IModelProviderStore<TTransaction>;
+  /** Route-owned transaction boundary; store writes join via the passed handle. */
+  withTransaction: WithTransaction<TTransaction>;
   mcpCatalog: McpCatalog;
-  mcpServerStore: IMcpServerStore;
+  mcpServerStore: IMcpServerStore<TTransaction>;
   mcpStore: McpStore;
   skillCatalog: SkillCatalog;
   skillStore: ISkillStore;
@@ -72,7 +72,7 @@ export interface ServerDeps {
   logger: Logger;
 }
 
-export function createServerApp(deps: ServerDeps) {
+export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
   const app = new OpenAPIHono();
 
   app.get('/healthz', c => c.text('OK!'));

@@ -49,7 +49,7 @@ const app = createServerApp({
   modelStore: ModelStore.load(),
   modelCatalog: ModelCatalog.load(),
   modelProviderStore: new SqliteModelProviderStore(db),
-  withTransaction: callback => db.transaction().execute(trx => callback(new SqliteModelProviderStore(trx))),
+  withTransaction: callback => db.transaction().execute(callback),
   mcpCatalog: McpCatalog.load(),
   mcpServerStore: new SqliteMcpServerStore(db),
   mcpStore: McpStore.load(),
