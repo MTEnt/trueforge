@@ -826,10 +826,14 @@ export async function* mapStreamToChunks({
       }
 
       case 'reasoning-delta': {
-        if (currentThinkingBlock !== null) {
-          currentThinkingBlock.thinking += part.text;
-          applyReasoningSignature(currentThinkingBlock, part.providerMetadata);
+        // A delta without a preceding `reasoning-start` would otherwise drop the block and the
+        // signature riding on it, silently breaking replay while still streaming the text out.
+        if (currentThinkingBlock === null) {
+          currentThinkingBlock = { type: 'thinking', thinking: '' };
+          accumulatedThinking.push(currentThinkingBlock);
         }
+        currentThinkingBlock.thinking += part.text;
+        applyReasoningSignature(currentThinkingBlock, part.providerMetadata);
         yield {
           ...makeBase(),
           choices: [
@@ -895,17 +899,19 @@ export async function* mapStreamToChunks({
 
       case 'tool-input-delta': {
         const state = toolCallStates.get(part.id);
-        if (state !== undefined) {
-          state.arguments += part.delta;
+        // Without a matching `tool-input-start` there is no index to attribute the delta to;
+        // emitting it anyway would append these arguments to an unrelated tool call.
+        if (state === undefined) {
+          break;
         }
-        const idx = state?.index ?? 0;
+        state.arguments += part.delta;
         yield {
           ...makeBase(),
           choices: [
             {
               index: 0,
               delta: {
-                tool_calls: [{ index: idx, function: { arguments: part.delta } }],
+                tool_calls: [{ index: state.index, function: { arguments: part.delta } }],
               },
               finish_reason: null,
               logprobs: null,

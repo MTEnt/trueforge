@@ -229,6 +229,46 @@ describe('mapStreamToChunks', () => {
     });
   });
 
+  it('keeps a reasoning-delta that arrives without a reasoning-start, along with its signature', async () => {
+    const providerMetadata: ProviderMetadata = { anthropic: { signature: 'orphan-sig' } };
+    const { final } = await drainStream(
+      mapStreamToChunks({
+        stream: makeStream([
+          { type: 'reasoning-delta', id: 'r1', text: 'unopened thought', providerMetadata },
+          makeFinishStep('stop'),
+        ]),
+        chunkMeta: CHUNK_META,
+      }),
+    );
+
+    expect(final.output.thinking_blocks).toEqual([
+      { type: 'thinking', thinking: 'unopened thought', signature: 'orphan-sig' },
+    ]);
+  });
+
+  it('drops a tool-input-delta whose id never opened, rather than crediting tool call 0', async () => {
+    const { chunks, final } = await drainStream(
+      mapStreamToChunks({
+        stream: makeStream([
+          { type: 'tool-input-start', id: 'call-a', toolName: 'tool_a' },
+          { type: 'tool-input-delta', id: 'call-a', delta: '{"city":' },
+          { type: 'tool-input-delta', id: 'ghost', delta: '"CORRUPT"' },
+          { type: 'tool-input-delta', id: 'call-a', delta: '"Paris"}' },
+          makeFinishStep('tool-calls'),
+        ]),
+        chunkMeta: CHUNK_META,
+      }),
+    );
+
+    const streamedArgs = chunks
+      .map(c => c.choices[0]?.delta.tool_calls?.[0])
+      .filter(tc => tc?.function?.arguments)
+      .map(tc => tc?.function?.arguments)
+      .join('');
+    expect(streamedArgs).toBe('{"city":"Paris"}');
+    expect(final.output.tool_calls?.[0]?.function.arguments).toBe('{"city":"Paris"}');
+  });
+
   it('assigns unique ascending indices to interleaved tool-input-* parts', async () => {
     const { chunks } = await drainStream(
       mapStreamToChunks({
