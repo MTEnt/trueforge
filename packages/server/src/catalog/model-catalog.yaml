@@ -1,9 +1,6 @@
 # Shipped model catalog: provider/model presets offered by
 # GET /api/v1/settings/model-providers/catalog for the settings UI to copy into
 # PUT /api/v1/settings/model-providers bodies. Discovery-only — never executed against.
-#
-# Seeded from github.com/truefoundry/models, then narrowed to ids the providers actually
-# serve: entries the registry still lists but that return 404 are omitted deliberately.
 providers:
   - type: openai
     name: openai
