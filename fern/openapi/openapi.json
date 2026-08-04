@@ -345,7 +345,8 @@
           "type": {
             "enum": [
               "openai",
-              "anthropic"
+              "anthropic",
+              "google-gemini"
             ],
             "type": "string"
           }
@@ -1875,10 +1876,6 @@
             "type": "array"
           }
         },
-        "required": [
-          "context_length",
-          "max_output_tokens"
-        ],
         "type": "object"
       },
       "ModelProvider": {
@@ -2003,6 +2000,7 @@
         "enum": [
           "openai",
           "anthropic",
+          "google-gemini",
           "custom"
         ],
         "type": "string"

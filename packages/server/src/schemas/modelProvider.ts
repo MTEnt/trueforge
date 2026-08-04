@@ -6,12 +6,12 @@
 import { z } from '@hono/zod-openapi';
 import { NameSchema, uniqueNames } from './common';
 
-export const ProviderTypeSchema = z.enum(['openai', 'anthropic', 'custom']).openapi('ProviderType');
+export const ProviderTypeSchema = z.enum(['openai', 'anthropic', 'google-gemini', 'custom']).openapi('ProviderType');
 
 export const ModelPropertiesSchema = z
   .object({
-    context_length: z.number().int().positive(),
-    max_output_tokens: z.number().int().positive(),
+    context_length: z.number().int().positive().optional(),
+    max_output_tokens: z.number().int().positive().optional(),
     reasoning_efforts: z.array(z.string().min(1)).min(1).optional(),
   })
   .strict()

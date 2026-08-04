@@ -1,22 +1,497 @@
 # Shipped model catalog: provider/model presets offered by
 # GET /api/v1/settings/model-providers/catalog for the settings UI to copy into
 # PUT /api/v1/settings/model-providers bodies. Discovery-only — never executed against.
+#
+# Seeded from github.com/truefoundry/models, then narrowed to ids the providers actually
+# serve: entries the registry still lists but that return 404 are omitted deliberately.
 providers:
   - type: openai
     name: openai
     models:
+      - model_id: chat-latest
+        name: chat-latest
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - medium
+      - model_id: gpt-3.5-turbo-0125
+        name: gpt-3-5-turbo-0125
+        properties:
+          context_length: 16385
+          max_output_tokens: 4096
+      - model_id: gpt-3.5-turbo-1106
+        name: gpt-3-5-turbo-1106
+        properties:
+          max_output_tokens: 4096
+      - model_id: gpt-3.5-turbo
+        name: gpt-3-5-turbo
+        properties:
+          max_output_tokens: 4096
+      - model_id: gpt-4.1-2025-04-14
+        name: gpt-4-1-2025-04-14
+        properties:
+          context_length: 1047576
+          max_output_tokens: 32768
+      - model_id: gpt-4.1-mini-2025-04-14
+        name: gpt-4-1-mini-2025-04-14
+        properties:
+          context_length: 1047576
+          max_output_tokens: 32768
+      - model_id: gpt-4.1-mini
+        name: gpt-4-1-mini
+        properties:
+          context_length: 1047576
+          max_output_tokens: 32768
+      - model_id: gpt-4.1
+        name: gpt-4-1
+        properties:
+          context_length: 1047576
+          max_output_tokens: 32768
+      - model_id: gpt-4o-2024-11-20
+        name: gpt-4o-2024-11-20
+        properties:
+          context_length: 128000
+          max_output_tokens: 16384
+      - model_id: gpt-4o-mini-2024-07-18
+        name: gpt-4o-mini-2024-07-18
+        properties:
+          context_length: 128000
+          max_output_tokens: 16384
+      - model_id: gpt-4o-mini
+        name: gpt-4o-mini
+        properties:
+          context_length: 128000
+          max_output_tokens: 16384
+      - model_id: gpt-4o
+        name: gpt-4o
+        properties:
+          context_length: 128000
+          max_output_tokens: 16384
+      - model_id: gpt-5-mini
+        name: gpt-5-mini
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - minimal
+            - low
+            - medium
+            - high
+      - model_id: gpt-5-nano
+        name: gpt-5-nano
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+      - model_id: gpt-5-pro
+        name: gpt-5-pro
+        properties:
+          context_length: 400000
+          max_output_tokens: 272000
+      - model_id: gpt-5.1-2025-11-13
+        name: gpt-5-1-2025-11-13
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+      - model_id: gpt-5.1
+        name: gpt-5-1
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+      - model_id: gpt-5.2-2025-12-11
+        name: gpt-5-2-2025-12-11
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.2-pro-2025-12-11
+        name: gpt-5-2-pro-2025-12-11
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.2-pro
+        name: gpt-5-2-pro
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.2
+        name: gpt-5-2
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.4-2026-03-05
+        name: gpt-5-4-2026-03-05
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.4-mini-2026-03-17
+        name: gpt-5-4-mini-2026-03-17
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.4-mini
+        name: gpt-5-4-mini
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.4-nano-2026-03-17
+        name: gpt-5-4-nano-2026-03-17
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.4-nano
+        name: gpt-5-4-nano
+        properties:
+          context_length: 400000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.4-pro-2026-03-05
+        name: gpt-5-4-pro-2026-03-05
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.4-pro
+        name: gpt-5-4-pro
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.4
+        name: gpt-5-4
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.5-2026-04-23
+        name: gpt-5-5-2026-04-23
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.5-pro-2026-04-23
+        name: gpt-5-5-pro-2026-04-23
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.5-pro
+        name: gpt-5-5-pro
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.5
+        name: gpt-5-5
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+      - model_id: gpt-5.6-luna
+        name: gpt-5-6-luna
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+            - max
       - model_id: gpt-5.6-sol
         name: gpt-5-6-sol
         properties:
-          context_length: 400000
-          max_output_tokens: 32768
-          reasoning_efforts: [low, medium, high]
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+            - max
+      - model_id: gpt-5.6-terra
+        name: gpt-5-6-terra
+        properties:
+          context_length: 1050000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - none
+            - low
+            - medium
+            - high
+            - xhigh
+            - max
   - type: anthropic
     name: anthropic
     models:
+      - model_id: claude-fable-5
+        name: claude-fable-5
+        properties:
+          context_length: 1000000
+          max_output_tokens: 128000
+      - model_id: claude-haiku-4-5-20251001
+        name: claude-haiku-4-5-20251001
+        properties:
+          context_length: 200000
+          max_output_tokens: 64000
+      - model_id: claude-haiku-4-5
+        name: claude-haiku-4-5
+        properties:
+          context_length: 200000
+          max_output_tokens: 64000
+      - model_id: claude-opus-4-5-20251101
+        name: claude-opus-4-5-20251101
+        properties:
+          context_length: 200000
+          max_output_tokens: 64000
+          reasoning_efforts:
+            - low
+            - medium
+            - high
+      - model_id: claude-opus-4-5
+        name: claude-opus-4-5
+        properties:
+          context_length: 200000
+          max_output_tokens: 64000
+          reasoning_efforts:
+            - low
+            - medium
+            - high
+      - model_id: claude-opus-4-6
+        name: claude-opus-4-6
+        properties:
+          context_length: 1000000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - low
+            - medium
+            - high
+            - max
+      - model_id: claude-opus-4-7
+        name: claude-opus-4-7
+        properties:
+          context_length: 1000000
+          max_output_tokens: 128000
+      - model_id: claude-opus-4-8
+        name: claude-opus-4-8
+        properties:
+          context_length: 1000000
+          max_output_tokens: 128000
+      - model_id: claude-opus-5
+        name: claude-opus-5
+        properties:
+          context_length: 1000000
+          max_output_tokens: 128000
+      - model_id: claude-sonnet-4-5-20250929
+        name: claude-sonnet-4-5-20250929
+        properties:
+          context_length: 200000
+          max_output_tokens: 64000
+      - model_id: claude-sonnet-4-5
+        name: claude-sonnet-4-5
+        properties:
+          context_length: 200000
+          max_output_tokens: 64000
       - model_id: claude-sonnet-4-6
         name: claude-sonnet-4-6
         properties:
-          context_length: 200000
+          context_length: 1000000
+          max_output_tokens: 128000
+          reasoning_efforts:
+            - low
+            - medium
+            - high
+            - max
+      - model_id: claude-sonnet-5
+        name: claude-sonnet-5
+        properties:
+          context_length: 1000000
+          max_output_tokens: 128000
+  - type: google-gemini
+    name: google-gemini
+    models:
+      - model_id: gemini-2.5-flash-lite
+        name: gemini-2-5-flash-lite
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+      - model_id: gemini-2.5-flash
+        name: gemini-2-5-flash
+        properties:
+          max_output_tokens: 65536
+      - model_id: gemini-2.5-pro
+        name: gemini-2-5-pro
+        properties:
+          max_output_tokens: 65536
+      - model_id: gemini-3-flash-preview
+        name: gemini-3-flash-preview
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+      - model_id: gemini-3.1-flash-lite
+        name: gemini-3-1-flash-lite
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+          reasoning_efforts:
+            - minimal
+            - low
+            - medium
+            - high
+      - model_id: gemini-3.1-pro-preview-customtools
+        name: gemini-3-1-pro-preview-customtools
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+          reasoning_efforts:
+            - low
+            - medium
+            - high
+      - model_id: gemini-3.1-pro-preview
+        name: gemini-3-1-pro-preview
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+          reasoning_efforts:
+            - low
+            - medium
+            - high
+      - model_id: gemini-3.5-flash-lite
+        name: gemini-3-5-flash-lite
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+      - model_id: gemini-3.5-flash
+        name: gemini-3-5-flash
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+          reasoning_efforts:
+            - low
+            - medium
+            - high
+      - model_id: gemini-3.6-flash
+        name: gemini-3-6-flash
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+      - model_id: gemini-flash-latest
+        name: gemini-flash-latest
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+      - model_id: gemini-flash-lite-latest
+        name: gemini-flash-lite-latest
+        properties:
+          context_length: 1048576
+          max_output_tokens: 65536
+      - model_id: gemini-pro-latest
+        name: gemini-pro-latest
+        properties:
+          max_output_tokens: 65536
+      - model_id: gemini-robotics-er-1.6-preview
+        name: gemini-robotics-er-1-6-preview
+        properties:
+          context_length: 131072
+          max_output_tokens: 65536
+      - model_id: gemini-robotics-er-2-preview
+        name: gemini-robotics-er-2-preview
+        properties:
+          context_length: 131072
+          max_output_tokens: 65536
+      - model_id: gemma-4-26b-a4b-it
+        name: gemma-4-26b-a4b-it
+        properties:
+          context_length: 262144
           max_output_tokens: 32768
-          reasoning_efforts: [low, medium, high]
+      - model_id: gemma-4-31b-it
+        name: gemma-4-31b-it
+        properties:
+          context_length: 256000
