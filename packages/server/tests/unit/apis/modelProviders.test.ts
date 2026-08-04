@@ -1,5 +1,7 @@
 import winston from 'winston';
+import { createModelProvidersRouter } from '../../../src/apis/modelProviders';
 import { createModelsRouter } from '../../../src/apis/models';
+import { TENANT_ID } from '../../../src/apis/sessions';
 import { createSettingsRouter } from '../../../src/apis/settings';
 import { McpCatalog } from '../../../src/catalog/McpCatalog';
 import { ModelCatalog } from '../../../src/catalog/ModelCatalog';
@@ -102,5 +104,59 @@ describe('settings model-providers and models routers', () => {
         },
       ],
     });
+  });
+});
+
+describe('model-provider PUT under transaction middleware', () => {
+  const providerName = putBody.name;
+
+  let db: ReturnType<typeof createSqliteDb>;
+  let store: SqliteModelProviderStore;
+
+  beforeEach(async () => {
+    db = createSqliteDb(':memory:');
+    await migrateSqliteToLatest(db);
+    store = new SqliteModelProviderStore(db);
+  });
+
+  afterEach(async () => {
+    await db.destroy();
+  });
+
+  it('commits the upsert when the route transaction succeeds', async () => {
+    const router = createModelProvidersRouter({
+      modelCatalog: ModelCatalog.load(),
+      modelProviderStore: store,
+      runTransaction: callback => db.transaction().execute(callback),
+    });
+
+    const response = await router.request('/', putInit(putBody));
+
+    expect(response.status).toBe(200);
+    const stored = await store.getProvider({ tenant_id: TENANT_ID, name: providerName });
+    expect(stored?.manifest.base_url).toBe(putBody.base_url);
+  });
+
+  it('rolls back when the handler throws and onError swallows next()', async () => {
+    const router = createModelProvidersRouter({
+      modelCatalog: ModelCatalog.load(),
+      modelProviderStore: {
+        listProviders: tenantId => store.listProviders(tenantId),
+        getProvider: input => store.getProvider(input),
+        listModels: tenantId => store.listModels(tenantId),
+        async upsertProvider(input, transaction) {
+          await store.upsertProvider(input, transaction);
+          throw new Error('fail after upsert');
+        },
+      },
+      runTransaction: callback => db.transaction().execute(callback),
+    });
+    // Matches createServerApp: onError resolves next() instead of rejecting it.
+    router.onError((_error, c) => c.json({ error: { message: 'Internal server error' } }, 500));
+
+    const response = await router.request('/', putInit(putBody));
+
+    expect(response.status).toBe(500);
+    await expect(store.getProvider({ tenant_id: TENANT_ID, name: providerName })).resolves.toBeUndefined();
   });
 });

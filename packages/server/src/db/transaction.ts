@@ -7,13 +7,18 @@ export type DbTransactionVariables<TTransaction> = {
   tx: TTransaction;
 };
 
-/** Methods that may mutate state; GETs stay out so reads and remote I/O do not hold a write txn. */
+/**
+ * HTTP methods that may mutate state.
+ * GET/HEAD/OPTIONS stay out so read handlers do not hold a write transaction.
+ */
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
- * Opens a txn and `c.set('tx', …)` for write methods only, then `next()`.
- * Skips GET/HEAD/OPTIONS: no atomic write boundary, and handlers like MCP tools/list
- * must not hold a DB txn across outbound HTTP.
+ * Opens a DB transaction for write methods, sets `c.set('tx', …)`, then runs `next()`.
+ *
+ * After `next()`, rethrow `c.error` when set. Hono's `onError` catches handler throws,
+ * assigns `c.error`, and resolves `next()` instead of rejecting it — without this
+ * rethrow Kysely would commit the transaction even though the client got an error.
  */
 export function createWriteDbTransactionMiddleware<TTransaction>(
   runTransaction: RunTransaction<TTransaction>,
@@ -26,6 +31,9 @@ export function createWriteDbTransactionMiddleware<TTransaction>(
     await runTransaction(async transaction => {
       c.set('tx', transaction);
       await next();
+      if (c.error) {
+        throw c.error;
+      }
     });
   };
 }
