@@ -1,11 +1,7 @@
 import { OpenAPIHono, type RouteHandler } from '@hono/zod-openapi';
 import type { ModelCatalog } from '../catalog/ModelCatalog';
 import type { IModelProviderStore, ModelProviderRecord } from '../db/modelProviderStore';
-import {
-  createWriteDbTransactionMiddleware,
-  type DbTransactionVariables,
-  type RunTransaction,
-} from '../db/transaction';
+import { createWriteDbTransactionMiddleware, type DbTransactionEnv, type RunTransaction } from '../db/transaction';
 import {
   getModelProviderCatalogRoute,
   listModelProvidersRoute,
@@ -13,10 +9,6 @@ import {
 } from '../routes/modelProviderRoutes';
 import { toModelProviderManifest, type ModelProvider } from '../schemas/modelProvider';
 import { TENANT_ID } from './sessions';
-
-interface TxEnv<TTransaction> {
-  Variables: DbTransactionVariables<TTransaction>;
-}
 
 export interface ModelProvidersRouterDeps<TTransaction> {
   modelCatalog: ModelCatalog;
@@ -33,16 +25,16 @@ function toModelProvider(record: ModelProviderRecord): ModelProvider {
 }
 
 export function createModelProvidersRouter<TTransaction>(deps: ModelProvidersRouterDeps<TTransaction>) {
-  const catalogHandler: RouteHandler<typeof getModelProviderCatalogRoute, TxEnv<TTransaction>> = c => {
+  const catalogHandler: RouteHandler<typeof getModelProviderCatalogRoute, DbTransactionEnv<TTransaction>> = c => {
     return c.json({ data: [...deps.modelCatalog.list()] }, 200);
   };
 
-  const listHandler: RouteHandler<typeof listModelProvidersRoute, TxEnv<TTransaction>> = async c => {
+  const listHandler: RouteHandler<typeof listModelProvidersRoute, DbTransactionEnv<TTransaction>> = async c => {
     const records = await deps.modelProviderStore.listProviders(TENANT_ID);
     return c.json({ data: records.map(toModelProvider) }, 200);
   };
 
-  const putHandler: RouteHandler<typeof putModelProviderRoute, TxEnv<TTransaction>> = async c => {
+  const putHandler: RouteHandler<typeof putModelProviderRoute, DbTransactionEnv<TTransaction>> = async c => {
     const body = c.req.valid('json');
     const record = await deps.modelProviderStore.upsertProvider(
       {
@@ -55,7 +47,7 @@ export function createModelProvidersRouter<TTransaction>(deps: ModelProvidersRou
     return c.json({ data: toModelProvider(record) }, 200);
   };
 
-  const router = new OpenAPIHono<TxEnv<TTransaction>>();
+  const router = new OpenAPIHono<DbTransactionEnv<TTransaction>>();
   // Write methods only — catalog/list are single reads and do not need a route txn.
   router.use('*', createWriteDbTransactionMiddleware(deps.runTransaction));
   router.openapi(getModelProviderCatalogRoute, catalogHandler);

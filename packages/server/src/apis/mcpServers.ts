@@ -17,11 +17,7 @@ import type { Logger } from 'winston';
 import type { McpCatalog } from '../catalog/McpCatalog';
 import configuration from '../config';
 import type { IMcpServerStore, McpServerRecord } from '../db/mcpServerStore';
-import {
-  createWriteDbTransactionMiddleware,
-  type DbTransactionVariables,
-  type RunTransaction,
-} from '../db/transaction';
+import { createWriteDbTransactionMiddleware, type DbTransactionEnv, type RunTransaction } from '../db/transaction';
 import {
   authorizeConfiguredMcpServerRoute,
   getMcpServerCatalogRoute,
@@ -36,10 +32,6 @@ import { TENANT_ID } from './sessions';
 
 /** Registering a DCR OAuth client hits the MCP server's authorization server, so bound that call. */
 export const MCP_DCR_REGISTRATION_TIMEOUT_MS = 10_000;
-
-interface TxEnv<TTransaction> {
-  Variables: DbTransactionVariables<TTransaction>;
-}
 
 export interface McpServersRouterDeps<TTransaction> {
   mcpCatalog: McpCatalog;
@@ -97,11 +89,14 @@ export function createMcpServersRouter<TTransaction>(deps: McpServersRouterDeps<
     );
   };
 
-  const catalogHandler: RouteHandler<typeof getMcpServerCatalogRoute, TxEnv<TTransaction>> = c => {
+  const catalogHandler: RouteHandler<typeof getMcpServerCatalogRoute, DbTransactionEnv<TTransaction>> = c => {
     return c.json({ data: [...deps.mcpCatalog.list()] }, 200);
   };
 
-  const listConfiguredHandler: RouteHandler<typeof listConfiguredMcpServersRoute, TxEnv<TTransaction>> = async c => {
+  const listConfiguredHandler: RouteHandler<
+    typeof listConfiguredMcpServersRoute,
+    DbTransactionEnv<TTransaction>
+  > = async c => {
     const records = await deps.mcpServerStore.listServers(TENANT_ID);
     const nowMs = Date.now();
     // Only DCR servers have tokens; batch the lookup.
@@ -110,7 +105,7 @@ export function createMcpServersRouter<TTransaction>(deps: McpServersRouterDeps<
     return c.json({ data: records.map(record => toConfiguredMcpServer(record, tokens.get(record.id), nowMs)) }, 200);
   };
 
-  const putHandler: RouteHandler<typeof putMcpServerRoute, TxEnv<TTransaction>> = async c => {
+  const putHandler: RouteHandler<typeof putMcpServerRoute, DbTransactionEnv<TTransaction>> = async c => {
     const manifest: McpServerManifest = c.req.valid('json');
     const record = await deps.mcpServerStore.upsertServer(
       { tenant_id: TENANT_ID, name: manifest.name, manifest },
@@ -146,7 +141,7 @@ export function createMcpServersRouter<TTransaction>(deps: McpServersRouterDeps<
     return c.json({ data: toConfiguredMcpServer(record, token, Date.now()) }, 200);
   };
 
-  const listToolsHandler: RouteHandler<typeof listMcpServerToolsRoute, TxEnv<TTransaction>> = async c => {
+  const listToolsHandler: RouteHandler<typeof listMcpServerToolsRoute, DbTransactionEnv<TTransaction>> = async c => {
     const { name } = c.req.valid('param');
     const record = await deps.mcpServerStore.getServer({ tenant_id: TENANT_ID, name });
     if (!record) {
@@ -179,7 +174,10 @@ export function createMcpServersRouter<TTransaction>(deps: McpServersRouterDeps<
     }
   };
 
-  const authorizeHandler: RouteHandler<typeof authorizeConfiguredMcpServerRoute, TxEnv<TTransaction>> = async c => {
+  const authorizeHandler: RouteHandler<
+    typeof authorizeConfiguredMcpServerRoute,
+    DbTransactionEnv<TTransaction>
+  > = async c => {
     const { name } = c.req.valid('param');
     const { redirect_url: redirectUrl } = c.req.valid('query');
     const record = await deps.mcpServerStore.getServer({ tenant_id: TENANT_ID, name });
@@ -221,7 +219,7 @@ export function createMcpServersRouter<TTransaction>(deps: McpServersRouterDeps<
     }
   };
 
-  const router = new OpenAPIHono<TxEnv<TTransaction>>();
+  const router = new OpenAPIHono<DbTransactionEnv<TTransaction>>();
   // Write methods only — tools/authorize are GETs (DB read + remote I/O; must not hold a write txn).
   router.use('*', createWriteDbTransactionMiddleware(deps.runTransaction));
   // Static `/catalog` before `/{name}/…` so "catalog" is not captured as a name.

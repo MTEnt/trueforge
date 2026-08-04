@@ -3,8 +3,11 @@ import type { MiddlewareHandler } from 'hono';
 /** Opens a DB transaction and runs the callback with the handle (commit on resolve, rollback on throw). */
 export type RunTransaction<TTransaction> = <T>(callback: (transaction: TTransaction) => Promise<T>) => Promise<T>;
 
-export interface DbTransactionVariables<TTransaction> {
-  tx: TTransaction;
+/** Hono env: write middleware sets `c.set('tx', …)` for handlers to pass into stores. */
+export interface DbTransactionEnv<TTransaction> {
+  Variables: {
+    tx: TTransaction;
+  };
 }
 
 /**
@@ -22,7 +25,7 @@ const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  */
 export function createWriteDbTransactionMiddleware<TTransaction>(
   runTransaction: RunTransaction<TTransaction>,
-): MiddlewareHandler<{ Variables: DbTransactionVariables<TTransaction> }> {
+): MiddlewareHandler<DbTransactionEnv<TTransaction>> {
   return async (c, next) => {
     if (!WRITE_METHODS.has(c.req.method)) {
       await next();
