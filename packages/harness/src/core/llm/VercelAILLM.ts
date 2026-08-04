@@ -54,7 +54,7 @@ interface ReasoningPart {
 }
 
 /** Providers with a dedicated code path in {@link buildLanguageModel}. */
-export type VercelAIProviderName = 'openai' | 'anthropic' | 'google-gemini' | 'generic';
+export type VercelAIProviderName = 'openai' | 'anthropic' | 'google-gemini' | 'custom';
 
 /** Structural config accepted by VercelAILLM; compatible with server's ProviderConfig. */
 export interface VercelAIProviderConfig {
@@ -67,7 +67,7 @@ export interface VercelAIProviderConfig {
   base_url?: string | undefined;
   apiKey: string;
   headers: Record<string, string>;
-  /** API format for the `generic` provider. Only option today; defaults when absent. */
+  /** API format for the `custom` provider. Only option today; defaults when absent. */
   api_format?: 'openai-chat-completions' | undefined;
 }
 
@@ -107,12 +107,12 @@ export function buildLanguageModel(config: VercelAIProviderConfig): LanguageMode
       });
       return client(modelId);
     }
-    case 'generic': {
+    case 'custom': {
       if (base_url === undefined) {
-        throw new Error('Provider "generic" requires a base_url in models.yaml');
+        throw new Error('Provider "custom" requires a base_url in models.yaml');
       }
       const client = createOpenAICompatible({
-        name: 'generic',
+        name: 'custom',
         baseURL: base_url,
         apiKey,
         // Without this the adapter silently downgrades json_schema to a schema-less json_object.
@@ -179,7 +179,7 @@ function isReasoningLevel(v: string): v is ReasoningLevel {
 /**
  * Providers whose adapters derive their thinking config from the top-level `reasoning` setting:
  * google builds `thinkingConfig`, anthropic picks the per-model thinking shape. `openai` and
- * `generic` carry the effort in their own provider options instead.
+ * `custom` carry the effort in their own provider options instead.
  */
 const REASONING_LEVEL_PROVIDERS: readonly VercelAIProviderName[] = ['google-gemini', 'anthropic'];
 
@@ -252,20 +252,24 @@ export function mapFinishReason(reason: FinishReason): RawAssistantMessageWithUs
 type JSONObject = Record<string, JSONValue | undefined>;
 
 /** `rawBody` is a parsed JSON request body, so any value present is a valid JSONValue. */
-function readBodyField(rawBody: unknown, key: string): JSONValue | undefined {
+function readBodyField({ rawBody, key }: { rawBody: unknown; key: string }): JSONValue | undefined {
   const val: unknown = Reflect.get(Object(rawBody), key);
   return val !== undefined ? (val as JSONValue) : undefined;
 }
 
-function openaiProviderOptions(
-  rawBody: unknown,
-  reasoningEffort: string | undefined,
-  strictJsonSchema: boolean | undefined,
-): JSONObject {
-  const serviceTier = readBodyField(rawBody, 'service_tier');
-  const user = readBodyField(rawBody, 'user');
-  const promptCacheKey = readBodyField(rawBody, 'prompt_cache_key');
-  const parallelToolCalls = readBodyField(rawBody, 'parallel_tool_calls');
+function openaiProviderOptions({
+  rawBody,
+  reasoningEffort,
+  strictJsonSchema,
+}: {
+  rawBody: unknown;
+  reasoningEffort: string | undefined;
+  strictJsonSchema: boolean | undefined;
+}): JSONObject {
+  const serviceTier = readBodyField({ rawBody, key: 'service_tier' });
+  const user = readBodyField({ rawBody, key: 'user' });
+  const promptCacheKey = readBodyField({ rawBody, key: 'prompt_cache_key' });
+  const parallelToolCalls = readBodyField({ rawBody, key: 'parallel_tool_calls' });
   // No server-side storage, and request the encrypted reasoning token so replay stays stateless.
   return {
     store: false,
@@ -280,27 +284,38 @@ function openaiProviderOptions(
 }
 
 /**
- * Deliberately omits `thinking`: provider options override the adapter's per-model mapping, so
- * pinning it here would send `thinking.type: 'enabled'` to every model, which Claude 5 rejects.
+ * Forwards but never pins `thinking` and `effort`: both replace the adapter's per-model resolution
+ * and no single value fits every model. This is the caller's only route to disabling thinking, or to
+ * the `display: 'summarized'` that makes Claude 5 return reasoning text instead of an empty block.
  */
 function anthropicProviderOptions(rawBody: unknown): JSONObject | undefined {
-  const cacheControl = readBodyField(rawBody, 'cache_control');
-  const disableParallelToolUse = readBodyField(rawBody, 'disable_parallel_tool_use');
+  const cacheControl = readBodyField({ rawBody, key: 'cache_control' });
+  const disableParallelToolUse = readBodyField({ rawBody, key: 'disable_parallel_tool_use' });
+  const thinking = readBodyField({ rawBody, key: 'thinking' });
+  const effort = readBodyField({ rawBody, key: 'effort' });
   const opts: JSONObject = {
     ...(cacheControl !== undefined ? { cacheControl } : {}),
     ...(disableParallelToolUse !== undefined ? { disableParallelToolUse } : {}),
+    ...(thinking !== undefined ? { thinking } : {}),
+    ...(effort !== undefined ? { effort } : {}),
   };
   return Object.keys(opts).length > 0 ? opts : undefined;
 }
 
 /**
- * Gemini returns thought summaries only when `includeThoughts` is set, and `@ai-sdk/google` omits
- * it — without this the model bills reasoning tokens and returns none. An explicit
- * `thinking_config` in the request body wins.
+ * Gemini returns thought summaries only when `includeThoughts` is set, and `@ai-sdk/google` omits it
+ * — without this the model bills reasoning tokens and returns none. The effort itself rides in the
+ * top-level `reasoning` setting. An explicit `thinking_config` in the request body wins.
  */
-function googleThinkingConfig(rawBody: unknown, reasoningEffort: string | undefined): JSONValue | undefined {
-  const fromBody = readBodyField(rawBody, 'thinking_config');
-  if (reasoningEffort === undefined) {
+function googleGeminiThinkingConfig({
+  rawBody,
+  reasoningRequested,
+}: {
+  rawBody: unknown;
+  reasoningRequested: boolean;
+}): JSONValue | undefined {
+  const fromBody = readBodyField({ rawBody, key: 'thinking_config' });
+  if (!reasoningRequested) {
     return fromBody;
   }
   if (typeof fromBody === 'object' && fromBody !== null && !Array.isArray(fromBody)) {
@@ -309,10 +324,16 @@ function googleThinkingConfig(rawBody: unknown, reasoningEffort: string | undefi
   return { includeThoughts: true };
 }
 
-function googleProviderOptions(rawBody: unknown, reasoningEffort: string | undefined): JSONObject | undefined {
-  const safetySettings = readBodyField(rawBody, 'safety_settings');
-  const thinkingConfig = googleThinkingConfig(rawBody, reasoningEffort);
-  const cachedContent = readBodyField(rawBody, 'cached_content');
+function googleGeminiProviderOptions({
+  rawBody,
+  reasoningRequested,
+}: {
+  rawBody: unknown;
+  reasoningRequested: boolean;
+}): JSONObject | undefined {
+  const safetySettings = readBodyField({ rawBody, key: 'safety_settings' });
+  const thinkingConfig = googleGeminiThinkingConfig({ rawBody, reasoningRequested });
+  const cachedContent = readBodyField({ rawBody, key: 'cached_content' });
   const opts: JSONObject = {
     ...(safetySettings !== undefined ? { safetySettings } : {}),
     ...(thinkingConfig !== undefined ? { thinkingConfig } : {}),
@@ -321,12 +342,16 @@ function googleProviderOptions(rawBody: unknown, reasoningEffort: string | undef
   return Object.keys(opts).length > 0 ? opts : undefined;
 }
 
-function genericProviderOptions(
-  rawBody: unknown,
-  reasoningEffort: string | undefined,
-  strictJsonSchema: boolean | undefined,
-): JSONObject | undefined {
-  const parallelToolCalls = readBodyField(rawBody, 'parallel_tool_calls');
+function customProviderOptions({
+  rawBody,
+  reasoningEffort,
+  strictJsonSchema,
+}: {
+  rawBody: unknown;
+  reasoningEffort: string | undefined;
+  strictJsonSchema: boolean | undefined;
+}): JSONObject | undefined {
+  const parallelToolCalls = readBodyField({ rawBody, key: 'parallel_tool_calls' });
   const opts: JSONObject = {
     ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
     ...(strictJsonSchema !== undefined ? { strictJsonSchema } : {}),
@@ -352,18 +377,18 @@ export function buildProviderOptions({
 }): ProviderOptions {
   const strictJsonSchema = structuredOutputSpec.mode === 'json_schema' ? structuredOutputSpec.strict : undefined;
   if (config.provider === 'openai') {
-    return { openai: openaiProviderOptions(rawBody, reasoningEffort, strictJsonSchema) };
+    return { openai: openaiProviderOptions({ rawBody, reasoningEffort, strictJsonSchema }) };
   } else if (config.provider === 'anthropic') {
     const anthropic = anthropicProviderOptions(rawBody);
     return anthropic !== undefined ? { anthropic } : {};
   } else if (config.provider === 'google-gemini') {
-    const google = googleProviderOptions(rawBody, reasoningEffort);
+    const google = googleGeminiProviderOptions({ rawBody, reasoningRequested: reasoningEffort !== undefined });
     return google !== undefined ? { google } : {};
   } else {
-    // The adapter registers under the name 'generic'; this becomes api_format-specific once
+    // Key must match the `name` passed to createOpenAICompatible; becomes api_format-specific once
     // more than one OpenAI-compatible format is supported.
-    const generic = genericProviderOptions(rawBody, reasoningEffort, strictJsonSchema);
-    return generic !== undefined ? { generic } : {};
+    const custom = customProviderOptions({ rawBody, reasoningEffort, strictJsonSchema });
+    return custom !== undefined ? { custom } : {};
   }
 }
 
@@ -436,7 +461,7 @@ export function toUserContent(content: string | ChatCompletionContentPart[]): Us
  * - `'openai'`        → `openai.reasoningEncryptedContent`
  * - `'anthropic'`     → `anthropic.signature`
  * - `'google-gemini'` → per-tool-call `google.thoughtSignature`, no standalone reasoning block
- * - `'generic'`       → OpenAI-compatible ignores providerOptions, so the token has nowhere to go
+ * - `'custom'`        → OpenAI-compatible ignores providerOptions, so the token has nowhere to go
  */
 export function toAssistantModelMessage({
   msg,
@@ -752,7 +777,13 @@ interface ToolCallState {
  * `reasoning-end`, Anthropic to a text-less `reasoning-delta`. Missing either silently loses the
  * chain, since unsigned thinking blocks are dropped on replay.
  */
-function applyReasoningSignature(block: ThinkingBlock, providerMetadata: ProviderMetadata | undefined): void {
+function applyReasoningSignature({
+  block,
+  providerMetadata,
+}: {
+  block: ThinkingBlock;
+  providerMetadata: ProviderMetadata | undefined;
+}): void {
   if (providerMetadata === undefined) {
     return;
   }
@@ -826,14 +857,14 @@ export async function* mapStreamToChunks({
       }
 
       case 'reasoning-delta': {
-        // A delta without a preceding `reasoning-start` would otherwise drop the block and the
-        // signature riding on it, silently breaking replay while still streaming the text out.
+        // A delta with no preceding `reasoning-start` would otherwise drop the block and its
+        // signature, breaking replay while the text still streams out.
         if (currentThinkingBlock === null) {
           currentThinkingBlock = { type: 'thinking', thinking: '' };
           accumulatedThinking.push(currentThinkingBlock);
         }
         currentThinkingBlock.thinking += part.text;
-        applyReasoningSignature(currentThinkingBlock, part.providerMetadata);
+        applyReasoningSignature({ block: currentThinkingBlock, providerMetadata: part.providerMetadata });
         yield {
           ...makeBase(),
           choices: [
@@ -853,7 +884,7 @@ export async function* mapStreamToChunks({
 
       case 'reasoning-end': {
         if (currentThinkingBlock !== null) {
-          applyReasoningSignature(currentThinkingBlock, part.providerMetadata);
+          applyReasoningSignature({ block: currentThinkingBlock, providerMetadata: part.providerMetadata });
         }
         currentThinkingBlock = null;
         break;
@@ -899,8 +930,8 @@ export async function* mapStreamToChunks({
 
       case 'tool-input-delta': {
         const state = toolCallStates.get(part.id);
-        // Without a matching `tool-input-start` there is no index to attribute the delta to;
-        // emitting it anyway would append these arguments to an unrelated tool call.
+        // With no matching `tool-input-start` there is no index to attribute this to; emitting it
+        // anyway would append the arguments to an unrelated tool call.
         if (state === undefined) {
           break;
         }

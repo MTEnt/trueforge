@@ -629,6 +629,65 @@
         },
         "type": "object"
       },
+      "CustomProviderModelEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "api_format": {
+            "enum": [
+              "openai-chat-completions"
+            ],
+            "type": "string"
+          },
+          "api_key": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "base_url": {
+            "format": "uri",
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "max_output_tokens": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "model_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.-]*$",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "custom"
+            ],
+            "type": "string"
+          },
+          "reasoning_efforts": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "max_output_tokens",
+          "provider",
+          "base_url"
+        ],
+        "type": "object"
+      },
       "DynamicSubAgentsConfig": {
         "properties": {
           "enabled": {
@@ -700,65 +759,6 @@
             "type": "boolean"
           }
         },
-        "type": "object"
-      },
-      "GenericProviderModelEntry": {
-        "additionalProperties": false,
-        "properties": {
-          "api_format": {
-            "enum": [
-              "openai-chat-completions"
-            ],
-            "type": "string"
-          },
-          "api_key": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "base_url": {
-            "format": "uri",
-            "type": "string"
-          },
-          "headers": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object"
-          },
-          "max_output_tokens": {
-            "exclusiveMinimum": 0,
-            "type": "integer"
-          },
-          "model_id": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "name": {
-            "minLength": 1,
-            "pattern": "^[a-z0-9][a-z0-9.-]*$",
-            "type": "string"
-          },
-          "provider": {
-            "enum": [
-              "generic"
-            ],
-            "type": "string"
-          },
-          "reasoning_efforts": {
-            "items": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "minItems": 1,
-            "type": "array"
-          }
-        },
-        "required": [
-          "name",
-          "max_output_tokens",
-          "provider",
-          "base_url"
-        ],
         "type": "object"
       },
       "GetCapabilitiesResponse": {
@@ -985,7 +985,7 @@
                   "discriminator": {
                     "mapping": {
                       "anthropic": "#/components/schemas/AnthropicProviderModelEntry",
-                      "generic": "#/components/schemas/GenericProviderModelEntry",
+                      "custom": "#/components/schemas/CustomProviderModelEntry",
                       "google-gemini": "#/components/schemas/GoogleGeminiProviderModelEntry",
                       "openai": "#/components/schemas/OpenAIProviderModelEntry"
                     },
@@ -1002,7 +1002,7 @@
                       "$ref": "#/components/schemas/GoogleGeminiProviderModelEntry"
                     },
                     {
-                      "$ref": "#/components/schemas/GenericProviderModelEntry"
+                      "$ref": "#/components/schemas/CustomProviderModelEntry"
                     }
                   ]
                 }

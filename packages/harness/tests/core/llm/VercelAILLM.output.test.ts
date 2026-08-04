@@ -93,7 +93,7 @@ describe('toReasoningLevel', () => {
 
   it('returns undefined for providers that carry the effort in their own provider options', () => {
     expect(toReasoningLevel({ provider: 'openai', reasoningEffort: 'high' })).toBeUndefined();
-    expect(toReasoningLevel({ provider: 'generic', reasoningEffort: 'low' })).toBeUndefined();
+    expect(toReasoningLevel({ provider: 'custom', reasoningEffort: 'low' })).toBeUndefined();
   });
 
   it('returns undefined when reasoningEffort is undefined', () => {
@@ -119,7 +119,7 @@ describe('toReasoningLevel', () => {
 
   it('leaves `max` to the provider options of providers that forward the effort verbatim', () => {
     expect(toReasoningLevel({ provider: 'openai', reasoningEffort: 'max' })).toBeUndefined();
-    expect(toReasoningLevel({ provider: 'generic', reasoningEffort: 'max' })).toBeUndefined();
+    expect(toReasoningLevel({ provider: 'custom', reasoningEffort: 'max' })).toBeUndefined();
   });
 });
 
@@ -256,6 +256,20 @@ describe('buildProviderOptions', () => {
       }
     });
 
+    it('forwards a caller-supplied thinking and effort, which override the per-model shape', () => {
+      // The caller's only route to disabling thinking, a raw effort, or Claude 5's `display`.
+      const opts = buildProviderOptions({
+        config,
+        reasoningEffort: 'high',
+        structuredOutputSpec: textSpec,
+        rawBody: { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'max' },
+      });
+      expect(opts['anthropic']).toEqual({
+        thinking: { type: 'adaptive', display: 'summarized' },
+        effort: 'max',
+      });
+    });
+
     it('ignores strictJsonSchema (no anthropic key for structured-output strictness)', () => {
       const opts = buildProviderOptions({
         config: config,
@@ -290,8 +304,8 @@ describe('buildProviderOptions', () => {
     });
   });
 
-  describe('generic provider', () => {
-    const config = makeConfig({ provider: 'generic', base_url: 'http://localhost/v1' });
+  describe('custom provider', () => {
+    const config = makeConfig({ provider: 'custom', base_url: 'http://localhost/v1' });
 
     it('returns empty options when both reasoningEffort and strictJsonSchema are absent', () => {
       const opts = buildProviderOptions({
@@ -310,7 +324,7 @@ describe('buildProviderOptions', () => {
         structuredOutputSpec: textSpec,
         rawBody: {},
       });
-      expect(opts['generic']).toMatchObject({ reasoningEffort: 'medium' });
+      expect(opts['custom']).toMatchObject({ reasoningEffort: 'medium' });
     });
 
     it('passes strictJsonSchema for json_schema mode', () => {
@@ -320,7 +334,7 @@ describe('buildProviderOptions', () => {
         structuredOutputSpec: schemaSpecStrict,
         rawBody: {},
       });
-      expect(opts['generic']).toMatchObject({ strictJsonSchema: true });
+      expect(opts['custom']).toMatchObject({ strictJsonSchema: true });
     });
 
     it('includes both when both are present', () => {
@@ -330,17 +344,17 @@ describe('buildProviderOptions', () => {
         structuredOutputSpec: schemaSpecStrict,
         rawBody: {},
       });
-      expect(opts['generic']).toEqual({ reasoningEffort: 'low', strictJsonSchema: true });
+      expect(opts['custom']).toEqual({ reasoningEffort: 'low', strictJsonSchema: true });
     });
 
-    it('omits the generic key when the resulting object would be empty', () => {
+    it('omits the custom key when the resulting object would be empty', () => {
       const opts = buildProviderOptions({
         config: config,
         reasoningEffort: undefined,
         structuredOutputSpec: textSpec,
         rawBody: {},
       });
-      expect(opts).not.toHaveProperty('generic');
+      expect(opts).not.toHaveProperty('custom');
     });
   });
 
@@ -403,13 +417,13 @@ describe('buildProviderOptions', () => {
   });
 
   describe('cross-provider completeness: every provider must surface reasoningEffort somewhere', () => {
-    const providers: VercelAIProviderConfig['provider'][] = ['openai', 'anthropic', 'generic', 'google-gemini'];
+    const providers: VercelAIProviderConfig['provider'][] = ['openai', 'anthropic', 'custom', 'google-gemini'];
     const effort = 'high';
 
     it.each(providers)('%s: reasoningEffort reaches providerOptions or toReasoningLevel', provider => {
       const config = makeConfig({
         provider,
-        ...(provider === 'generic' ? { base_url: 'http://localhost/v1' } : {}),
+        ...(provider === 'custom' ? { base_url: 'http://localhost/v1' } : {}),
       });
       const opts = buildProviderOptions({
         config: config,
@@ -422,7 +436,7 @@ describe('buildProviderOptions', () => {
       const inProviderOptions =
         (opts['openai'] !== undefined && 'reasoningEffort' in opts['openai']) ||
         opts['anthropic'] !== undefined ||
-        (opts['generic'] !== undefined && 'reasoningEffort' in opts['generic']);
+        (opts['custom'] !== undefined && 'reasoningEffort' in opts['custom']);
 
       expect(inProviderOptions || reasoningLevel !== undefined).toBe(true);
     });

@@ -204,14 +204,14 @@ describe('toAssistantModelMessage', () => {
     expect(reasoningPart?.providerOptions).toEqual({ anthropic: { signature: 'sig-ant' } });
   });
 
-  it('places thinking_blocks as reasoning parts — generic provider carries no replay token', () => {
+  it('places thinking_blocks as reasoning parts — custom provider carries no replay token', () => {
     const msg: Extract<ChatCompletionMessageParam, { role: 'assistant' }> = {
       role: 'assistant',
       content: null,
     };
     Reflect.set(msg, 'thinking_blocks', [{ type: 'thinking', thinking: 'step', signature: 'sig-gen' }]);
 
-    const result = toAssistantModelMessage({ msg: msg, provider: 'generic' });
+    const result = toAssistantModelMessage({ msg: msg, provider: 'custom' });
     const reasoningPart = (result.content as Array<{ type: string; text?: string; providerOptions?: unknown }>).find(
       p => p.type === 'reasoning',
     );

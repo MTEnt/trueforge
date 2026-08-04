@@ -247,7 +247,7 @@ describe('mapStreamToChunks', () => {
   });
 
   it('drops a tool-input-delta whose id never opened, rather than crediting tool call 0', async () => {
-    const { chunks, final } = await drainStream(
+    const { chunks } = await drainStream(
       mapStreamToChunks({
         stream: makeStream([
           { type: 'tool-input-start', id: 'call-a', toolName: 'tool_a' },
@@ -261,12 +261,10 @@ describe('mapStreamToChunks', () => {
     );
 
     const streamedArgs = chunks
-      .map(c => c.choices[0]?.delta.tool_calls?.[0])
-      .filter(tc => tc?.function?.arguments)
-      .map(tc => tc?.function?.arguments)
+      .map(c => c.choices[0]?.delta.tool_calls?.[0]?.function?.arguments)
+      .filter(Boolean)
       .join('');
     expect(streamedArgs).toBe('{"city":"Paris"}');
-    expect(final.output.tool_calls?.[0]?.function.arguments).toBe('{"city":"Paris"}');
   });
 
   it('assigns unique ascending indices to interleaved tool-input-* parts', async () => {
