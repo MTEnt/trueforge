@@ -14,7 +14,7 @@ export async function patchThreadCapabilityState(
   input: PatchThreadCapabilityStateInput,
 ): Promise<void> {
   await db.transaction().execute(async trx => {
-    // Fence inside IMMEDIATE transaction: verify turn is still running.
+    // Fence: verify turn is still running.
     const fenceRow = await trx
       .selectFrom('turn')
       .select(sql`1`.as('one'))

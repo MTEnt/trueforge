@@ -25,7 +25,7 @@ export async function appendToEvents(db: Kysely<Database>, input: AppendToEvents
     turn_id: input.turn_id,
   };
 
-  // Fence check first inside BEGIN IMMEDIATE; then batched insert.
+  // TODO: consider setAccessMode('read write') (BEGIN IMMEDIATE) for fence+write under concurrency.
   await db.transaction().execute(async trx => {
     const fenceRow = await trx
       .selectFrom('turn')

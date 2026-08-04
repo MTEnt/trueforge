@@ -309,13 +309,13 @@ async function assembleTurnRecord(
 }
 
 /**
- * createTurn — IMMEDIATE tx (BEGIN IMMEDIATE covers write locking; no FOR UPDATE/FOR SHARE).
+ * createTurn — single txn (default DEFERRED BEGIN; no FOR UPDATE/FOR SHARE).
  * Context order lives in turn_thread_context (pos, append_id); no context_ids array.
  */
 export async function createTurn(db: Kysely<Database>, input: CreateTurnInput): Promise<void> {
   try {
     await db.transaction().execute(async trx => {
-      // Step 1: read session tip; no FOR UPDATE (BEGIN IMMEDIATE is the lock).
+      // Step 1: read session tip; no FOR UPDATE.
       const locked = await trx
         .selectFrom('session')
         .select(['last_turn_id'])
@@ -681,7 +681,6 @@ export async function freezeAndGetTurn(db: Kysely<Database>, input: FreezeAndGet
 
 /**
  * getTurn — deferred read tx so assembleTurnRecord's SELECTs share one snapshot.
- * ImmediateSqliteDriver maps setAccessMode('read only') → BEGIN (not IMMEDIATE).
  */
 export async function getTurn(db: Kysely<Database>, input: GetTurnInput): Promise<TurnRecord<TurnCustom> | undefined> {
   return db
