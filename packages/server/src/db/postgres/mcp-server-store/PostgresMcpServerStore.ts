@@ -102,7 +102,8 @@ export class PostgresMcpServerStore implements IMcpServerStore<Transaction<Datab
   }
 
   async deleteClient(params: { id: string }, transaction?: Transaction<Database>): Promise<void> {
-    await (transaction ?? this.#db)
+    const db = transaction ?? this.#db;
+    await db
       .updateTable('mcp_server')
       .set({
         oauth_server: null,
