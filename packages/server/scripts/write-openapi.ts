@@ -66,6 +66,7 @@ const app = createServerApp({
   requestReplyRouter: new RequestReplyRouter(),
   eventSubscriptions: new EventSubscriptionRegistry<TurnStreamingEvent>(undefined),
   logger: winston.createLogger({ silent: true }),
+  oidcClient: undefined,
 });
 
 const document = buildOpenApiDocument(app);

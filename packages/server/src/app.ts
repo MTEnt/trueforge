@@ -5,6 +5,7 @@ import type { ISessionStore, Sessions, TurnStreamingEvent } from '@truefoundry/u
 import type { RequestReplyRouter } from '@truefoundry/utils-core/request-reply';
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import type { Configuration } from 'openid-client';
 import type { RedisClientType } from 'redis';
 import type { Logger } from 'winston';
 import { createAgentsRouter } from './apis/agents';
@@ -72,6 +73,8 @@ export interface ServerDeps<TTransaction> {
   /** Hands out each turn's resumable event stream to the create and subscribe handlers. */
   eventSubscriptions: EventSubscriptionRegistry<TurnStreamingEvent>;
   logger: Logger;
+  /** Discovered openid-client configuration; undefined when browser login is disabled. */
+  oidcClient: Configuration | undefined;
 }
 
 export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
@@ -79,7 +82,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
 
   app.get('/healthz', c => c.text('OK!'));
 
-  app.route('/api/v1/auth', createAuthRouter());
+  app.route('/api/v1/auth', createAuthRouter({ oidcClient: deps.oidcClient, logger: deps.logger }));
   app.route('/api/v1/capabilities', createCapabilitiesRouter({ sandboxProviderStore: deps.sandboxProviderStore }));
   app.route('/api/v1/models', createModelsRouter(deps.modelProviderStore));
   app.route(
