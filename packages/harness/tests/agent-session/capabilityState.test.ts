@@ -84,7 +84,6 @@ describe('capability_state (tfy.plan fixture)', () => {
           }),
         ],
       }),
-      transaction: undefined,
     });
     for await (const event of turn1.stream()) {
       void event;
@@ -113,7 +112,6 @@ describe('capability_state (tfy.plan fixture)', () => {
           }),
         ],
       }),
-      transaction: undefined,
     });
     // Hydration happens in run() when threads are built (before stream).
     expect(loads).toEqual([planV1]);
@@ -149,7 +147,6 @@ describe('capability_state (tfy.plan fixture)', () => {
       resolver: makeTestResolver({
         extraCapabilities: [makePlanShapedCapability({ enabled: true, emitState: planV1 })],
       }),
-      transaction: undefined,
     });
     for await (const event of turn1.stream()) {
       void event;
@@ -181,7 +178,6 @@ describe('capability_state (tfy.plan fixture)', () => {
       previous_turn_id: 'auto',
       signal: new AbortController().signal,
       resolver: wrapped,
-      transaction: undefined,
     });
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Dropping unclaimed capability_state key 'tfy.plan'"));
 
@@ -237,7 +233,6 @@ describe('capability_state (tfy.plan fixture)', () => {
       previous_turn_id: 'none',
       signal: new AbortController().signal,
       resolver: makeTestResolver({ extraCapabilities: [undefinedStateCapability] }),
-      transaction: undefined,
     });
     let errorMessage: string | undefined;
     for await (const event of turn.stream()) {

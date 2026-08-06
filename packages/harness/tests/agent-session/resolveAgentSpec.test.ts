@@ -36,7 +36,6 @@ describe('SessionHandle.createTurn named resolve', () => {
       previous_turn_id: 'none',
       signal: new AbortController().signal,
       resolver: makeTestResolver({ agent }),
-      transaction: undefined,
     });
 
     expect(turn.state.status).toBe('running');

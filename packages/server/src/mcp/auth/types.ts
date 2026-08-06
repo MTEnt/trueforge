@@ -15,13 +15,13 @@ export interface OAuthToken {
   scope: string | null;
 }
 
-export interface IOAuthTokenStore {
+export interface IOAuthTokenStore<TTransaction = never> {
   savePendingAuthorization(pending: OAuthPendingAuthorization): Promise<void>;
   consumePendingAuthorization(params: { state: string }): Promise<OAuthPendingAuthorization | undefined>;
   saveToken(params: { id: string; token: OAuthToken }): Promise<void>;
   getToken(params: { id: string }): Promise<OAuthToken | undefined>;
   getTokens(params: { ids: string[] }): Promise<Map<string, OAuthToken>>;
-  deleteToken(params: { id: string }): Promise<void>;
+  deleteToken(params: { id: string }, transaction?: TTransaction): Promise<void>;
 }
 
 /** Authorization-server endpoints discovered and cached at registration time. */
@@ -42,10 +42,10 @@ export interface OAuthClientRecord {
   client: OAuthClientCredentials;
 }
 
-export interface IOAuthClientStore {
+export interface IOAuthClientStore<TTransaction = never> {
   saveClient(params: { id: string; record: OAuthClientRecord }): Promise<void>;
   getClient(params: { id: string }): Promise<OAuthClientRecord | undefined>;
-  deleteClient(params: { id: string }): Promise<void>;
+  deleteClient(params: { id: string }, transaction?: TTransaction): Promise<void>;
 }
 
 export interface McpAuthResolvedResult {

@@ -1,4 +1,4 @@
-import type { ExpressionBuilder, Kysely } from 'kysely';
+import type { ExpressionBuilder, Kysely, Transaction } from 'kysely';
 import { ulid } from 'ulid';
 import type { OAuthClientRecord } from '../../../mcp/auth/types';
 import type { McpServerManifest } from '../../../schemas/mcpServer';
@@ -28,7 +28,7 @@ function recordColumns(eb: ExpressionBuilder<Database, 'mcp_server'>) {
   ];
 }
 
-export class SqliteMcpServerStore implements IMcpServerStore {
+export class SqliteMcpServerStore implements IMcpServerStore<Transaction<Database>> {
   readonly #db: Kysely<Database>;
 
   constructor(db: Kysely<Database>) {
@@ -106,8 +106,8 @@ export class SqliteMcpServerStore implements IMcpServerStore {
       .execute();
   }
 
-  async deleteClient(params: { id: string }): Promise<void> {
-    await this.#db
+  async deleteClient(params: { id: string }, transaction?: Transaction<Database>): Promise<void> {
+    await (transaction ?? this.#db)
       .updateTable('mcp_server')
       .set({
         oauth_server: null,

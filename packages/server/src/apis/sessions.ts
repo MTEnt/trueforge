@@ -62,9 +62,9 @@ export function toWireSession(record: SessionRecord): Session {
   };
 }
 
-export interface SessionsRouterDeps<TTransaction = undefined> {
-  sessions: Sessions<Record<string, never>, Record<string, never>, TTransaction>;
-  sessionStore: ISessionStore<Record<string, never>, Record<string, never>, TTransaction>;
+export interface SessionsRouterDeps {
+  sessions: Sessions;
+  sessionStore: ISessionStore;
   activeTurns: ActiveTurnRegistry;
   modelProviderStore: IModelProviderStore;
   mcpServerStore: IMcpServerStore;
@@ -184,7 +184,7 @@ export async function cancelSessionTurn(
 }
 
 /** DB-backed sessions (mounted at /api/v1/sessions). */
-export function createSessionsRouter<TTransaction = undefined>(deps: SessionsRouterDeps<TTransaction>) {
+export function createSessionsRouter(deps: SessionsRouterDeps) {
   const createSessionHandler: RouteHandler<typeof createSessionRoute> = async c => {
     const body = c.req.valid('json');
     const sessionId = ulid().toLowerCase();

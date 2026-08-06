@@ -1,11 +1,11 @@
-import type { Kysely } from 'kysely';
+import type { Kysely, Transaction } from 'kysely';
 import type { IOAuthTokenStore, OAuthPendingAuthorization, OAuthToken } from '../../../mcp/auth/types';
 import { fromStoredOAuthToken, toStoredOAuthToken } from '../../mcpServerStore';
 import type { Database } from '../types';
 import { consumePendingAuthorization, savePendingAuthorization } from './queries/pendingAuthorization';
 import { deleteToken, getToken, getTokens, saveToken } from './queries/token';
 
-export class SqliteOAuthTokenStore implements IOAuthTokenStore {
+export class SqliteOAuthTokenStore implements IOAuthTokenStore<Transaction<Database>> {
   constructor(private readonly db: Kysely<Database>) {}
 
   savePendingAuthorization(pending: OAuthPendingAuthorization): Promise<void> {
@@ -30,7 +30,7 @@ export class SqliteOAuthTokenStore implements IOAuthTokenStore {
     return new Map([...stored].map(([id, token]) => [id, fromStoredOAuthToken(token)]));
   }
 
-  deleteToken(params: { id: string }): Promise<void> {
-    return deleteToken(this.db, params);
+  deleteToken(params: { id: string }, transaction?: Transaction<Database>): Promise<void> {
+    return deleteToken(transaction ?? this.db, params);
   }
 }

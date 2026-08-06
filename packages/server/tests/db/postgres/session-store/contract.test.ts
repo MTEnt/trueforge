@@ -1,7 +1,7 @@
+import type { ISessionStore } from '@truefoundry/utils-core/agent-session/store/ISessionStore';
 import { sql } from 'kysely';
 
 import { runStoreContractSuite } from '../../../../../harness/tests/agent-session/store/storeContractSuite';
-import { makeAgentSpec, makeCreateTurnInput } from '../../../../../harness/tests/agent-session/testHelpers';
 import { PostgresSessionStore } from '../../../../src/db/postgres/session-store/PostgresSessionStore';
 import { createPostgresTestDatabase, type PostgresTestDatabase } from '../testDatabase';
 
@@ -37,40 +37,10 @@ describePg('PostgresSessionStore (ISessionStore contract)', () => {
     }
   });
 
-  runStoreContractSuite(
-    () => {
-      if (env === undefined) {
-        throw new Error('Postgres test environment not initialized');
-      }
-      return new PostgresSessionStore(env.db);
-    },
-    callback => {
-      if (env === undefined) {
-        throw new Error('Postgres test environment not initialized');
-      }
-      return env.db.transaction().execute(callback);
-    },
-  );
-
-  it('joins a caller-owned transaction for createTurn', async () => {
+  runStoreContractSuite((): ISessionStore => {
     if (env === undefined) {
       throw new Error('Postgres test environment not initialized');
     }
-    const store = new PostgresSessionStore(env.db);
-    await store.createSession({
-      tenant_id: 't1',
-      session_id: 's1',
-      agent: { type: 'value', agent_spec: makeAgentSpec() },
-      custom: null,
-    });
-
-    await expect(
-      env.db.transaction().execute(async transaction => {
-        await store.createTurn(makeCreateTurnInput({ sessionId: 's1', turnId: 'turn-1' }), transaction);
-        throw new Error('rollback');
-      }),
-    ).rejects.toThrow('rollback');
-
-    await expect(store.getTurn({ session_id: 's1', turn_id: 'turn-1' })).resolves.toBeUndefined();
+    return new PostgresSessionStore(env.db);
   });
 });

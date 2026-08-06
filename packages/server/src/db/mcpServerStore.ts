@@ -46,7 +46,7 @@ export interface UpsertMcpServerInput {
   manifest: McpServerManifest;
 }
 
-export interface IMcpServerStore extends IOAuthClientStore {
+export interface IMcpServerStore<TTransaction = never> extends IOAuthClientStore<TTransaction> {
   listServers(input: ListMcpServersInput): Promise<McpServerRecord[]>;
   getServer(input: GetMcpServerInput): Promise<McpServerRecord | undefined>;
   /**

@@ -95,7 +95,12 @@ describe('MCP OAuth authorize + callback', () => {
       tokenStore,
       logger,
     });
-    oauthRouter = createMcpOAuthRouter({ tokenStore, mcpServerStore, logger });
+    oauthRouter = createMcpOAuthRouter({
+      tokenStore,
+      mcpServerStore,
+      withTransaction: callback => db.transaction().execute(callback),
+      logger,
+    });
   });
 
   beforeEach(() => {

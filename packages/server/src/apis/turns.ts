@@ -31,7 +31,6 @@ import type { IMcpServerStore } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
-import type { WithTransaction } from '../db/transaction';
 import type { IOAuthTokenStore } from '../mcp/auth/types';
 import {
   createAndExecuteTurnRoute,
@@ -63,10 +62,9 @@ export function toWireTurn(record: TurnRecordWithoutSnapshot): Turn {
   };
 }
 
-export interface TurnsRouterDeps<TTransaction = undefined> {
-  sessions: Sessions<Record<string, never>, Record<string, never>, TTransaction>;
-  sessionStore: ISessionStore<Record<string, never>, Record<string, never>, TTransaction>;
-  withTransaction: WithTransaction<TTransaction>;
+export interface TurnsRouterDeps {
+  sessions: Sessions;
+  sessionStore: ISessionStore;
   activeTurns: ActiveTurnRegistry;
   modelProviderStore: IModelProviderStore;
   mcpServerStore: IMcpServerStore;
@@ -290,7 +288,7 @@ export function resolveAfterSequenceNumber(c: Context, bodyAfterSequenceNumber?:
 }
 
 /** DB-backed turns (mounted at /api/v1/sessions). */
-export function createTurnsRouter<TTransaction = undefined>(deps: TurnsRouterDeps<TTransaction>) {
+export function createTurnsRouter(deps: TurnsRouterDeps) {
   const listTurnsHandler: RouteHandler<typeof listTurnsRoute> = async c => {
     const { session_id: sessionId } = c.req.valid('param');
     const query = c.req.valid('query');
@@ -378,17 +376,14 @@ export function createTurnsRouter<TTransaction = undefined>(deps: TurnsRouterDep
 
     let turn;
     try {
-      turn = await deps.withTransaction(transaction =>
-        session.createTurn({
-          turn_id: mintPeeredTurnId(configuration.EXECUTOR_ID),
-          input: body.input,
-          previous_turn_id: body.previous_turn_id,
-          signal: abortController.signal,
-          resolver,
-          update_session_title_if_not_exist: title,
-          transaction,
-        }),
-      );
+      turn = await session.createTurn({
+        turn_id: mintPeeredTurnId(configuration.EXECUTOR_ID),
+        input: body.input,
+        previous_turn_id: body.previous_turn_id,
+        signal: abortController.signal,
+        resolver,
+        update_session_title_if_not_exist: title,
+      });
     } catch (error) {
       if (error instanceof SessionStoreNotFoundError) {
         return c.json({ error: { message: error.message } }, 404);

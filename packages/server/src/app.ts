@@ -56,15 +56,14 @@ export interface ServerDeps<TTransaction> {
   skillCatalog: SkillCatalog;
   sandboxCatalog: SandboxCatalog;
   modelProviderStore: IModelProviderStore;
-  /** Route-owned transaction boundary; store writes join via the passed handle. */
   withTransaction: WithTransaction<TTransaction>;
-  mcpServerStore: IMcpServerStore;
-  tokenStore: IOAuthTokenStore;
+  mcpServerStore: IMcpServerStore<TTransaction>;
+  tokenStore: IOAuthTokenStore<TTransaction>;
   skillStore: ISkillStore;
   sandboxProviderStore: ISandboxProviderStore;
   agentStore: IAgentStore;
-  sessionStore: ISessionStore<Record<string, never>, Record<string, never>, TTransaction>;
-  sessions: Sessions<Record<string, never>, Record<string, never>, TTransaction>;
+  sessionStore: ISessionStore;
+  sessions: Sessions;
   activeTurns: ActiveTurnRegistry;
   /** Primary Redis client (server-owned); undefined in standalone mode. */
   redis?: RedisClientType | undefined;
@@ -97,6 +96,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
     createMcpOAuthRouter({
       tokenStore: deps.tokenStore,
       mcpServerStore: deps.mcpServerStore,
+      withTransaction: deps.withTransaction,
       logger: deps.logger,
     }),
   );
@@ -146,7 +146,6 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
     createTurnsRouter({
       sessions: deps.sessions,
       sessionStore: deps.sessionStore,
-      withTransaction: deps.withTransaction,
       activeTurns: deps.activeTurns,
       modelProviderStore: deps.modelProviderStore,
       mcpServerStore: deps.mcpServerStore,

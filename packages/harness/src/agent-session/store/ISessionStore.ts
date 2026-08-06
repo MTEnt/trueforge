@@ -207,7 +207,6 @@ export interface ListSessionEventsInput {
 export interface ISessionStore<
   TSessionCustom extends object = Record<string, never>,
   TTurnCustom extends object = Record<string, never>,
-  TTransaction = undefined,
 > {
   /**
    * Persists a discriminated `agent` (ref | value). SQL backends may flatten to columns.
@@ -223,7 +222,7 @@ export interface ISessionStore<
    * Returns the session as stored (ref agents are not hydrated to a value).
    * Does **not** bump `last_activity_timestamp_ms` (read path).
    */
-  getSession(input: GetSessionInput, transaction?: TTransaction): Promise<SessionRecord<TSessionCustom> | undefined>;
+  getSession(input: GetSessionInput): Promise<SessionRecord<TSessionCustom> | undefined>;
 
   /**
    * PATCH semantics — update only the provided fields:
@@ -273,7 +272,7 @@ export interface ISessionStore<
    * overwritten (first write wins). The caller derives the value; the store
    * only conditionally sets it.
    */
-  createTurn(input: CreateTurnInput<TTurnCustom>, transaction: TTransaction): Promise<void>;
+  createTurn(input: CreateTurnInput<TTurnCustom>): Promise<void>;
 
   /**
    * One tx: (a) conditionally cancel a running turn with
@@ -282,7 +281,7 @@ export interface ISessionStore<
    * event insert; (c) return the now-immutable turn record. Missing turn →
    * {@link TurnNotFoundError}.
    */
-  freezeAndGetTurn(input: FreezeAndGetTurnInput, transaction: TTransaction): Promise<TurnRecord<TTurnCustom>>;
+  freezeAndGetTurn(input: FreezeAndGetTurnInput): Promise<TurnRecord<TTurnCustom>>;
 
   /** Returns the turn record, or undefined if not found in this session. */
   getTurn(input: GetTurnInput): Promise<TurnRecord<TTurnCustom> | undefined>;

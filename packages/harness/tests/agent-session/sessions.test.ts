@@ -45,7 +45,6 @@ describe('Sessions / SessionHandle / TurnHandle (storage + createTurn)', () => {
       signal: new AbortController().signal,
       resolver: makeTestResolver(),
       update_session_title_if_not_exist: 'From first message',
-      transaction: undefined,
     });
     expect(turn.state.status).toBe('running');
     expect(turn.input).toHaveLength(1);
@@ -73,7 +72,6 @@ describe('Sessions / SessionHandle / TurnHandle (storage + createTurn)', () => {
       previous_turn_id: 'none',
       signal: new AbortController().signal,
       resolver: makeTestResolver(),
-      transaction: undefined,
     });
     const getSession = jest.spyOn(store, 'getSession');
 
@@ -112,7 +110,6 @@ describe('Sessions / SessionHandle / TurnHandle (storage + createTurn)', () => {
       signal: new AbortController().signal,
       resolver: makeTestResolver<{ n: number }>(),
       custom: { n: 1 },
-      transaction: undefined,
     });
     expect(t1.custom).toEqual({ n: 1 });
 
@@ -123,7 +120,6 @@ describe('Sessions / SessionHandle / TurnHandle (storage + createTurn)', () => {
       signal: new AbortController().signal,
       resolver: makeTestResolver<{ n: number }>(),
       custom: prev => ({ n: (prev?.n ?? 0) + 10 }),
-      transaction: undefined,
     });
     expect(t2.custom).toEqual({ n: 11 });
   });
@@ -142,7 +138,6 @@ describe('Sessions / SessionHandle / TurnHandle (storage + createTurn)', () => {
       previous_turn_id: 'none',
       signal: new AbortController().signal,
       resolver: makeTestResolver(),
-      transaction: undefined,
     });
     for await (const event of first.stream()) {
       void event;
@@ -154,7 +149,6 @@ describe('Sessions / SessionHandle / TurnHandle (storage + createTurn)', () => {
       previous_turn_id: 'none',
       signal: new AbortController().signal,
       resolver: makeTestResolver(),
-      transaction: undefined,
     });
     expect(root2.previous_turn_id).toBeNull();
     const sessionRecord = await store.getSession({ tenant_id: tenant, session_id: 's1' });
@@ -185,7 +179,6 @@ describe('Sessions / SessionHandle / TurnHandle (storage + createTurn)', () => {
         previous_turn_id: 'none',
         signal: new AbortController().signal,
         resolver: makeTestResolver(),
-        transaction: undefined,
       }),
     ).rejects.toThrow();
     const turns = await store.listTurns({
@@ -225,7 +218,6 @@ describe('Sessions / SessionHandle / TurnHandle (storage + createTurn)', () => {
         previous_turn_id: 'none',
         signal: new AbortController().signal,
         resolver: makeTestResolver({ close: closeOnFailure }),
-        transaction: undefined,
       }),
     ).rejects.toThrow();
     expect(closeOnFailure).toHaveBeenCalledTimes(1);
@@ -238,7 +230,6 @@ describe('Sessions / SessionHandle / TurnHandle (storage + createTurn)', () => {
       previous_turn_id: 'none',
       signal: new AbortController().signal,
       resolver: makeTestResolver({ close: closeOnSuccess }),
-      transaction: undefined,
     });
     expect(closeOnSuccess).not.toHaveBeenCalled();
     for await (const event of turn.stream()) {

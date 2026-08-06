@@ -2,8 +2,5 @@ import { InMemorySessionStore } from '../../../src/agent-session/store/InMemoryS
 import { runStoreContractSuite } from './storeContractSuite';
 
 describe('InMemorySessionStore (ISessionStore contract)', () => {
-  runStoreContractSuite(
-    () => new InMemorySessionStore(),
-    callback => callback(undefined),
-  );
+  runStoreContractSuite(() => new InMemorySessionStore());
 });

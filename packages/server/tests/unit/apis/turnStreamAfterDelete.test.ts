@@ -69,7 +69,6 @@ describe('turn SSE after session deletion', () => {
       createTurnsRouter({
         sessions,
         sessionStore: new SqliteSessionStore(db),
-        withTransaction: callback => db.transaction().execute(callback),
         activeTurns: new ActiveTurnRegistry(),
         modelProviderStore,
         mcpServerStore: new SqliteMcpServerStore(db),

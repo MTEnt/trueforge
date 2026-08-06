@@ -1,4 +1,4 @@
-import type { Kysely, Selectable } from 'kysely';
+import type { Kysely, Selectable, Transaction } from 'kysely';
 import { ulid } from 'ulid';
 import type { OAuthClientRecord } from '../../../mcp/auth/types';
 import {
@@ -24,7 +24,7 @@ function toRecord(row: Selectable<McpServerTable>): McpServerRecord {
   };
 }
 
-export class PostgresMcpServerStore implements IMcpServerStore {
+export class PostgresMcpServerStore implements IMcpServerStore<Transaction<Database>> {
   readonly #db: Kysely<Database>;
 
   constructor(db: Kysely<Database>) {
@@ -101,8 +101,8 @@ export class PostgresMcpServerStore implements IMcpServerStore {
       .execute();
   }
 
-  async deleteClient(params: { id: string }): Promise<void> {
-    await this.#db
+  async deleteClient(params: { id: string }, transaction?: Transaction<Database>): Promise<void> {
+    await (transaction ?? this.#db)
       .updateTable('mcp_server')
       .set({
         oauth_server: null,

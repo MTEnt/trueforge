@@ -30,7 +30,7 @@ import {
   decodeOffsetPageToken,
   encodeOffsetPageToken,
 } from '@truefoundry/utils-core/agent-session/store/OffsetPageToken';
-import type { Kysely, Transaction } from 'kysely';
+import type { Kysely } from 'kysely';
 import type { Database } from '../types';
 import { patchThreadCapabilityState as patchThreadCapabilityStateQuery } from './queries/capabilities';
 import {
@@ -83,9 +83,9 @@ type TurnCustom = Record<string, never>;
  *    finished tip can leave more than one turn `running` at once.
  * 2. Every turn-scoped write is fenced on `state->>'status' = 'running'`.
  * 3. Terminal turns are IMMUTABLE — a terminal read is a final read.
- * 4. SQLite has no FOR SHARE / FOR UPDATE; deferred txns take the write lock on first write.
+ * 4. BEGIN IMMEDIATE provides write locking (no FOR SHARE / FOR UPDATE).
  */
-export class SqliteSessionStore implements ISessionStore<SessionCustom, TurnCustom, Transaction<Database>> {
+export class SqliteSessionStore implements ISessionStore<SessionCustom, TurnCustom> {
   constructor(private readonly db: Kysely<Database>) {}
 
   createSession(input: CreateSessionInput<SessionCustom>): Promise<void> {
@@ -96,11 +96,8 @@ export class SqliteSessionStore implements ISessionStore<SessionCustom, TurnCust
     return deleteSessionQuery(this.db, input);
   }
 
-  getSession(
-    input: GetSessionInput,
-    transaction?: Transaction<Database>,
-  ): Promise<SessionRecord<SessionCustom> | undefined> {
-    return getSessionQuery(transaction ?? this.db, input);
+  getSession(input: GetSessionInput): Promise<SessionRecord<SessionCustom> | undefined> {
+    return getSessionQuery(this.db, input);
   }
 
   updateSession(input: UpdateSessionInput<SessionCustom>): Promise<void> {
@@ -120,8 +117,8 @@ export class SqliteSessionStore implements ISessionStore<SessionCustom, TurnCust
     };
   }
 
-  async createTurn(input: CreateTurnInput<TurnCustom>, transaction: Transaction<Database>): Promise<void> {
-    await createTurnQuery(transaction, {
+  async createTurn(input: CreateTurnInput<TurnCustom>): Promise<void> {
+    await createTurnQuery(this.db, {
       session_id: input.turn.session_id,
       turn: {
         turn_id: input.turn.turn_id,
@@ -146,8 +143,8 @@ export class SqliteSessionStore implements ISessionStore<SessionCustom, TurnCust
     });
   }
 
-  freezeAndGetTurn(input: FreezeAndGetTurnInput, transaction: Transaction<Database>): Promise<TurnRecord<TurnCustom>> {
-    return freezeAndGetTurnQuery(transaction, input);
+  freezeAndGetTurn(input: FreezeAndGetTurnInput): Promise<TurnRecord<TurnCustom>> {
+    return freezeAndGetTurnQuery(this.db, input);
   }
 
   getTurn(input: GetTurnInput): Promise<TurnRecord<TurnCustom> | undefined> {
