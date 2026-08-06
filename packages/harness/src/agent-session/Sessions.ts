@@ -12,10 +12,11 @@ export type SessionsCreateInput<TSessionCustom extends object> = Omit<CreateSess
 export class Sessions<
   TSessionCustom extends object = Record<string, never>,
   TTurnCustom extends object = Record<string, never>,
+  TTransaction = undefined,
 > {
-  private readonly store: ISessionStore<TSessionCustom, TTurnCustom>;
+  private readonly store: ISessionStore<TSessionCustom, TTurnCustom, TTransaction>;
 
-  constructor(deps: { sessionStore: ISessionStore<TSessionCustom, TTurnCustom> }) {
+  constructor(deps: { sessionStore: ISessionStore<TSessionCustom, TTurnCustom, TTransaction> }) {
     this.store = deps.sessionStore;
   }
 
@@ -23,7 +24,9 @@ export class Sessions<
    * Creates and persists a new session. `agent_spec` is the fully hydrated
    * spec; the store may internally persist a blob and/or a uri/id.
    */
-  async create(input: SessionsCreateInput<TSessionCustom>): Promise<SessionHandle<TSessionCustom, TTurnCustom>> {
+  async create(
+    input: SessionsCreateInput<TSessionCustom>,
+  ): Promise<SessionHandle<TSessionCustom, TTurnCustom, TTransaction>> {
     await this.store.createSession({
       ...input,
       custom: input.custom ?? null,
@@ -46,7 +49,7 @@ export class Sessions<
    * only a uri/id), or undefined if not found. Read-only: does not bump
    * last_activity_timestamp_ms.
    */
-  async get(input: GetSessionInput): Promise<SessionHandle<TSessionCustom, TTurnCustom> | undefined> {
+  async get(input: GetSessionInput): Promise<SessionHandle<TSessionCustom, TTurnCustom, TTransaction> | undefined> {
     const record = await this.store.getSession(input);
     if (!record) {
       return undefined;

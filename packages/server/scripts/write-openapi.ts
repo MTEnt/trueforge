@@ -50,7 +50,7 @@ const db = createSqliteDb(':memory:');
 const app = createServerApp({
   modelCatalog: ModelCatalog.load(),
   modelProviderStore: new SqliteModelProviderStore(db),
-  withTransaction: callback => db.transaction().execute(callback),
+  withTransaction: callback => callback(undefined),
   mcpCatalog: McpCatalog.load(),
   mcpServerStore: new SqliteMcpServerStore(db),
   tokenStore: new SqliteOAuthTokenStore(db),

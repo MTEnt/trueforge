@@ -21,7 +21,7 @@ import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
 import { isMcpAuthRequired, resolveMcpAuth } from '../mcp/auth/mcpDcr';
-import type { IOAuthClientStore, IOAuthTokenStore } from '../mcp/auth/types';
+import type { IOAuthTokenStore } from '../mcp/auth/types';
 import { resolveConfiguredMcpRequestHeaders } from '../schemas/mcpServer';
 import { PROVIDER_DEFAULT_BASE_URLS } from '../schemas/modelProvider';
 import { toDaytonaSandboxProviderInput } from '../schemas/sandboxProvider';
@@ -47,14 +47,14 @@ export function parseModelFqn(name: string): { providerName: string; modelName: 
  * Load turn-ready LLM config for a configured FQN (`provider/model`).
  * Malformed FQN or missing provider/model → HTTPException(422).
  */
-export async function getModelProviderConfig<TTransaction>({
+export async function getModelProviderConfig({
   tenant_id,
   name,
   store,
 }: {
   tenant_id: string;
   name: string;
-  store: IModelProviderStore<TTransaction>;
+  store: IModelProviderStore;
 }): Promise<VercelAIProviderConfig> {
   const parsed = parseModelFqn(name);
   if (parsed === undefined) {
@@ -90,7 +90,7 @@ export async function getModelProviderConfig<TTransaction>({
 function dcrHeadersResolver(params: {
   record: McpServerRecord;
   tokenStore: IOAuthTokenStore;
-  mcpServerStore: IOAuthClientStore;
+  mcpServerStore: IMcpServerStore;
   clientName: string;
 }): RemoteMcpHeaders {
   const { record, tokenStore, mcpServerStore, clientName } = params;
@@ -121,7 +121,7 @@ function dcrHeadersResolver(params: {
  * DCR uses resolveMcpAuth; header / no-auth use resolveConfiguredMcpRequestHeaders.
  * Returns undefined when the server is not registered — callers choose the response.
  */
-export async function getMcpConnection<TTransaction>({
+export async function getMcpConnection({
   tenant_id,
   name,
   store,
@@ -130,7 +130,7 @@ export async function getMcpConnection<TTransaction>({
 }: {
   tenant_id: string;
   name: string;
-  store: IMcpServerStore<TTransaction>;
+  store: IMcpServerStore;
   tokenStore: IOAuthTokenStore;
   clientName: string;
 }): Promise<McpConnection | undefined> {
@@ -256,7 +256,7 @@ export function buildTurnSandbox(input: {
  * sandbox capability. Throws HTTPException(422) for semantic failures.
  * Skills are admitted by name only; mounts expand at turn time.
  */
-export async function validateAgentSpec<TTransaction>({
+export async function validateAgentSpec({
   spec,
   tenant_id,
   modelProviderStore,
@@ -266,8 +266,8 @@ export async function validateAgentSpec<TTransaction>({
 }: {
   spec: AgentSpec;
   tenant_id: string;
-  modelProviderStore: IModelProviderStore<TTransaction>;
-  mcpServerStore: IMcpServerStore<TTransaction>;
+  modelProviderStore: IModelProviderStore;
+  mcpServerStore: IMcpServerStore;
   skillStore: ISkillStore;
   sandboxProviderStore: ISandboxProviderStore;
 }): Promise<void> {

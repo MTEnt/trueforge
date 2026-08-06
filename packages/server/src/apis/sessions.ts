@@ -61,11 +61,11 @@ export function toWireSession(record: SessionRecord): Session {
 }
 
 export interface SessionsRouterDeps<TTransaction = undefined> {
-  sessions: Sessions;
-  sessionStore: ISessionStore;
+  sessions: Sessions<Record<string, never>, Record<string, never>, TTransaction>;
+  sessionStore: ISessionStore<Record<string, never>, Record<string, never>, TTransaction>;
   activeTurns: ActiveTurnRegistry;
-  modelProviderStore: IModelProviderStore<TTransaction>;
-  mcpServerStore: IMcpServerStore<TTransaction>;
+  modelProviderStore: IModelProviderStore;
+  mcpServerStore: IMcpServerStore;
   skillStore: ISkillStore;
   sandboxProviderStore: ISandboxProviderStore;
   redis?: RedisClientType | undefined;

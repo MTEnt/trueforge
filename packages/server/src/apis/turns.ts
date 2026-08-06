@@ -31,6 +31,7 @@ import type { IMcpServerStore } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
+import type { WithTransaction } from '../db/transaction';
 import type { IOAuthTokenStore } from '../mcp/auth/types';
 import {
   createAndExecuteTurnRoute,
@@ -63,11 +64,12 @@ export function toWireTurn(record: TurnRecordWithoutSnapshot): Turn {
 }
 
 export interface TurnsRouterDeps<TTransaction = undefined> {
-  sessions: Sessions;
-  sessionStore: ISessionStore;
+  sessions: Sessions<Record<string, never>, Record<string, never>, TTransaction>;
+  sessionStore: ISessionStore<Record<string, never>, Record<string, never>, TTransaction>;
+  withTransaction: WithTransaction<TTransaction>;
   activeTurns: ActiveTurnRegistry;
-  modelProviderStore: IModelProviderStore<TTransaction>;
-  mcpServerStore: IMcpServerStore<TTransaction>;
+  modelProviderStore: IModelProviderStore;
+  mcpServerStore: IMcpServerStore;
   tokenStore: IOAuthTokenStore;
   skillStore: ISkillStore;
   /** Resumable live turn-event transport: create-turn writes, subscribe polls. */
@@ -80,8 +82,8 @@ export interface TurnsRouterDeps<TTransaction = undefined> {
  * TurnResourceResolver requires a sync llm factory; preload the session model
  * config so the factory stays sync while the store read stays async.
  */
-function createTurnResolver<TTransaction>(deps: {
-  mcpServerStore: IMcpServerStore<TTransaction>;
+function createTurnResolver(deps: {
+  mcpServerStore: IMcpServerStore;
   tokenStore: IOAuthTokenStore;
   skillStore: ISkillStore;
   sandboxProviderStore: ISandboxProviderStore;
@@ -322,14 +324,17 @@ export function createTurnsRouter<TTransaction = undefined>(deps: TurnsRouterDep
 
     let turn;
     try {
-      turn = await session.createTurn({
-        turn_id: mintPeeredTurnId(configuration.EXECUTOR_ID),
-        input: body.input,
-        previous_turn_id: body.previous_turn_id,
-        signal: abortController.signal,
-        resolver,
-        update_session_title_if_not_exist: title,
-      });
+      turn = await deps.withTransaction(transaction =>
+        session.createTurn({
+          turn_id: mintPeeredTurnId(configuration.EXECUTOR_ID),
+          input: body.input,
+          previous_turn_id: body.previous_turn_id,
+          signal: abortController.signal,
+          resolver,
+          update_session_title_if_not_exist: title,
+          transaction,
+        }),
+      );
     } catch (error) {
       if (error instanceof SessionStoreNotFoundError) {
         return c.json({ error: { message: error.message } }, 404);

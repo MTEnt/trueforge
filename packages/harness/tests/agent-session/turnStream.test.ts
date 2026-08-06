@@ -40,6 +40,7 @@ describe('TurnHandle.stream()', () => {
       previous_turn_id: null,
       signal: new AbortController().signal,
       resolver: makeTestResolver(),
+      transaction: undefined,
     });
     expect(turn.state.status).toBe('running');
 
@@ -91,6 +92,7 @@ describe('TurnHandle.stream()', () => {
           cost_in_usd: 0.42,
         },
       }),
+      transaction: undefined,
     });
 
     for await (const event of turn.stream()) void event;
@@ -125,6 +127,7 @@ describe('TurnHandle.stream()', () => {
           cost_in_usd: 1.5,
         },
       }),
+      transaction: undefined,
     });
     for await (const event of turn1.stream()) void event;
     expect(turn1.state).toMatchObject({
@@ -152,6 +155,7 @@ describe('TurnHandle.stream()', () => {
           cost_in_usd: 0.05,
         },
       }),
+      transaction: undefined,
     });
     for await (const event of turn2.stream()) void event;
 
@@ -190,6 +194,7 @@ describe('TurnHandle.stream()', () => {
           cost_in_usd: 0.42,
         },
       }),
+      transaction: undefined,
     });
 
     for await (const event of turn.stream()) void event;
@@ -208,6 +213,7 @@ describe('TurnHandle.stream()', () => {
       previous_turn_id: null,
       signal: new AbortController().signal,
       resolver: makeTestResolver(),
+      transaction: undefined,
     });
     await (async () => {
       for await (const event of turn.stream()) {
@@ -226,6 +232,7 @@ describe('TurnHandle.stream()', () => {
       previous_turn_id: null,
       signal: new AbortController().signal,
       resolver: makeTestResolver(),
+      transaction: undefined,
     });
     for await (const event of turn.stream()) {
       void event;
@@ -255,6 +262,7 @@ describe('TurnHandle.stream()', () => {
           return Promise.resolve();
         },
       }),
+      transaction: undefined,
     });
     for await (const event of turn.stream()) {
       expect(event.type).toBe(EventType.TURN_CREATED);
@@ -281,6 +289,7 @@ describe('TurnHandle.stream()', () => {
       previous_turn_id: null,
       signal: controller.signal,
       resolver: makeTestResolver(),
+      transaction: undefined,
     });
     controller.abort(CancellationReason.ClientCancelled);
     for await (const event of turn.stream()) {
@@ -307,6 +316,7 @@ describe('TurnHandle.stream()', () => {
       previous_turn_id: null,
       signal: controller.signal,
       resolver: makeTestResolver(),
+      transaction: undefined,
     });
     controller.abort(CancellationReason.Abandoned);
     for await (const event of turn.stream()) {
@@ -335,6 +345,7 @@ describe('TurnHandle.stream()', () => {
       previous_turn_id: null,
       signal: controller.signal,
       resolver: makeTestResolver(),
+      transaction: undefined,
     });
     controller.abort(CancellationReason.ServerExecutionTimeout);
     for await (const event of turn.stream()) {
@@ -368,6 +379,7 @@ describe('TurnHandle.stream()', () => {
           return Promise.reject(new Error('close boom'));
         },
       }),
+      transaction: undefined,
     });
     for await (const event of turn.stream()) {
       void event;
@@ -402,6 +414,7 @@ describe('TurnHandle.stream()', () => {
       previous_turn_id: null,
       signal: new AbortController().signal,
       resolver,
+      transaction: undefined,
     });
     for await (const event of turn.stream()) {
       void event;
@@ -484,6 +497,7 @@ describe('TurnResourceResolver caches', () => {
       previous_turn_id: null,
       signal: new AbortController().signal,
       resolver,
+      transaction: undefined,
     });
     for await (const event of turn.stream()) {
       void event;

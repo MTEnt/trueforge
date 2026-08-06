@@ -56,10 +56,10 @@ import { EventSubscriptionRegistry } from './runtime/event-subscription';
 
 /** Persistence + optional Redis wired for the selected topology. */
 interface ServerPersistence<TTransaction> {
-  sessionStore: ISessionStore;
-  modelProviderStore: IModelProviderStore<TTransaction>;
+  sessionStore: ISessionStore<Record<string, never>, Record<string, never>, TTransaction>;
+  modelProviderStore: IModelProviderStore;
   withTransaction: WithTransaction<TTransaction>;
-  mcpServerStore: IMcpServerStore<TTransaction>;
+  mcpServerStore: IMcpServerStore;
   tokenStore: IOAuthTokenStore;
   skillStore: ISkillStore;
   sandboxProviderStore: ISandboxProviderStore;
@@ -103,7 +103,7 @@ async function createStandalonePersistence(options: {
   return {
     sessionStore: new SqliteSessionStore(db),
     modelProviderStore: new SqliteModelProviderStore(db),
-    withTransaction: callback => db.transaction().execute(callback),
+    withTransaction: callback => db.transaction().setAccessMode('read write').execute(callback),
     mcpServerStore: new SqliteMcpServerStore(db),
     tokenStore: new SqliteOAuthTokenStore(db),
     skillStore: new SqliteSkillStore(db),
@@ -163,7 +163,7 @@ async function createDistributedPersistence(options: {
   return {
     sessionStore: new PostgresSessionStore(db),
     modelProviderStore: new PostgresModelProviderStore(db),
-    withTransaction: callback => db.transaction().execute(callback),
+    withTransaction: callback => db.transaction().setAccessMode('read write').execute(callback),
     mcpServerStore: new PostgresMcpServerStore(db),
     tokenStore: new PostgresOAuthTokenStore(db),
     skillStore: new PostgresSkillStore(db),

@@ -87,7 +87,6 @@ describe('MCP OAuth authorize + callback', () => {
     settingsRouter = createSettingsMcpServersRouter({
       mcpCatalog: McpCatalog.load(),
       mcpServerStore,
-      withTransaction: callback => db.transaction().execute(callback),
       tokenStore,
       logger,
     });

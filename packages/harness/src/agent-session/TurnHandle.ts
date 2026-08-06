@@ -85,8 +85,8 @@ function turnMetricsFromAgentThreadMetrics(metrics: AgentThreadMetrics): TurnMet
   };
 }
 
-export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
-  private readonly store: ISessionStore<object, TTurnCustom>;
+export class TurnHandle<TTurnCustom extends object = Record<string, never>, TTransaction = undefined> {
+  private readonly store: ISessionStore<object, TTurnCustom, TTransaction>;
   private turn: TurnRecord<TTurnCustom>;
   private readonly orchestrator: AgentThreadOrchestrator | undefined;
   private readonly resolver: ITurnResourceResolver<TTurnCustom> | undefined;
@@ -94,7 +94,7 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
   private streamStarted = false;
 
   constructor(options: {
-    store: ISessionStore<object, TTurnCustom>;
+    store: ISessionStore<object, TTurnCustom, TTransaction>;
     turn: TurnRecord<TTurnCustom>;
     orchestrator?: AgentThreadOrchestrator | undefined;
     resolver?: ITurnResourceResolver<TTurnCustom> | undefined;
@@ -108,18 +108,18 @@ export class TurnHandle<TTurnCustom extends object = Record<string, never>> {
   }
 
   /** Store-only handle (e.g. from {@link SessionHandle.getTurn}) — stream() is not available. */
-  static fromRecord<TCustom extends object = Record<string, never>>(options: {
-    store: ISessionStore<object, TCustom>;
+  static fromRecord<TCustom extends object = Record<string, never>, TTransaction = undefined>(options: {
+    store: ISessionStore<object, TCustom, TTransaction>;
     turn: TurnRecord<TCustom>;
-  }): TurnHandle<TCustom> {
+  }): TurnHandle<TCustom, TTransaction> {
     return new TurnHandle(options);
   }
 
-  static async get<TCustom extends object = Record<string, never>>(options: {
-    store: ISessionStore<object, TCustom>;
+  static async get<TCustom extends object = Record<string, never>, TTransaction = undefined>(options: {
+    store: ISessionStore<object, TCustom, TTransaction>;
     session_id: string;
     turn_id: string;
-  }): Promise<TurnHandle<TCustom> | undefined> {
+  }): Promise<TurnHandle<TCustom, TTransaction> | undefined> {
     const turn = await options.store.getTurn({
       session_id: options.session_id,
       turn_id: options.turn_id,

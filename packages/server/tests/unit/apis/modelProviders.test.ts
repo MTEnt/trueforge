@@ -53,7 +53,6 @@ async function createRouters(): Promise<{
     settingsRouter: createSettingsRouter({
       modelCatalog: ModelCatalog.load(),
       modelProviderStore,
-      withTransaction: callback => db.transaction().execute(callback),
       mcpCatalog: McpCatalog.load(),
       mcpServerStore: new SqliteMcpServerStore(db),
       tokenStore: new SqliteOAuthTokenStore(db),

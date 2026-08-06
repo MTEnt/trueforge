@@ -11,7 +11,6 @@ import type { Logger } from 'winston';
 import type { McpCatalog } from '../catalog/McpCatalog';
 import configuration from '../config';
 import type { IMcpServerStore, McpServerRecord } from '../db/mcpServerStore';
-import type { WithTransaction } from '../db/transaction';
 import { ensureMcpClientRegistered, isMcpAuthRequired, resolveMcpAuth } from '../mcp/auth/mcpDcr';
 import { validateRedirectUris } from '../mcp/auth/mcpOAuthHelpers';
 import type { IOAuthTokenStore, OAuthToken } from '../mcp/auth/types';
@@ -33,16 +32,15 @@ import { TENANT_ID } from './sessions';
 /** Registering a DCR OAuth client hits the MCP server's authorization server, so bound that call. */
 export const MCP_DCR_REGISTRATION_TIMEOUT_MS = 10_000;
 
-export interface SettingsMcpServersRouterDeps<TTransaction> {
+export interface SettingsMcpServersRouterDeps {
   mcpCatalog: McpCatalog;
-  mcpServerStore: IMcpServerStore<TTransaction>;
-  withTransaction: WithTransaction<TTransaction>;
+  mcpServerStore: IMcpServerStore;
   tokenStore: IOAuthTokenStore;
   logger: Logger;
 }
 
-export interface McpServersRouterDeps<TTransaction> {
-  mcpServerStore: IMcpServerStore<TTransaction>;
+export interface McpServersRouterDeps {
+  mcpServerStore: IMcpServerStore;
   tokenStore: IOAuthTokenStore;
   logger: Logger;
 }
@@ -84,7 +82,7 @@ function toConfiguredMcpServer({
 /** Admin/settings MCP CRUD (mounted at /api/v1/settings/mcp-servers).
  *  TODO: Remove the server via txn if DCR fails to register
  */
-export function createSettingsMcpServersRouter<TTransaction>(deps: SettingsMcpServersRouterDeps<TTransaction>) {
+export function createSettingsMcpServersRouter(deps: SettingsMcpServersRouterDeps) {
   const registerDcrClient = async (params: {
     serverId: string;
     mcpServerUrl: string;
@@ -134,9 +132,11 @@ export function createSettingsMcpServersRouter<TTransaction>(deps: SettingsMcpSe
 
   const putHandler: RouteHandler<typeof putMcpServerRoute> = async c => {
     const manifest: McpServerManifest = c.req.valid('json');
-    const record = await deps.withTransaction(transaction =>
-      deps.mcpServerStore.upsertServer({ tenant_id: TENANT_ID, name: manifest.name, manifest }, transaction),
-    );
+    const record = await deps.mcpServerStore.upsertServer({
+      tenant_id: TENANT_ID,
+      name: manifest.name,
+      manifest,
+    });
     if (record.manifest.auth?.type === 'dcr') {
       try {
         await registerDcrClient({
@@ -221,7 +221,7 @@ export function createSettingsMcpServersRouter<TTransaction>(deps: SettingsMcpSe
 }
 
 /** List + authorize (mounted at /api/v1/mcp-servers). */
-export function createMcpServersRouter<TTransaction>(deps: McpServersRouterDeps<TTransaction>) {
+export function createMcpServersRouter(deps: McpServersRouterDeps) {
   const authorizeHandler: RouteHandler<typeof authorizeMcpServerRoute> = async c => {
     const { name } = c.req.valid('param');
     const { redirect_url: redirectUrl } = c.req.valid('query');

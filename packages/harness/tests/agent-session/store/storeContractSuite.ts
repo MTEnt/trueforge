@@ -62,13 +62,29 @@ function contextContents(messages: ContextMessage[] | undefined): string[] {
 }
 
 /** Store contract suite — factory-injected so other backends can reuse it. */
-export function runStoreContractSuite(createStore: () => ISessionStore) {
+export function runStoreContractSuite<TTransaction>(
+  createStore: () => ISessionStore<Record<string, never>, Record<string, never>, TTransaction>,
+  withTransaction: <T>(callback: (transaction: TTransaction) => Promise<T>) => Promise<T>,
+) {
   const tenant = 't1';
   const sessionId = 's1';
   const missingSessionId = 'missing-session';
   const missingTurnId = 'missing-turn';
 
-  async function finishTurn(store: ISessionStore, turnId: string) {
+  type Store = ISessionStore<Record<string, never>, Record<string, never>, TTransaction>;
+
+  async function createTurn(store: Store, input: Parameters<Store['createTurn']>[0]): Promise<void> {
+    await withTransaction(transaction => store.createTurn(input, transaction));
+  }
+
+  async function freezeAndGetTurn(
+    store: Store,
+    input: Parameters<Store['freezeAndGetTurn']>[0],
+  ): ReturnType<Store['freezeAndGetTurn']> {
+    return withTransaction(transaction => store.freezeAndGetTurn(input, transaction));
+  }
+
+  async function finishTurn(store: Store, turnId: string) {
     const state = makeDoneTurnState();
     await store.updateTurnState({
       session_id: sessionId,
@@ -78,7 +94,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     });
   }
 
-  async function seedSession(store: ISessionStore, agentSpec = makeAgentSpec()) {
+  async function seedSession(store: Store, agentSpec = makeAgentSpec()) {
     await store.createSession({
       tenant_id: tenant,
       session_id: sessionId,
@@ -87,14 +103,11 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     });
   }
 
-  function turnScopedWrites(
-    store: ISessionStore,
-    keys: { session_id: string; turn_id: string },
-  ): (() => Promise<unknown>)[] {
+  function turnScopedWrites(store: Store, keys: { session_id: string; turn_id: string }): (() => Promise<unknown>)[] {
     const doneState = makeDoneTurnState();
     return [
       () =>
-        store.freezeAndGetTurn({
+        freezeAndGetTurn(store, {
           ...keys,
           turn_done_event: makeTurnDoneEvent(makeCancelledTurnState(CancellationReason.ClientCancelled)),
         }),
@@ -229,7 +242,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
         custom: null,
       });
 
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 'turn-1',
@@ -317,7 +331,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
 
       // Reusing every identifier must not expose orphaned events, context, or checkpoint state.
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const recreated = mustGet(await store.getTurn({ session_id: sessionId, turn_id: 'turn-1' }));
       expect(recreated.snapshot.threads[MAIN_THREAD_ID]?.context).toEqual([]);
       expect(recreated.snapshot.threads[MAIN_THREAD_ID]?.capability_state).toBeNull();
@@ -339,7 +353,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('rejects session mutations after deleteSession', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await store.deleteSession({ tenant_id: tenant, session_id: sessionId });
 
       await expect(
@@ -350,7 +364,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
           title: 'new-title',
         }),
       ).rejects.toBeInstanceOf(SessionNotFoundError);
-      await expect(store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-2' }))).rejects.toBeInstanceOf(
+      await expect(createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-2' }))).rejects.toBeInstanceOf(
         SessionNotFoundError,
       );
     });
@@ -358,7 +372,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('rejects turn mutations after deleteSession', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await store.deleteSession({ tenant_id: tenant, session_id: sessionId });
 
       for (const write of turnScopedWrites(store, { session_id: sessionId, turn_id: 'turn-1' })) {
@@ -369,7 +383,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('rejects event mutations after deleteSession', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await store.deleteSession({ tenant_id: tenant, session_id: sessionId });
 
       const keys = { session_id: sessionId, turn_id: 'turn-1' };
@@ -407,7 +421,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
         agent_spec: makeAgentSpec(),
         custom: null,
       });
-      await store.createTurn(makeCreateTurnInput({ sessionId: nested, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId: nested, turnId: 'turn-1' }));
       const nestedKeys = { session_id: nested, turn_id: 'turn-1' };
       await store.appendToEvents({ ...nestedKeys, events: [makeTurnCreatedEvent('turn-1')] });
 
@@ -423,7 +437,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('child appends that race deleteSession fail cleanly and leave no orphans', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const keys = { session_id: sessionId, turn_id: 'turn-1' };
 
       const results = await Promise.allSettled([
@@ -453,7 +467,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       expect(await store.getTurn(keys)).toBeUndefined();
 
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const recreated = mustGet(await store.getTurn(keys));
       expect(recreated.snapshot.threads[MAIN_THREAD_ID]?.context).toEqual([]);
       expect(
@@ -482,7 +496,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
         }),
       ).rejects.toBeInstanceOf(SessionNotFoundError);
       await expect(
-        store.createTurn(makeCreateTurnInput({ sessionId: missingSessionId, turnId: 'turn-1' })),
+        createTurn(store, makeCreateTurnInput({ sessionId: missingSessionId, turnId: 'turn-1' })),
       ).rejects.toBeInstanceOf(SessionNotFoundError);
     });
 
@@ -526,7 +540,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
   });
 
   describe('listSessions', () => {
-    async function seedThreeSessions(store: ISessionStore) {
+    async function seedThreeSessions(store: Store) {
       for (const id of ['sa', 'sb', 'sc']) {
         await store.createSession({ tenant_id: tenant, session_id: id, agent_spec: makeAgentSpec(), custom: null });
         await new Promise(r => setTimeout(r, 2));
@@ -613,7 +627,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       await seedSession(store);
       const before = await store.getSession({ tenant_id: tenant, session_id: sessionId });
       await new Promise(r => setTimeout(r, 5));
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const after = await store.getSession({ tenant_id: tenant, session_id: sessionId });
       expect(mustGet(after).last_turn_id).toBe('turn-1');
       expect(mustGet(after).last_activity_timestamp_ms).toBeGreaterThan(mustGet(before).last_activity_timestamp_ms);
@@ -622,11 +636,13 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('update_session_title_if_not_exist sets once and never overwrites', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({ sessionId, turnId: 'turn-1', update_session_title_if_not_exist: 'First title' }),
       );
       await finishTurn(store, 'turn-1');
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 'turn-2',
@@ -642,13 +658,15 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('fork from any existing turn succeeds and advances tip', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await finishTurn(store, 'turn-1');
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({ sessionId, turnId: 'turn-2', previousTurnId: 'turn-1', firstTurnId: 'turn-1' }),
       );
       // Fork from turn-1 (not the tip).
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({ sessionId, turnId: 'turn-fork', previousTurnId: 'turn-1', firstTurnId: 'turn-1' }),
       );
       const session = await store.getSession({ tenant_id: tenant, session_id: sessionId });
@@ -658,8 +676,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('new root turn (no previous_turn_id) succeeds on non-empty session', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-root-2' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-root-2' }));
       const session = await store.getSession({ tenant_id: tenant, session_id: sessionId });
       expect(mustGet(session).last_turn_id).toBe('turn-root-2');
     });
@@ -667,7 +685,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('concurrent createTurn forking the same tip: both succeed with isolated context', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 'tip',
@@ -682,7 +701,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       );
       await finishTurn(store, 'tip');
       const results = await Promise.allSettled([
-        store.createTurn(
+        createTurn(
+          store,
           makeCreateTurnInput({
             sessionId,
             turnId: 'turn-a',
@@ -697,7 +717,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
             ],
           }),
         ),
-        store.createTurn(
+        createTurn(
+          store,
           makeCreateTurnInput({
             sessionId,
             turnId: 'turn-b',
@@ -732,9 +753,10 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('rejects createTurn when previous turn is still running', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await expect(
-        store.createTurn(
+        createTurn(
+          store,
           makeCreateTurnInput({ sessionId, turnId: 'turn-2', previousTurnId: 'turn-1', firstTurnId: 'turn-1' }),
         ),
       ).rejects.toBeInstanceOf(PreviousTurnRunningError);
@@ -743,10 +765,11 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('rejects duplicate turn_id with conflict', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await finishTurn(store, 'turn-1');
       await expect(
-        store.createTurn(
+        createTurn(
+          store,
           makeCreateTurnInput({
             sessionId,
             turnId: 'turn-1',
@@ -760,7 +783,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('linear continuation carries context and persists the caller-supplied capability map', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't1',
@@ -790,7 +814,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       });
       await finishTurn(store, 't1');
 
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't2',
@@ -817,7 +842,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('createTurn atomically persists the complete post-send capability map', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't1',
@@ -831,7 +857,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       );
       await finishTurn(store, 't1');
 
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't2',
@@ -855,7 +882,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('fork from an older turn after tip overwrite sees only the parent prefix', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't1',
@@ -870,7 +898,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       );
       await finishTurn(store, 't1');
 
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't2',
@@ -901,7 +930,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       });
       await finishTurn(store, 't2');
 
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't3-fork',
@@ -927,7 +957,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('createTurn with multiple new_threads + appends is atomic (all threads present together)', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't1',
@@ -1000,9 +1031,9 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('cancels a running turn, persists turn.done, and fences all turn-scoped writes', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const cancelledState = makeCancelledTurnState(CancellationReason.CancelledForNextTurn);
-      const record = await store.freezeAndGetTurn({
+      const record = await freezeAndGetTurn(store, {
         session_id: sessionId,
         turn_id: 'turn-1',
         turn_done_event: makeTurnDoneEvent(cancelledState),
@@ -1085,10 +1116,10 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('on an already-terminal turn is a plain read without duplicating turn.done', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await finishTurn(store, 'turn-1');
       const doneState = makeDoneTurnState();
-      await store.freezeAndGetTurn({
+      await freezeAndGetTurn(store, {
         session_id: sessionId,
         turn_id: 'turn-1',
         turn_done_event: makeTurnDoneEvent(doneState),
@@ -1106,15 +1137,15 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('concurrent freeze x freeze is idempotent: one cancels, both return terminal', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const cancelledState = makeCancelledTurnState(CancellationReason.CancelledForNextTurn);
       const results = await Promise.allSettled([
-        store.freezeAndGetTurn({
+        freezeAndGetTurn(store, {
           session_id: sessionId,
           turn_id: 'turn-1',
           turn_done_event: makeTurnDoneEvent(cancelledState),
         }),
-        store.freezeAndGetTurn({
+        freezeAndGetTurn(store, {
           session_id: sessionId,
           turn_id: 'turn-1',
           turn_done_event: makeTurnDoneEvent(cancelledState),
@@ -1136,11 +1167,11 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('concurrent freeze x updateTurnState: exactly one terminal transition wins', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const cancelledState = makeCancelledTurnState(CancellationReason.CancelledForNextTurn);
       const doneState = makeDoneTurnState();
       const results = await Promise.allSettled([
-        store.freezeAndGetTurn({
+        freezeAndGetTurn(store, {
           session_id: sessionId,
           turn_id: 'turn-1',
           turn_done_event: makeTurnDoneEvent(cancelledState),
@@ -1176,7 +1207,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('allows running → done and rejects second terminal (first-terminal-wins)', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await finishTurn(store, 'turn-1');
       const cancelledState = makeCancelledTurnState(CancellationReason.ClientCancelled);
       await expect(
@@ -1192,7 +1223,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('writes terminal state and turn.done atomically', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const state = makeDoneTurnState();
       const turnDone = makeTurnDoneEvent(state);
       await store.updateTurnState({
@@ -1235,7 +1266,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('appendToEvents orders by monotonic event id, not append call order', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const created = makeTurnCreatedEvent('turn-1');
       const model = makeModelMessageEvent();
       expect(created.id < model.id).toBe(true);
@@ -1261,7 +1292,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('add/remove threads and append/overwrite context', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await store.addThreads({
         session_id: sessionId,
         turn_id: 'turn-1',
@@ -1321,7 +1352,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       const secondBatch = ['m-02', 'm-05', 'm-00'].map(userMessage);
       const expected = [...firstBatch, ...secondBatch];
 
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 'turn-1',
@@ -1361,7 +1393,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('patchThreadCapabilityState is LWW per key', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await store.patchThreadCapabilityState({
         session_id: sessionId,
         turn_id: 'turn-1',
@@ -1386,7 +1418,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it.skip('patchThreadCapabilityState rejects a thread_id not present on the turn', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await expect(
         store.patchThreadCapabilityState({
           session_id: sessionId,
@@ -1401,7 +1433,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('capability state is per-turn: patching the successor does not change a frozen predecessor', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't1',
@@ -1416,7 +1449,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
         }),
       );
       await finishTurn(store, 't1');
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 't2',
@@ -1441,7 +1475,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('getTurn output is JSON-round-trip total (no undefined holes)', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 'turn-1',
@@ -1479,7 +1514,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
         agent_spec: undefined,
         title: jsonLooking,
       });
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({
           sessionId,
           turnId: 'turn-1',
@@ -1505,7 +1541,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('patchMCPServers and patchSandboxInfo', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await store.patchMCPServers({
         session_id: sessionId,
         turn_id: 'turn-1',
@@ -1524,7 +1560,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('patchMCPServers replaces each server id wholesale (omitted fields do not linger)', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await store.patchMCPServers({
         session_id: sessionId,
         turn_id: 'turn-1',
@@ -1550,11 +1586,17 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('listTurns paginates with opaque tokens', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 't1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 't1' }));
       await finishTurn(store, 't1');
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 't2', previousTurnId: 't1', firstTurnId: 't1' }));
+      await createTurn(
+        store,
+        makeCreateTurnInput({ sessionId, turnId: 't2', previousTurnId: 't1', firstTurnId: 't1' }),
+      );
       await finishTurn(store, 't2');
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 't3', previousTurnId: 't2', firstTurnId: 't1' }));
+      await createTurn(
+        store,
+        makeCreateTurnInput({ sessionId, turnId: 't3', previousTurnId: 't2', firstTurnId: 't1' }),
+      );
       const page1 = await store.listTurns({
         session_id: sessionId,
         limit: 2,
@@ -1573,7 +1615,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('listTurnEvents supports desc order', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       await store.appendToEvents({
         session_id: sessionId,
         turn_id: 'turn-1',
@@ -1606,7 +1648,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('listTurnEvents on a turn with no events returns an empty page', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 'turn-1' }));
       const page = await store.listTurnEvents({
         session_id: sessionId,
         turn_id: 'turn-1',
@@ -1621,14 +1663,17 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('listSessionEvents includes running turns and is newest-first', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 't1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 't1' }));
       await store.appendToEvents({
         session_id: sessionId,
         turn_id: 't1',
         events: [makeTurnCreatedEvent('t1')],
       });
       await finishTurn(store, 't1');
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 't2', previousTurnId: 't1', firstTurnId: 't1' }));
+      await createTurn(
+        store,
+        makeCreateTurnInput({ sessionId, turnId: 't2', previousTurnId: 't1', firstTurnId: 't1' }),
+      );
       await store.appendToEvents({
         session_id: sessionId,
         turn_id: 't2',
@@ -1652,7 +1697,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('listSessionEvents includes registered passthrough events', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 't1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 't1' }));
       // Built through the registered schema so the fixture cannot drift from the registration.
       const passthrough: PersistedTurnEvent = {
         type: 'custom.event',
@@ -1680,7 +1725,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('listSessionEvents defaults to the active branch and excludes fork siblings', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 't1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 't1' }));
       await store.appendToEvents({
         session_id: sessionId,
         turn_id: 't1',
@@ -1689,10 +1734,12 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
       // Two forks off t1; the sibling is created BEFORE the anchor, so a
       // creation-order prefix would wrongly include it.
       await finishTurn(store, 't1');
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({ sessionId, turnId: 't2-sibling', previousTurnId: 't1', firstTurnId: 't1' }),
       );
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({ sessionId, turnId: 't2-anchor', previousTurnId: 't1', firstTurnId: 't1' }),
       );
       for (const turnId of ['t2-sibling', 't2-anchor']) {
@@ -1726,14 +1773,17 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
     it('listSessionEvents page tokens retain their anchor when the active branch changes', async () => {
       const store = createStore();
       await seedSession(store);
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 't1' }));
+      await createTurn(store, makeCreateTurnInput({ sessionId, turnId: 't1' }));
       await store.appendToEvents({
         session_id: sessionId,
         turn_id: 't1',
         events: [makeTurnCreatedEvent('t1')],
       });
       await finishTurn(store, 't1');
-      await store.createTurn(makeCreateTurnInput({ sessionId, turnId: 't2', previousTurnId: 't1', firstTurnId: 't1' }));
+      await createTurn(
+        store,
+        makeCreateTurnInput({ sessionId, turnId: 't2', previousTurnId: 't1', firstTurnId: 't1' }),
+      );
       await store.appendToEvents({
         session_id: sessionId,
         turn_id: 't2',
@@ -1752,7 +1802,8 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
         offset: 1,
       });
 
-      await store.createTurn(
+      await createTurn(
+        store,
         makeCreateTurnInput({ sessionId, turnId: 't2-new-active', previousTurnId: 't1', firstTurnId: 't1' }),
       );
       await store.appendToEvents({
@@ -1795,7 +1846,7 @@ export function runStoreContractSuite(createStore: () => ISessionStore) {
             : {}),
         });
         input.turn.ancestor_ids = window;
-        await store.createTurn(input);
+        await createTurn(store, input);
         await store.appendToEvents({
           session_id: sessionId,
           turn_id: turnId,

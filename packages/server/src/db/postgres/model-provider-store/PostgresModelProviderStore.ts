@@ -1,4 +1,4 @@
-import type { Kysely, Selectable, Transaction } from 'kysely';
+import type { Kysely, Selectable } from 'kysely';
 import type { Model } from '../../../schemas/modelProvider';
 import {
   flattenProviderModels,
@@ -20,7 +20,7 @@ function toRecord(row: Selectable<ModelProviderTable>): ModelProviderRecord {
   };
 }
 
-export class PostgresModelProviderStore implements IModelProviderStore<Transaction<Database>> {
+export class PostgresModelProviderStore implements IModelProviderStore {
   readonly #db: Kysely<Database>;
 
   constructor(db: Kysely<Database>) {
@@ -47,8 +47,8 @@ export class PostgresModelProviderStore implements IModelProviderStore<Transacti
     return row === undefined ? undefined : toRecord(row);
   }
 
-  async upsertProvider(input: UpsertProviderInput, transaction?: Transaction<Database>): Promise<ModelProviderRecord> {
-    const row = await (transaction ?? this.#db)
+  async upsertProvider(input: UpsertProviderInput): Promise<ModelProviderRecord> {
+    const row = await this.#db
       .insertInto('model_provider')
       .values({
         tenant_id: input.tenant_id,

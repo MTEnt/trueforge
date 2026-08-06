@@ -1,7 +1,6 @@
 import { OpenAPIHono, type RouteHandler } from '@hono/zod-openapi';
 import type { ModelCatalog } from '../catalog/ModelCatalog';
 import type { IModelProviderStore, ModelProviderRecord } from '../db/modelProviderStore';
-import type { WithTransaction } from '../db/transaction';
 import {
   getModelProviderCatalogRoute,
   listModelProvidersRoute,
@@ -10,10 +9,9 @@ import {
 import { toModelProviderManifest, type ModelProvider } from '../schemas/modelProvider';
 import { TENANT_ID } from './sessions';
 
-export interface ModelProvidersRouterDeps<TTransaction> {
+export interface ModelProvidersRouterDeps {
   modelCatalog: ModelCatalog;
-  modelProviderStore: IModelProviderStore<TTransaction>;
-  withTransaction: WithTransaction<TTransaction>;
+  modelProviderStore: IModelProviderStore;
 }
 
 /** Wire view of a stored provider: identity `name` plus persisted manifest. */
@@ -24,7 +22,7 @@ function toModelProvider(record: ModelProviderRecord): ModelProvider {
   };
 }
 
-export function createModelProvidersRouter<TTransaction>(deps: ModelProvidersRouterDeps<TTransaction>) {
+export function createModelProvidersRouter(deps: ModelProvidersRouterDeps) {
   const catalogHandler: RouteHandler<typeof getModelProviderCatalogRoute> = c => {
     return c.json({ data: [...deps.modelCatalog.list()] }, 200);
   };
@@ -36,16 +34,11 @@ export function createModelProvidersRouter<TTransaction>(deps: ModelProvidersRou
 
   const putHandler: RouteHandler<typeof putModelProviderRoute> = async c => {
     const body = c.req.valid('json');
-    const record = await deps.withTransaction(transaction =>
-      deps.modelProviderStore.upsertProvider(
-        {
-          tenant_id: TENANT_ID,
-          name: body.name,
-          manifest: toModelProviderManifest(body),
-        },
-        transaction,
-      ),
-    );
+    const record = await deps.modelProviderStore.upsertProvider({
+      tenant_id: TENANT_ID,
+      name: body.name,
+      manifest: toModelProviderManifest(body),
+    });
     return c.json({ data: toModelProvider(record) }, 200);
   };
 

@@ -116,11 +116,15 @@ function threadsRecordFromMap(threads: Map<string, AgentThread>): Record<string,
 export class SessionHandle<
   TSessionCustom extends object = Record<string, never>,
   TTurnCustom extends object = Record<string, never>,
+  TTransaction = undefined,
 > {
-  private readonly store: ISessionStore<TSessionCustom, TTurnCustom>;
+  private readonly store: ISessionStore<TSessionCustom, TTurnCustom, TTransaction>;
   private session: SessionRecord<TSessionCustom>;
 
-  constructor(options: { store: ISessionStore<TSessionCustom, TTurnCustom>; session: SessionRecord<TSessionCustom> }) {
+  constructor(options: {
+    store: ISessionStore<TSessionCustom, TTurnCustom, TTransaction>;
+    session: SessionRecord<TSessionCustom>;
+  }) {
     this.store = options.store;
     this.session = options.session;
   }
@@ -177,14 +181,18 @@ export class SessionHandle<
      * value (e.g. from the first user message) — the library does not.
      */
     update_session_title_if_not_exist?: string | undefined;
-  }): Promise<TurnHandle<TTurnCustom>> {
+    transaction: TTransaction;
+  }): Promise<TurnHandle<TTurnCustom, TTransaction>> {
     const previousTurnId = resolvePreviousTurnId(input.previous_turn_id, this.session.last_turn_id);
     const previous = previousTurnId
-      ? await this.store.freezeAndGetTurn({
-          session_id: this.session.session_id,
-          turn_id: previousTurnId,
-          turn_done_event: cancelledTurnDoneEvent(),
-        })
+      ? await this.store.freezeAndGetTurn(
+          {
+            session_id: this.session.session_id,
+            turn_id: previousTurnId,
+            turn_done_event: cancelledTurnDoneEvent(),
+          },
+          input.transaction,
+        )
       : undefined;
 
     const custom = typeof input.custom === 'function' ? input.custom(previous?.custom ?? undefined) : input.custom;
@@ -271,7 +279,7 @@ export class SessionHandle<
         },
       };
 
-      await this.store.createTurn({
+      const createTurnInput = {
         turn: turnInit,
         new_threads,
         new_context_appends,
@@ -280,12 +288,16 @@ export class SessionHandle<
           capability_state: thread.toSnapshot().capability_state,
         })),
         update_session_title_if_not_exist: input.update_session_title_if_not_exist ?? null,
-      });
+      };
+      await this.store.createTurn(createTurnInput, input.transaction);
 
-      const refreshed = await this.store.getSession({
-        tenant_id: this.tenant_id,
-        session_id: this.session.session_id,
-      });
+      const refreshed = await this.store.getSession(
+        {
+          tenant_id: this.tenant_id,
+          session_id: this.session.session_id,
+        },
+        input.transaction,
+      );
       if (refreshed) {
         this.session = refreshed;
       }
@@ -308,7 +320,7 @@ export class SessionHandle<
   }
 
   /** Returns the turn handle (store-backed; not executable), or undefined if not found. */
-  async getTurn(turn_id: string): Promise<TurnHandle<TTurnCustom> | undefined> {
+  async getTurn(turn_id: string): Promise<TurnHandle<TTurnCustom, TTransaction> | undefined> {
     return TurnHandle.get({
       store: this.store,
       session_id: this.session.session_id,

@@ -1,4 +1,4 @@
-import type { Kysely, Selectable, Transaction } from 'kysely';
+import type { Kysely, Selectable } from 'kysely';
 import { ulid } from 'ulid';
 import type { OAuthClientRecord } from '../../../mcp/auth/types';
 import {
@@ -24,7 +24,7 @@ function toRecord(row: Selectable<McpServerTable>): McpServerRecord {
   };
 }
 
-export class PostgresMcpServerStore implements IMcpServerStore<Transaction<Database>> {
+export class PostgresMcpServerStore implements IMcpServerStore {
   readonly #db: Kysely<Database>;
 
   constructor(db: Kysely<Database>) {
@@ -53,8 +53,8 @@ export class PostgresMcpServerStore implements IMcpServerStore<Transaction<Datab
     return row === undefined ? undefined : toRecord(row);
   }
 
-  async upsertServer(input: UpsertMcpServerInput, transaction?: Transaction<Database>): Promise<McpServerRecord> {
-    const row = await (transaction ?? this.#db)
+  async upsertServer(input: UpsertMcpServerInput): Promise<McpServerRecord> {
+    const row = await this.#db
       .insertInto('mcp_server')
       .values({
         id: ulid(),
