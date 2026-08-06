@@ -4,9 +4,9 @@ import { mergeHeaders } from "./core/headers.js";
 import * as core from "./core/index.js";
 
 export interface BaseClientOptions {
-    environment: core.Supplier<string>;
+    environment?: core.Supplier<string>;
     /** Specify a custom URL to connect the client to. */
-    baseUrl?: core.Supplier<string>;
+    baseUrl: core.Supplier<string>;
     /** Additional headers to include in requests. */
     headers?: Record<string, string | core.Supplier<string | null | undefined> | null | undefined>;
     /** The default maximum time to wait for a response in seconds. */
@@ -49,9 +49,9 @@ export function normalizeClientOptions<T extends BaseClientOptions = BaseClientO
     const headers = mergeHeaders(
         {
             "X-Fern-Language": "JavaScript",
-            "X-Fern-SDK-Name": "trueharness",
+            "X-Fern-SDK-Name": "trueforge",
             "X-Fern-SDK-Version": "0.0.0",
-            "User-Agent": "trueharness/0.0.0",
+            "User-Agent": "trueforge/0.0.0",
             "X-Fern-Runtime": core.RUNTIME.type,
             "X-Fern-Runtime-Version": core.RUNTIME.version,
         },

@@ -7,7 +7,8 @@
  * turn execution resolves DCR tokens via resolveMcpAuth.
  */
 import { z } from '@hono/zod-openapi';
-import { isOAuthAccessTokenUsable, type OAuthToken } from '@truefoundry/utils-core/core';
+import { isOAuthAccessTokenUsable } from '../mcp/auth/mcpOAuthHelpers';
+import type { OAuthToken } from '../mcp/auth/types';
 import { NameSchema } from './common';
 
 /** Transport/kind of MCP server. Extend when non-remote kinds ship. */
@@ -43,7 +44,7 @@ export const McpServerManifestObjectSchema = z
   .object({
     type: McpServerTypeSchema,
     name: NameSchema,
-    url: z.string().url().describe('URL of the remote MCP server.'),
+    url: z.url().describe('URL of the remote MCP server.'),
     auth: McpServerAuthSettingsSchema.optional(),
   })
   .strict();
@@ -54,7 +55,6 @@ export const McpAuthStatusSchema = z
   .object({
     status: z.enum(['authenticated', 'auth_required', 'not_required']),
     authorization_url: z
-      .string()
       .url()
       .optional()
       .describe('When auth is required, this contains the URL to redirect the user to for authorization.'),
@@ -69,15 +69,16 @@ export const ConfiguredMcpServerSchema = McpServerManifestObjectSchema.extend({
 
 export const PutMcpServerRequestSchema = McpServerManifestSchema;
 export const PutMcpServerResponseSchema = z.object({ data: ConfiguredMcpServerSchema }).openapi('PutMcpServerResponse');
-export const ListConfiguredMcpServersResponseSchema = z
+export const GetMcpServerResponseSchema = z.object({ data: ConfiguredMcpServerSchema }).openapi('GetMcpServerResponse');
+export const ListMcpServersResponseSchema = z
   .object({ data: z.array(ConfiguredMcpServerSchema) })
-  .openapi('ListConfiguredMcpServersResponse');
+  .openapi('ListMcpServersResponse');
 
 /** Chat/composer read view — no auth or auth_status. */
 export const McpServerReadEntrySchema = z
   .object({
     name: NameSchema,
-    url: z.string().url(),
+    url: z.url(),
   })
   .strict()
   .openapi('McpServerReadEntry');

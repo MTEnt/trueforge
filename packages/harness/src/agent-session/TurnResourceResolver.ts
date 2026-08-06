@@ -28,7 +28,7 @@ export type TurnSandboxFactory = (input: {
 }) => Promise<Sandbox>;
 
 function specWantsSandbox(spec: AgentSpec): boolean {
-  return spec.config?.sandbox?.enabled === true;
+  return spec.config.sandbox.enabled;
 }
 
 function toSelectors(entry: {
@@ -67,6 +67,8 @@ export class TurnResourceResolver<
        * turn. Throw for unknown names. `headers` supports the async resolver form.
        */
       mcp: (name: string) => Promise<{ url: string; headers?: RemoteMcpHeaders }>;
+      mcpRequestTimeoutMs: number;
+      mcpConnectTimeoutMs: number;
       /** One sandbox type per runtime. Omit = no sandbox support. */
       sandboxProvider?: TurnSandboxFactory | undefined;
       /** Forwarded to RemoteMCP / AgentThread (required by their constructors). */
@@ -159,6 +161,8 @@ export class TurnResourceResolver<
               url,
               headers: headers ?? {},
               sessionId: previousTurn?.snapshot.mcp_servers?.[entry.name]?.session_id,
+              requestTimeoutMs: this.deps.mcpRequestTimeoutMs,
+              connectTimeoutMs: this.deps.mcpConnectTimeoutMs,
               logger: this.deps.logger,
               tracing,
               signal,
@@ -188,7 +192,7 @@ export class TurnResourceResolver<
         modelParams: spec.model.params,
         // Sub-agents should return free-form summaries to the parent, not the user-facing structured response.
         responseFormat: agentInfo ? undefined : spec.response_format,
-        iterationLimit: spec.config?.iteration_limit,
+        iterationLimit: spec.config.iteration_limit,
         toolSets,
       },
     };

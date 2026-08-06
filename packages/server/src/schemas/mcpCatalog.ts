@@ -11,7 +11,8 @@ export const CatalogMcpServerSchema = z
   .object({
     type: McpServerTypeSchema,
     name: NameSchema,
-    url: z.string().url().describe('URL of the remote MCP server.'),
+    logo: z.url().optional().describe('URL of the MCP server logo asset.'),
+    url: z.url().describe('URL of the remote MCP server.'),
     auth: McpServerAuthSettingsSchema.optional(),
   })
   .strict()

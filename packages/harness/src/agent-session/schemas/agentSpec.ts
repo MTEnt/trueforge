@@ -1,6 +1,5 @@
 /** DB AgentSpec wire schema — FQN model names and name-only skill refs. */
 import { z } from '@hono/zod-openapi';
-import { DEFAULT_CONTEXT_COMPACTION_THRESHOLD_TOKENS } from '../../core/capabilities/builtins/ContextCompaction';
 import {
   DEFAULT_INDIVIDUAL_TOOL_TOKEN_THRESHOLD,
   DEFAULT_PREVIEW_NUMBER_OF_CHARACTERS,
@@ -29,24 +28,13 @@ const ModelParamsSchema = z
     parallel_tool_calls: z.boolean().optional(),
     reasoning_effort: z.string().optional(),
   })
-  .passthrough() // this ensures extra model params are allowed
+  .loose() // this ensures extra model params are allowed
   .openapi('ModelParams');
 
-/** Same shape as server `parseModelFqn`: exactly one slash, non-empty provider and model. */
-function isModelFqn(name: string): boolean {
-  const slash = name.indexOf('/');
-  if (slash <= 0 || slash === name.length - 1) {
-    return false;
-  }
-  return !name.includes('/', slash + 1);
-}
-
+// Opaque runtime identifier; the hosting server owns naming conventions (e.g. provider/model).
 const ModelSpecSchema = z
   .object({
-    name: z
-      .string()
-      .min(1, 'model.name must not be empty')
-      .refine(isModelFqn, { message: 'model.name must be a fully qualified "provider/model"' }),
+    name: z.string().min(1, 'model.name must not be empty'),
     params: ModelParamsSchema.optional(),
   })
   .openapi('AgentSpecModel');
@@ -92,12 +80,7 @@ const MCPServerRequestSchema = z
 
 const CompactionSettingsSchema = z.object({
   enabled: z.boolean().default(true),
-  compaction_threshold_tokens: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .default(DEFAULT_CONTEXT_COMPACTION_THRESHOLD_TOKENS),
+  compaction_threshold_tokens: z.number().int().positive().optional(),
 });
 
 const LargeToolResponseSettingsSchema = z.object({
@@ -178,8 +161,8 @@ const LargeToolResponseConfigSchema = LargeToolResponseSettingsSchema.pick({
 
 const ContextManagementConfigSchema = z
   .object({
-    compaction: CompactionSettingsSchema.default({ enabled: true }),
-    large_tool_response: LargeToolResponseConfigSchema.default({ enabled: true }),
+    compaction: CompactionSettingsSchema.default(() => ({ enabled: true })),
+    large_tool_response: LargeToolResponseConfigSchema.default(() => ({ enabled: true })),
   })
   .openapi('ContextManagementConfig');
 
@@ -198,14 +181,14 @@ const AskUserQuestionsConfigSchema = z
 export const RuntimeConfigSchema = z
   .object({
     iteration_limit: z.number().int().positive().max(1024).default(DEFAULT_AGENT_CONFIG_ITERATION_LIMIT),
-    sandbox: SandboxConfigSchema.optional(),
-    dynamic_sub_agents: DynamicSubAgentsConfigSchema.optional(),
-    context_management: ContextManagementConfigSchema.optional().default({
+    sandbox: SandboxConfigSchema.default(() => ({ enabled: false, file_downloads: true })),
+    dynamic_sub_agents: DynamicSubAgentsConfigSchema.default(() => ({ enabled: true })),
+    context_management: ContextManagementConfigSchema.default(() => ({
       compaction: { enabled: true },
       large_tool_response: { enabled: true },
-    }),
-    generative_ui: GenerativeUIConfigSchema.optional(),
-    ask_user_questions: AskUserQuestionsConfigSchema.optional(),
+    })),
+    generative_ui: GenerativeUIConfigSchema.default(() => ({ enabled: true })),
+    ask_user_questions: AskUserQuestionsConfigSchema.default(() => ({ enabled: true })),
   })
   .openapi('RuntimeConfig');
 
@@ -252,7 +235,8 @@ export const AgentSpecSchema = z
     mcp_servers: z.array(MCPServerRequestSchema).optional(),
     response_format: ResponseFormatSchema.optional(),
     skills: z.array(SkillNameRefSchema).optional(),
-    config: RuntimeConfigSchema.optional(),
+    // Factory must parse so nested RuntimeConfig field defaults materialize.
+    config: RuntimeConfigSchema.default(() => RuntimeConfigSchema.parse({})),
     variables: z.record(z.string(), z.string()).optional(),
   })
   .describe('Agent Definition')

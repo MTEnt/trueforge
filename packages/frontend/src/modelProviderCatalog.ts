@@ -1,5 +1,5 @@
 /**
- * Maps agent-ui-sdk model-settings calls onto Harness
+ * Maps trueforge-ui model-settings calls onto Harness
  * `/api/v1/settings/model-providers` (name-keyed upsert, no delete).
  *
  * UI: flat `apiKey` / model `id`. Harness: `auth.apiKey` / `modelId`.
@@ -12,10 +12,9 @@ import type {
   ModelProviderBase,
   ModelProviderCatalogEntry,
   UpdateModelProviderRequest,
-} from '@truefoundry/agent-ui-sdk';
-import type { TrueHarness as Harness } from 'trueharness';
-import { TrueHarnessClient } from 'trueharness';
-
+} from '@truefoundry/trueforge-ui';
+import { TrueForgeApi as Harness } from 'trueforge';
+import { harnessClient as client } from './harnessClient';
 /** Custom-form rows omit properties; catalog rows round-trip them. */
 export type UiModelEntry = ModelEntry & {
   properties?: Harness.ModelProperties;
@@ -28,8 +27,6 @@ const DEFAULT_MODEL_PROPERTIES: Harness.ModelProperties = {
   contextLength: 128_000,
   maxOutputTokens: 16_384,
 };
-
-const client = new TrueHarnessClient({ environment: '/' });
 
 export function toUiModelEntry(model: Harness.ModelEntry): UiModelEntry {
   return {
@@ -65,6 +62,17 @@ export function toUiCatalogEntry(provider: Harness.CatalogProvider): UiModelProv
   };
 }
 
+const WELL_KNOWN_TYPES: readonly string[] = Object.values(Harness.WellKnownModelProviderType);
+const CALLER_SUPPLIED_TYPES: readonly string[] = Object.values(Harness.CallerSuppliedModelProviderType);
+
+function isWellKnownType(type: string): type is Harness.WellKnownModelProviderType {
+  return WELL_KNOWN_TYPES.includes(type);
+}
+
+function isCallerSuppliedType(type: string): type is Harness.CallerSuppliedModelProviderType {
+  return CALLER_SUPPLIED_TYPES.includes(type);
+}
+
 export function toHarnessModelProvider(req: {
   type: string;
   name: string;
@@ -74,30 +82,21 @@ export function toHarnessModelProvider(req: {
 }): Harness.ModelProvider {
   const models = req.models.map(toHarnessModelEntry);
   const auth = { apiKey: req.apiKey };
-  if (req.type === 'openai') {
+  if (isWellKnownType(req.type)) {
     return {
-      type: 'openai',
+      type: req.type,
       name: req.name,
       auth,
       models,
       ...(req.baseUrl === undefined ? {} : { baseUrl: req.baseUrl }),
     };
   }
-  if (req.type === 'anthropic') {
-    return {
-      type: 'anthropic',
-      name: req.name,
-      auth,
-      models,
-      ...(req.baseUrl === undefined ? {} : { baseUrl: req.baseUrl }),
-    };
-  }
-  if (req.type === 'custom') {
+  if (isCallerSuppliedType(req.type)) {
     if (req.baseUrl === undefined || req.baseUrl.trim() === '') {
-      throw new Error('Custom model providers require a base URL');
+      throw new Error(`Model providers of type "${req.type}" require a base URL`);
     }
     return {
-      type: 'custom',
+      type: req.type,
       name: req.name,
       auth,
       models,

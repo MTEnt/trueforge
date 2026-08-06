@@ -3,5 +3,11 @@
 export const CatalogProviderType = {
     Openai: "openai",
     Anthropic: "anthropic",
+    GoogleGemini: "google-gemini",
+    Fireworks: "fireworks",
+    Zai: "zai",
+    Moonshot: "moonshot",
+    Together: "together",
+    Alibaba: "alibaba",
 } as const;
 export type CatalogProviderType = (typeof CatalogProviderType)[keyof typeof CatalogProviderType];
