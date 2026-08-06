@@ -163,7 +163,7 @@ async function createDistributedPersistence(options: {
   return {
     sessionStore: new PostgresSessionStore(db),
     modelProviderStore: new PostgresModelProviderStore(db),
-    withTransaction: callback => db.transaction().setAccessMode('read write').execute(callback),
+    withTransaction: callback => db.transaction().execute(callback),
     mcpServerStore: new PostgresMcpServerStore(db),
     tokenStore: new PostgresOAuthTokenStore(db),
     skillStore: new PostgresSkillStore(db),

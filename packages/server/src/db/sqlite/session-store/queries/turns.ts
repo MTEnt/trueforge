@@ -309,7 +309,7 @@ async function assembleTurnRecord(
 }
 
 /**
- * createTurn — IMMEDIATE txn (setAccessMode('read write'); stand-in for Postgres FOR UPDATE on tip).
+ * createTurn — joins a caller-owned txn (route should use IMMEDIATE for tip lock).
  * Context order lives in turn_thread_context (pos, append_id); no context_ids array.
  */
 export async function createTurn(trx: Transaction<Database>, input: CreateTurnInput): Promise<void> {
