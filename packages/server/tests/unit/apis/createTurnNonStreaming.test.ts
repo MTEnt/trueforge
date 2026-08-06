@@ -82,6 +82,7 @@ describe('create turn non-streaming', () => {
       createTurnsRouter({
         sessions,
         sessionStore: new SqliteSessionStore(db),
+        withTransaction: callback => db.transaction().execute(callback),
         activeTurns: new ActiveTurnRegistry(),
         modelProviderStore,
         agentStore: new SqliteAgentStore(db),
