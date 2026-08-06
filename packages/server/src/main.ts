@@ -184,7 +184,7 @@ async function createDistributedPersistence(options: {
 }
 
 /** Keeps `TTransaction` concrete when wiring a single persistence topology into the app. */
-function createServerRuntime<TTransaction>(persistence: ServerPersistence<TTransaction>, logger: Logger) {
+async function createServerRuntime<TTransaction>(persistence: ServerPersistence<TTransaction>, logger: Logger) {
   const {
     sessionStore,
     modelProviderStore,
@@ -238,14 +238,17 @@ function createServerRuntime<TTransaction>(persistence: ServerPersistence<TTrans
 try {
   // Console logger shared by the server runtime (harness components require one).
   const logger = winston.createLogger({
-    level: process.env['LOG_LEVEL'] ?? 'info',
+    level: configuration.LOG_LEVEL,
     format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
     transports: [new winston.transports.Console()],
   });
 
   const { activeTurns, app, destroyDb, redis, requestReplyRouter } = configuration.STANDALONE
-    ? createServerRuntime(await createStandalonePersistence({ sqlitePath: configuration.SQLITE_PATH, logger }), logger)
-    : createServerRuntime(await createDistributedPersistence({ configuration, logger }), logger);
+    ? await createServerRuntime(
+        await createStandalonePersistence({ sqlitePath: configuration.SQLITE_PATH, logger }),
+        logger,
+      )
+    : await createServerRuntime(await createDistributedPersistence({ configuration, logger }), logger);
 
   if (mountFrontend(app, configuration.FRONTEND_DIR)) {
     logger.info(`Serving frontend from ${configuration.FRONTEND_DIR}`);
@@ -295,7 +298,7 @@ try {
 
   // Graceful drain is the safe default for built and direct execution.
   // Development watch mode opts out so tsx can restart without waiting for a drain.
-  if (process.env['NODE_ENV'] !== 'development') {
+  if (configuration.NODE_ENV !== 'development') {
     let shuttingDown = false;
     const shutdown = async (signal: NodeJS.Signals) => {
       if (shuttingDown) return;
