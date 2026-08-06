@@ -243,6 +243,7 @@ export class InMemorySessionStore<
     return { data: deepCopy(page.data), pagination: page.pagination };
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- param keeps parity with the required ISessionStore signature; nothing to join in memory
   async createTurn(input: CreateTurnInput<TTurnCustom>, _transaction: undefined): Promise<void> {
     // Atomicity is free here: this body is fully synchronous, so Node's
     // run-to-completion guarantees it. Real backends must still use their own
