@@ -62,7 +62,7 @@ describe('capability_state (tfy.plan fixture)', () => {
     const session = await sessions.create({
       tenant_id: tenant,
       session_id: 's1',
-      agent_spec: makeAgentSpec(),
+      agent: { type: 'value', agent_spec: makeAgentSpec() },
     });
 
     const planV1: JsonValue = {
@@ -135,7 +135,7 @@ describe('capability_state (tfy.plan fixture)', () => {
     const session = await sessions.create({
       tenant_id: tenant,
       session_id: 's1',
-      agent_spec: makeAgentSpec(),
+      agent: { type: 'value', agent_spec: makeAgentSpec() },
     });
     const planV1: JsonValue = {
       todo: [{ title: 'step', description: 'do it', status: 'done' }],
@@ -168,6 +168,7 @@ describe('capability_state (tfy.plan fixture)', () => {
         return logger;
       },
       createTracing: () => resolver.createTracing(),
+      resolveAgentSpec: (input: Parameters<typeof resolver.resolveAgentSpec>[0]) => resolver.resolveAgentSpec(input),
       resolveSandbox: (input: Parameters<typeof resolver.resolveSandbox>[0]) => resolver.resolveSandbox(input),
       resolveAgentDefinition: (input: Parameters<typeof resolver.resolveAgentDefinition>[0]) =>
         resolver.resolveAgentDefinition(input),
@@ -228,7 +229,7 @@ describe('capability_state (tfy.plan fixture)', () => {
     const session = await sessions.create({
       tenant_id: tenant,
       session_id: 's1',
-      agent_spec: makeAgentSpec(),
+      agent: { type: 'value', agent_spec: makeAgentSpec() },
     });
     const turn = await session.createTurn({
       turn_id: mintTestTurnId(),

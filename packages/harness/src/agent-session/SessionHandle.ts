@@ -22,9 +22,11 @@ import { builtinsFromSpec } from './builtinsFromSpec';
 import type { ITurnResourceResolver } from './ITurnResourceResolver';
 import type { SessionRecord } from './models/SessionRecord';
 import { MAIN_THREAD_ID, type TurnRecord } from './models/TurnRecord';
+import type { AgentSpec } from './schemas/agentSpec';
 import type { SessionEventItem } from './schemas/events';
 import { EventType, type TurnDoneEvent } from './schemas/events';
 import type { TokenPagination } from './schemas/pagination';
+import type { SessionAgent } from './schemas/session';
 import type { TurnInputItem } from './schemas/turn';
 import { CancellationReason } from './schemas/turn';
 import type { ISessionStore, NewThreadInit, TurnContextAppend, TurnRecordWithoutSnapshot } from './store/ISessionStore';
@@ -137,8 +139,8 @@ export class SessionHandle<
     return this.session.tenant_id;
   }
 
-  get agent_spec() {
-    return this.session.agent_spec;
+  get agent(): SessionAgent {
+    return this.session.agent;
   }
 
   get custom(): TSessionCustom | null {
@@ -197,7 +199,6 @@ export class SessionHandle<
 
     const custom = typeof input.custom === 'function' ? input.custom(previous?.custom ?? undefined) : input.custom;
 
-    const spec = this.session.agent_spec;
     // Dispose-on-early-failure: any resource acquired below (sandbox handle,
     // MCP connections) is owned by createTurn() until the TurnHandle is returned; from then
     // on TurnHandle.stream()'s finally owns resolver.close(). On any throw in this
@@ -206,6 +207,9 @@ export class SessionHandle<
     // wraps getAgent/handler.init and calls gatewayStore.dispose() on failure.
     try {
       const tracing = input.resolver.createTracing();
+      const agent = this.session.agent;
+      const spec =
+        agent.type === 'value' ? agent.agent_spec : await input.resolver.resolveAgentSpec({ agent_id: agent.agent_id });
       const sandbox = await input.resolver.resolveSandbox({
         spec,
         existing: previous?.snapshot.sandbox_info ?? undefined,
@@ -217,6 +221,7 @@ export class SessionHandle<
       const agentThreads = await this.buildThreads({
         previous,
         resolver: input.resolver,
+        spec,
         sandbox,
         tracing,
         signal: input.signal,
@@ -225,6 +230,7 @@ export class SessionHandle<
       const createDynamicSubAgentThread = this.makeCreateDynamicSubAgentThread({
         resolver: input.resolver,
         previous,
+        spec,
         sandbox,
         tracing,
       });
@@ -364,6 +370,7 @@ export class SessionHandle<
   private async buildThreads(input: {
     previous: TurnRecord<TTurnCustom> | undefined;
     resolver: ITurnResourceResolver<TTurnCustom>;
+    spec: AgentSpec;
     sandbox: Sandbox | undefined;
     tracing: AgentTracing;
     signal: AbortSignal;
@@ -380,6 +387,7 @@ export class SessionHandle<
           data,
           resolver: input.resolver,
           previous: input.previous,
+          spec: input.spec,
           sandbox: input.sandbox,
           tracing: input.tracing,
           signal: input.signal,
@@ -394,12 +402,13 @@ export class SessionHandle<
     data?: AgentThreadSnapshot | undefined;
     resolver: ITurnResourceResolver<TTurnCustom>;
     previous: TurnRecord<TTurnCustom> | undefined;
+    spec: AgentSpec;
     sandbox: Sandbox | undefined;
     tracing: AgentTracing;
     signal: AbortSignal;
   }): Promise<AgentThread> {
     const { definition, extraCapabilities } = await input.resolver.resolveAgentDefinition({
-      spec: this.session.agent_spec,
+      spec: input.spec,
       thread_id: input.threadId,
       agent_info: input.data?.agent_info ?? undefined,
       previousTurn: input.previous,
@@ -409,7 +418,7 @@ export class SessionHandle<
     const isChild = Boolean(input.data?.parent);
     const capabilities = [
       ...builtinsFromSpec({
-        spec: this.session.agent_spec,
+        spec: input.spec,
         definition,
         isChild,
         sandboxAvailable: Boolean(input.sandbox),
@@ -438,12 +447,13 @@ export class SessionHandle<
   private makeCreateDynamicSubAgentThread(input: {
     resolver: ITurnResourceResolver<TTurnCustom>;
     previous: TurnRecord<TTurnCustom> | undefined;
+    spec: AgentSpec;
     sandbox: Sandbox | undefined;
     tracing: AgentTracing;
   }): CreateDynamicSubAgentThread {
     return async params => {
       const { definition, extraCapabilities } = await input.resolver.resolveAgentDefinition({
-        spec: this.session.agent_spec,
+        spec: input.spec,
         thread_id: params.threadId,
         agent_info: params.request,
         previousTurn: input.previous,
@@ -468,7 +478,7 @@ export class SessionHandle<
       };
       const capabilities = [
         ...builtinsFromSpec({
-          spec: this.session.agent_spec,
+          spec: input.spec,
           definition: childDefinition,
           isChild: true,
           sandboxAvailable: Boolean(input.sandbox),

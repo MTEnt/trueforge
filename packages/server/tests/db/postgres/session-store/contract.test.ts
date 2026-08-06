@@ -60,7 +60,7 @@ describePg('PostgresSessionStore (ISessionStore contract)', () => {
     await store.createSession({
       tenant_id: 't1',
       session_id: 's1',
-      agent_spec: makeAgentSpec(),
+      agent: { type: 'value', agent_spec: makeAgentSpec() },
       custom: null,
     });
 
