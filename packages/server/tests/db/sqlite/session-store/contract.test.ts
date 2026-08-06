@@ -16,7 +16,7 @@ describe('SqliteSessionStore (ISessionStore contract)', () => {
 
   runStoreContractSuite(
     () => new SqliteSessionStore(env.db),
-    callback => env.db.transaction().setAccessMode('read write').execute(callback),
+    callback => env.db.transaction().execute(callback),
   );
 
   it('joins a caller-owned transaction for createTurn', async () => {
@@ -29,13 +29,10 @@ describe('SqliteSessionStore (ISessionStore contract)', () => {
     });
 
     await expect(
-      env.db
-        .transaction()
-        .setAccessMode('read write')
-        .execute(async transaction => {
-          await store.createTurn(makeCreateTurnInput({ sessionId: 's1', turnId: 'turn-1' }), transaction);
-          throw new Error('rollback');
-        }),
+      env.db.transaction().execute(async transaction => {
+        await store.createTurn(makeCreateTurnInput({ sessionId: 's1', turnId: 'turn-1' }), transaction);
+        throw new Error('rollback');
+      }),
     ).rejects.toThrow('rollback');
 
     await expect(store.getTurn({ session_id: 's1', turn_id: 'turn-1' })).resolves.toBeUndefined();

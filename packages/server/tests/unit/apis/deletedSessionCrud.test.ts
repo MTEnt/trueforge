@@ -53,7 +53,7 @@ describe('public CRUD after session deletion', () => {
       createTurnsRouter({
         sessions,
         sessionStore,
-        withTransaction: callback => db.transaction().setAccessMode('read write').execute(callback),
+        withTransaction: callback => db.transaction().execute(callback),
         activeTurns,
         modelProviderStore,
         mcpServerStore,

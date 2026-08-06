@@ -309,12 +309,12 @@ async function assembleTurnRecord(
 }
 
 /**
- * createTurn — joins a caller-owned txn (route should use IMMEDIATE for tip lock).
+ * createTurn — joins a caller-owned txn.
  * Context order lives in turn_thread_context (pos, append_id); no context_ids array.
  */
 export async function createTurn(trx: Transaction<Database>, input: CreateTurnInput): Promise<void> {
   try {
-    // Step 1: read session tip; no FOR UPDATE (BEGIN IMMEDIATE is the lock).
+    // Step 1: read session tip (SQLite has no FOR UPDATE; write lock is taken on first write).
     const locked = await trx
       .selectFrom('session')
       .select(['last_turn_id'])
@@ -738,43 +738,40 @@ export async function listTurns(db: Kysely<Database>, input: ListTurnsInput): Pr
  * 0 rows → SELECT by PK → missing NotFound, present Conflict (first terminal write wins).
  */
 export async function updateTurnState(db: Kysely<Database>, input: UpdateTurnStateInput): Promise<void> {
-  await db
-    .transaction()
-    .setAccessMode('read write')
-    .execute(async trx => {
-      const result = await trx
-        .updateTable('turn')
-        .set({
-          state: jsonbBind(input.state),
-          updated_at: nowIso(),
-        })
+  await db.transaction().execute(async trx => {
+    const result = await trx
+      .updateTable('turn')
+      .set({
+        state: jsonbBind(input.state),
+        updated_at: nowIso(),
+      })
+      .where('session_id', '=', input.session_id)
+      .where('turn_id', '=', input.turn_id)
+      .where(sql<boolean>`state->>'status' = 'running'`)
+      .executeTakeFirst();
+
+    const numUpdated = Number(result.numUpdatedRows);
+    if (numUpdated === 0) {
+      const existing = await trx
+        .selectFrom('turn')
+        .select([jsonText<TurnState>(sql.ref('state')).as('state')])
         .where('session_id', '=', input.session_id)
         .where('turn_id', '=', input.turn_id)
-        .where(sql<boolean>`state->>'status' = 'running'`)
         .executeTakeFirst();
 
-      const numUpdated = Number(result.numUpdatedRows);
-      if (numUpdated === 0) {
-        const existing = await trx
-          .selectFrom('turn')
-          .select([jsonText<TurnState>(sql.ref('state')).as('state')])
-          .where('session_id', '=', input.session_id)
-          .where('turn_id', '=', input.turn_id)
-          .executeTakeFirst();
+      if (!existing) throw new TurnNotFoundError(input.turn_id);
+      throw new TurnNotRunningError(input.turn_id, terminalTurnState(existing.state, input.turn_id));
+    }
 
-        if (!existing) throw new TurnNotFoundError(input.turn_id);
-        throw new TurnNotRunningError(input.turn_id, terminalTurnState(existing.state, input.turn_id));
-      }
-
-      await trx
-        .insertInto('session_event')
-        .values({
-          session_id: input.session_id,
-          turn_id: input.turn_id,
-          event_id: input.turn_done_event.id,
-          event: jsonbBind(input.turn_done_event),
-          created_at: input.turn_done_event.created_at,
-        })
-        .execute();
-    });
+    await trx
+      .insertInto('session_event')
+      .values({
+        session_id: input.session_id,
+        turn_id: input.turn_id,
+        event_id: input.turn_done_event.id,
+        event: jsonbBind(input.turn_done_event),
+        created_at: input.turn_done_event.created_at,
+      })
+      .execute();
+  });
 }

@@ -181,34 +181,47 @@ async function createDistributedPersistence(options: {
   };
 }
 
-/** Binds one persistence topology to the app so `TTransaction` stays a single concrete type. */
-function createServerRuntime<TTransaction>(options: { persistence: ServerPersistence<TTransaction>; logger: Logger }) {
-  const { persistence, logger } = options;
+/** Keeps `TTransaction` concrete when wiring a single persistence topology into the app. */
+function createServerRuntime<TTransaction>(persistence: ServerPersistence<TTransaction>, logger: Logger) {
+  const {
+    sessionStore,
+    modelProviderStore,
+    withTransaction,
+    mcpServerStore,
+    tokenStore,
+    skillStore,
+    sandboxProviderStore,
+    agentStore,
+    destroyDb,
+    redis,
+  } = persistence;
+
   const activeTurns = new ActiveTurnRegistry();
   const requestReplyRouter = new RequestReplyRouter();
-  const eventSubscriptions = new EventSubscriptionRegistry<TurnStreamingEvent>(persistence.redis);
+  const eventSubscriptions = new EventSubscriptionRegistry<TurnStreamingEvent>(redis);
+
   const app = createServerApp({
     modelCatalog: ModelCatalog.load(),
     mcpCatalog: McpCatalog.load(),
     skillCatalog: SkillCatalog.load(),
     sandboxCatalog: SandboxCatalog.load(),
-    modelProviderStore: persistence.modelProviderStore,
-    withTransaction: persistence.withTransaction,
-    mcpServerStore: persistence.mcpServerStore,
-    tokenStore: persistence.tokenStore,
-    skillStore: persistence.skillStore,
-    sandboxProviderStore: persistence.sandboxProviderStore,
-    agentStore: persistence.agentStore,
-    sessionStore: persistence.sessionStore,
-    sessions: new Sessions({ sessionStore: persistence.sessionStore }),
+    modelProviderStore,
+    withTransaction,
+    mcpServerStore,
+    tokenStore,
+    skillStore,
+    sandboxProviderStore,
+    agentStore,
+    sessionStore,
+    sessions: new Sessions({ sessionStore }),
     activeTurns,
-    redis: persistence.redis,
+    redis,
     requestReplyRouter,
     eventSubscriptions,
     logger,
   });
 
-  return { activeTurns, app, destroyDb: persistence.destroyDb, redis: persistence.redis, requestReplyRouter };
+  return { activeTurns, app, destroyDb, redis, requestReplyRouter };
 }
 
 try {
@@ -220,14 +233,8 @@ try {
   });
 
   const { activeTurns, app, destroyDb, redis, requestReplyRouter } = configuration.STANDALONE
-    ? createServerRuntime({
-        persistence: await createStandalonePersistence({ sqlitePath: configuration.SQLITE_PATH, logger }),
-        logger,
-      })
-    : createServerRuntime({
-        persistence: await createDistributedPersistence({ configuration, logger }),
-        logger,
-      });
+    ? createServerRuntime(await createStandalonePersistence({ sqlitePath: configuration.SQLITE_PATH, logger }), logger)
+    : createServerRuntime(await createDistributedPersistence({ configuration, logger }), logger);
 
   if (mountFrontend(app, configuration.FRONTEND_DIR)) {
     logger.info(`Serving frontend from ${configuration.FRONTEND_DIR}`);
