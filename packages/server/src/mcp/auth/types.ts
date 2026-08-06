@@ -16,7 +16,7 @@ export interface OAuthToken {
 }
 
 export interface IOAuthTokenStore<TTransaction = never> {
-  savePendingAuthorization(pending: OAuthPendingAuthorization): Promise<void>;
+  savePendingAuthorization(pending: OAuthPendingAuthorization, transaction?: TTransaction): Promise<void>;
   consumePendingAuthorization(params: { state: string }): Promise<OAuthPendingAuthorization | undefined>;
   saveToken(params: { id: string; token: OAuthToken }): Promise<void>;
   getToken(params: { id: string }): Promise<OAuthToken | undefined>;
@@ -43,7 +43,7 @@ export interface OAuthClientRecord {
 }
 
 export interface IOAuthClientStore<TTransaction = never> {
-  saveClient(params: { id: string; record: OAuthClientRecord }): Promise<void>;
+  saveClient(params: { id: string; record: OAuthClientRecord }, transaction?: TTransaction): Promise<void>;
   getClient(params: { id: string }): Promise<OAuthClientRecord | undefined>;
   deleteClient(params: { id: string }, transaction?: TTransaction): Promise<void>;
 }

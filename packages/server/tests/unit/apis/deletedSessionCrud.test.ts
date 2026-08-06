@@ -57,6 +57,7 @@ describe('public CRUD after session deletion', () => {
         modelProviderStore,
         mcpServerStore,
         tokenStore,
+        withTransaction: callback => db.transaction().execute(callback),
         skillStore,
         agentStore,
         eventSubscriptions: new EventSubscriptionRegistry(undefined),

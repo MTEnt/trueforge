@@ -20,6 +20,7 @@ import type { IMcpServerStore, McpServerRecord } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
+import type { WithTransaction } from '../db/transaction';
 import { isMcpAuthRequired, resolveMcpAuth } from '../mcp/auth/mcpDcr';
 import type { IOAuthTokenStore } from '../mcp/auth/types';
 import { resolveConfiguredMcpRequestHeaders } from '../schemas/mcpServer';
@@ -86,17 +87,19 @@ export async function getModelProviderConfig({
   };
 }
 
-function dcrHeadersResolver(params: {
+function dcrHeadersResolver<TTransaction>(params: {
   record: McpServerRecord;
-  tokenStore: IOAuthTokenStore;
-  mcpServerStore: IMcpServerStore;
+  tokenStore: IOAuthTokenStore<TTransaction>;
+  mcpServerStore: IMcpServerStore<TTransaction>;
+  withTransaction: WithTransaction<TTransaction>;
   clientName: string;
 }): RemoteMcpHeaders {
-  const { record, tokenStore, mcpServerStore, clientName } = params;
+  const { record, tokenStore, mcpServerStore, withTransaction, clientName } = params;
   return async () => {
     const result = await resolveMcpAuth({
       tokenStore,
       mcpServerStore,
+      withTransaction,
       serverId: record.id,
       mcpServerUrl: record.manifest.url,
       mcpServerName: record.name,
@@ -120,17 +123,19 @@ function dcrHeadersResolver(params: {
  * DCR uses resolveMcpAuth; header / no-auth use resolveConfiguredMcpRequestHeaders.
  * Returns undefined when the server is not registered — callers choose the response.
  */
-export async function getMcpConnection({
+export async function getMcpConnection<TTransaction>({
   tenant_id,
   name,
   store,
   tokenStore,
+  withTransaction,
   clientName,
 }: {
   tenant_id: string;
   name: string;
-  store: IMcpServerStore;
-  tokenStore: IOAuthTokenStore;
+  store: IMcpServerStore<TTransaction>;
+  tokenStore: IOAuthTokenStore<TTransaction>;
+  withTransaction: WithTransaction<TTransaction>;
   clientName: string;
 }): Promise<McpConnection | undefined> {
   const record = await store.getServer({ tenant_id, name });
@@ -144,6 +149,7 @@ export async function getMcpConnection({
         record,
         tokenStore,
         mcpServerStore: store,
+        withTransaction,
         clientName,
       }),
     };

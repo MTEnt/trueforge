@@ -94,9 +94,12 @@ export class SqliteMcpServerStore implements IMcpServerStore<Transaction<Databas
     return fromStoredOAuthClientRecord({ server: row.oauth_server, client: row.oauth_client });
   }
 
-  async saveClient(params: { id: string; record: OAuthClientRecord }): Promise<void> {
+  async saveClient(
+    params: { id: string; record: OAuthClientRecord },
+    transaction?: Transaction<Database>,
+  ): Promise<void> {
     const stored = toStoredOAuthClientRecord(params.record);
-    await this.#db
+    await (transaction ?? this.#db)
       .updateTable('mcp_server')
       .set({
         oauth_server: jsonbBind(stored.server),

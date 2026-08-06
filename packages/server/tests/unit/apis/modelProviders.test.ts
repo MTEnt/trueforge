@@ -58,6 +58,7 @@ async function createRouters(): Promise<{
       mcpCatalog: McpCatalog.load(),
       mcpServerStore: new SqliteMcpServerStore(db),
       tokenStore: new SqliteOAuthTokenStore(db),
+      withTransaction: callback => db.transaction().execute(callback),
       skillCatalog: SkillCatalog.load(),
       skillStore: new SqliteSkillStore(db),
       sandboxCatalog: SandboxCatalog.load(),

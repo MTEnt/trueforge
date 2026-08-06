@@ -8,8 +8,8 @@ import { deleteToken, getToken, getTokens, saveToken } from './queries/token';
 export class SqliteOAuthTokenStore implements IOAuthTokenStore<Transaction<Database>> {
   constructor(private readonly db: Kysely<Database>) {}
 
-  savePendingAuthorization(pending: OAuthPendingAuthorization): Promise<void> {
-    return savePendingAuthorization(this.db, pending);
+  savePendingAuthorization(pending: OAuthPendingAuthorization, transaction?: Transaction<Database>): Promise<void> {
+    return savePendingAuthorization(transaction ?? this.db, pending);
   }
 
   consumePendingAuthorization(params: { state: string }): Promise<OAuthPendingAuthorization | undefined> {

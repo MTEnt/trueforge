@@ -33,6 +33,7 @@ import type { IMcpServerStore } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
+import type { WithTransaction } from '../db/transaction';
 import type { IOAuthTokenStore } from '../mcp/auth/types';
 import {
   createAndExecuteTurnRoute,
@@ -97,13 +98,14 @@ export function toContentDisposition(path: string): string {
   return `attachment; filename*=UTF-8''${encoded}`;
 }
 
-export interface TurnsRouterDeps {
+export interface TurnsRouterDeps<TTransaction> {
   sessions: Sessions;
   sessionStore: ISessionStore;
   activeTurns: ActiveTurnRegistry;
   modelProviderStore: IModelProviderStore;
-  mcpServerStore: IMcpServerStore;
-  tokenStore: IOAuthTokenStore;
+  mcpServerStore: IMcpServerStore<TTransaction>;
+  tokenStore: IOAuthTokenStore<TTransaction>;
+  withTransaction: WithTransaction<TTransaction>;
   skillStore: ISkillStore;
   agentStore: IAgentStore;
   /** Resumable live turn-event transport: create-turn writes, subscribe polls. */
@@ -116,9 +118,10 @@ export interface TurnsRouterDeps {
  * Builds the per-turn resolver. Agent / MCP / sandbox / LLM lookups are wired
  * the same way: async factories over the corresponding stores.
  */
-function createTurnResolver(deps: {
-  mcpServerStore: IMcpServerStore;
-  tokenStore: IOAuthTokenStore;
+function createTurnResolver<TTransaction>(deps: {
+  mcpServerStore: IMcpServerStore<TTransaction>;
+  tokenStore: IOAuthTokenStore<TTransaction>;
+  withTransaction: WithTransaction<TTransaction>;
   skillStore: ISkillStore;
   sandboxProviderStore: ISandboxProviderStore;
   agentStore: IAgentStore;
@@ -129,6 +132,7 @@ function createTurnResolver(deps: {
   const {
     mcpServerStore,
     tokenStore,
+    withTransaction,
     skillStore,
     sandboxProviderStore,
     agentStore,
@@ -155,6 +159,7 @@ function createTurnResolver(deps: {
         name,
         store: mcpServerStore,
         tokenStore,
+        withTransaction,
         clientName: configuration.MCP_DCR_OAUTH_CLIENT_NAME,
       });
       if (connection === undefined) {
@@ -323,7 +328,7 @@ export function resolveAfterSequenceNumber(c: Context, bodyAfterSequenceNumber?:
 }
 
 /** DB-backed turns (mounted at /api/v1/sessions). */
-export function createTurnsRouter(deps: TurnsRouterDeps) {
+export function createTurnsRouter<TTransaction>(deps: TurnsRouterDeps<TTransaction>) {
   const listTurnsHandler: RouteHandler<typeof listTurnsRoute> = async c => {
     const { session_id: sessionId } = c.req.valid('param');
     const query = c.req.valid('query');
@@ -456,6 +461,7 @@ export function createTurnsRouter(deps: TurnsRouterDeps) {
     const resolver = createTurnResolver({
       mcpServerStore: deps.mcpServerStore,
       tokenStore: deps.tokenStore,
+      withTransaction: deps.withTransaction,
       skillStore: deps.skillStore,
       sandboxProviderStore: deps.sandboxProviderStore,
       agentStore: deps.agentStore,

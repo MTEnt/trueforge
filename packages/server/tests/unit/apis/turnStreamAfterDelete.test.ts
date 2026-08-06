@@ -75,6 +75,7 @@ describe('turn SSE after session deletion', () => {
         modelProviderStore,
         mcpServerStore: new SqliteMcpServerStore(db),
         tokenStore: new SqliteOAuthTokenStore(db),
+        withTransaction: callback => db.transaction().execute(callback),
         skillStore: new SqliteSkillStore(db),
         agentStore: new SqliteAgentStore(db),
         eventSubscriptions: new EventSubscriptionRegistry(undefined),

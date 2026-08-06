@@ -313,6 +313,34 @@ describe('createMcpOAuthClient / ensureMcpClientRegistered', () => {
 });
 
 describe('buildMcpAuthorizationUrl', () => {
+  it('opens the transaction after DCR and uses it for both new-client writes', async () => {
+    const { tokenStore, mcpServerStore } = newStores();
+    const { registerCallCount } = stubOauthFetch({});
+    const saveClient = jest.spyOn(mcpServerStore, 'saveClient');
+    const savePendingAuthorization = jest.spyOn(tokenStore, 'savePendingAuthorization');
+    const transaction = {};
+    let withTransactionCalls = 0;
+
+    await buildMcpAuthorizationUrl({
+      tokenStore,
+      mcpServerStore,
+      withTransaction: callback => {
+        withTransactionCalls += 1;
+        expect(registerCallCount()).toBe(1);
+        return callback(transaction);
+      },
+      serverId: SERVER_ID,
+      mcpServerUrl: SERVER_URL,
+      mcpServerName: SERVER_NAME,
+      clientName: CLIENT_NAME,
+      deleteExistingToken: false,
+    });
+
+    expect(withTransactionCalls).toBe(1);
+    expect(saveClient).toHaveBeenCalledWith({ id: SERVER_ID, record: expect.any(Object) }, transaction);
+    expect(savePendingAuthorization).toHaveBeenCalledWith(expect.objectContaining({ id: SERVER_ID }), transaction);
+  });
+
   it('saves pending authorization with PKCE when the AS advertises S256', async () => {
     const { tokenStore, mcpServerStore } = newStores();
     await mcpServerStore.saveClient({ id: SERVER_ID, record: sampleClient });
@@ -321,10 +349,12 @@ describe('buildMcpAuthorizationUrl', () => {
     const authUrl = await buildMcpAuthorizationUrl({
       tokenStore,
       mcpServerStore,
+      withTransaction: withNoTransaction,
       serverId: SERVER_ID,
       mcpServerUrl: SERVER_URL,
       mcpServerName: SERVER_NAME,
       clientName: CLIENT_NAME,
+      deleteExistingToken: false,
       redirectUrl: 'https://app.example.com/after',
     });
 
@@ -361,10 +391,12 @@ describe('buildMcpAuthorizationUrl', () => {
     const authUrl = await buildMcpAuthorizationUrl({
       tokenStore,
       mcpServerStore,
+      withTransaction: withNoTransaction,
       serverId: SERVER_ID,
       mcpServerUrl: SERVER_URL,
       mcpServerName: SERVER_NAME,
       clientName: CLIENT_NAME,
+      deleteExistingToken: false,
     });
 
     expect(authUrl.searchParams.get('code_challenge_method')).toBe('S256');
@@ -401,10 +433,12 @@ describe('buildMcpAuthorizationUrl', () => {
       buildMcpAuthorizationUrl({
         tokenStore,
         mcpServerStore,
+        withTransaction: withNoTransaction,
         serverId: SERVER_ID,
         mcpServerUrl: SERVER_URL,
         mcpServerName: SERVER_NAME,
         clientName: CLIENT_NAME,
+        deleteExistingToken: false,
       }),
     ).rejects.toMatchObject({
       name: 'McpConnectionError',
@@ -416,6 +450,7 @@ describe('buildMcpAuthorizationUrl', () => {
 const resolveParams = (stores: Stores, mcpServerUrl = SERVER_URL) => ({
   tokenStore: stores.tokenStore,
   mcpServerStore: stores.mcpServerStore,
+  withTransaction: withNoTransaction,
   serverId: SERVER_ID,
   mcpServerUrl,
   mcpServerName: SERVER_NAME,
@@ -566,6 +601,36 @@ describe('resolveMcpAuth', () => {
     if (!isMcpAuthRequired(result)) throw new Error('unreachable');
     expect(result.authUrl.searchParams.get('state')).toBeTruthy();
   });
+
+  it('finishes DCR before deleting a stale token with the new client writes', async () => {
+    const stores = newStores();
+    await stores.tokenStore.saveToken({
+      id: SERVER_ID,
+      token: {
+        accessToken: 'expired-access',
+        refreshToken: null,
+        expiresAt: new Date(Date.now() - 1000).toISOString(),
+        scope: null,
+      },
+    });
+    const { registerCallCount } = stubOauthFetch({});
+    const deleteToken = jest.spyOn(stores.tokenStore, 'deleteToken');
+    const saveClient = jest.spyOn(stores.mcpServerStore, 'saveClient');
+    const savePendingAuthorization = jest.spyOn(stores.tokenStore, 'savePendingAuthorization');
+    const transaction = {};
+
+    await resolveMcpAuth({
+      ...resolveParams(stores),
+      withTransaction: callback => {
+        expect(registerCallCount()).toBe(1);
+        return callback(transaction);
+      },
+    });
+
+    expect(deleteToken).toHaveBeenCalledWith({ id: SERVER_ID }, transaction);
+    expect(saveClient).toHaveBeenCalledWith({ id: SERVER_ID, record: expect.any(Object) }, transaction);
+    expect(savePendingAuthorization).toHaveBeenCalledWith(expect.objectContaining({ id: SERVER_ID }), transaction);
+  });
 });
 
 describe('end-to-end DCR + authorize with normalised MCP URL', () => {
@@ -600,6 +665,7 @@ describe('completeMcpAuthorization', () => {
 
     const authUrl = await buildMcpAuthorizationUrl({
       ...resolveParams(stores),
+      deleteExistingToken: false,
       redirectUrl: 'https://app.example.com/connected',
     });
     const state = authUrl.searchParams.get('state')!;
@@ -680,6 +746,7 @@ describe('completeMcpAuthorization', () => {
     await stores.mcpServerStore.saveClient({ id: SERVER_ID, record: sampleClient });
     const authUrl = await buildMcpAuthorizationUrl({
       ...resolveParams(stores),
+      deleteExistingToken: false,
       redirectUrl: 'https://app.example.com/after',
     });
     const state = authUrl.searchParams.get('state')!;

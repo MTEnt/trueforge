@@ -89,6 +89,7 @@ describe('create turn non-streaming', () => {
         agentStore: new SqliteAgentStore(db),
         mcpServerStore: new SqliteMcpServerStore(db),
         tokenStore: new SqliteOAuthTokenStore(db),
+        withTransaction: callback => db.transaction().execute(callback),
         skillStore: new SqliteSkillStore(db),
         eventSubscriptions,
         sandboxProviderStore: new SqliteSandboxProviderStore(db),

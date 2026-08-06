@@ -6,11 +6,12 @@ import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/Sqlite
 import { getMcpConnection } from '../../../src/runtime/sessionResources';
 
 describe('getMcpConnection', () => {
+  let db: ReturnType<typeof createSqliteDb>;
   let mcpServerStore: SqliteMcpServerStore;
   let tokenStore: SqliteOAuthTokenStore;
 
   beforeAll(async () => {
-    const db = createSqliteDb(':memory:');
+    db = createSqliteDb(':memory:');
     await migrateSqliteToLatest(db);
     mcpServerStore = new SqliteMcpServerStore(db);
     tokenStore = new SqliteOAuthTokenStore(db);
@@ -76,6 +77,7 @@ describe('getMcpConnection', () => {
         name: 'oauth-mcp',
         store: mcpServerStore,
         tokenStore,
+        withTransaction: callback => db.transaction().execute(callback),
         clientName: 'test-client',
       });
       expect(connection).toBeDefined();
@@ -133,6 +135,7 @@ describe('getMcpConnection', () => {
       name: 'tokened-mcp',
       store: mcpServerStore,
       tokenStore,
+      withTransaction: callback => db.transaction().execute(callback),
       clientName: 'test-client',
     });
     expect(connection).toBeDefined();
@@ -160,6 +163,7 @@ describe('getMcpConnection', () => {
       name: 'open-mcp',
       store: mcpServerStore,
       tokenStore,
+      withTransaction: callback => db.transaction().execute(callback),
       clientName: 'test-client',
     });
     expect(connection).toBeDefined();
@@ -188,6 +192,7 @@ describe('getMcpConnection', () => {
       name: 'header-mcp',
       store: mcpServerStore,
       tokenStore,
+      withTransaction: callback => db.transaction().execute(callback),
       clientName: 'test-client',
     });
     expect(connection).toBeDefined();
@@ -206,6 +211,7 @@ describe('getMcpConnection', () => {
         name: 'missing-mcp',
         store: mcpServerStore,
         tokenStore,
+        withTransaction: callback => db.transaction().execute(callback),
         clientName: 'test-client',
       }),
     ).resolves.toBeUndefined();

@@ -90,6 +90,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
     createMcpServersRouter({
       mcpServerStore: deps.mcpServerStore,
       tokenStore: deps.tokenStore,
+      withTransaction: deps.withTransaction,
       logger: deps.logger,
     }),
   );
@@ -122,6 +123,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
       mcpCatalog: deps.mcpCatalog,
       mcpServerStore: deps.mcpServerStore,
       tokenStore: deps.tokenStore,
+      withTransaction: deps.withTransaction,
       skillCatalog: deps.skillCatalog,
       skillStore: deps.skillStore,
       sandboxCatalog: deps.sandboxCatalog,
@@ -153,6 +155,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
       modelProviderStore: deps.modelProviderStore,
       mcpServerStore: deps.mcpServerStore,
       tokenStore: deps.tokenStore,
+      withTransaction: deps.withTransaction,
       skillStore: deps.skillStore,
       agentStore: deps.agentStore,
       eventSubscriptions: deps.eventSubscriptions,
