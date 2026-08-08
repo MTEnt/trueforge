@@ -33,18 +33,35 @@ jobs:
         uses: dorny/paths-filter@v4
         id: filter
         with:
+          # Shared roots on every package filter so path-gated format/lint/test still run when:
+          # - package.json: root format:check:*/lint:*/test:* entrypoints change
+          # - pnpm-workspace.yaml: workspace membership/graph changes
+          # - tsconfig.base.json: shared TS settings affect package typecheck/tests
+          # - .github/workflows/ci.yml: this workflow's package matrix/steps change
           filters: |
             harness:
               - 'packages/harness/**'
+              - 'package.json'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
               - '.github/workflows/ci.yml'
             server:
               - 'packages/server/**'
+              - 'package.json'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
               - '.github/workflows/ci.yml'
             frontend:
               - 'packages/frontend/**'
+              - 'package.json'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
               - '.github/workflows/ci.yml'
             trueforge-ui:
               - 'packages/trueforge-ui-sdk/**'
+              - 'package.json'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
               - '.github/workflows/ci.yml'
             store:
               - 'packages/server/src/db/**'
@@ -53,8 +70,13 @@ jobs:
               - 'packages/server/jest.store.sqlite.config.cjs'
               - 'packages/server/package.json'
               - 'packages/harness/package.json'
+              - 'packages/harness/src/agent-session/models/**'
+              - 'packages/harness/src/agent-session/schemas/**'
               - 'packages/harness/src/agent-session/store/**'
               - 'packages/harness/tests/agent-session/store/**'
+              - 'packages/harness/tests/agent-session/testHelpers.ts'
+              - 'package.json'
+              - 'pnpm-workspace.yaml'
               - '.github/workflows/ci.yml'
 
       - name: Build package matrix
@@ -74,9 +96,10 @@ jobs:
           console.log(`list=${JSON.stringify(changedPackages)}`);
           EOF
 
-  # Global: always runs.
+  # Global: always runs. Repo-wide format/lint cover roots (scripts/, docs, configs)
+  # that per-package globs omit; typecheck/build stay always-on.
   typecheck-and-build:
-    name: Typecheck and Build
+    name: Format, Lint, Typecheck and Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -96,11 +119,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Format
+        run: pnpm format:check
+
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Build
         run: pnpm build
+
+      # After typecheck/build so trueforge-ui and sdk .d.ts exist for type-aware eslint.
+      - name: Lint
+        run: pnpm lint:ci
 
   # Per changed package: format, lint, test as separate steps.
   # Runs in parallel with typecheck-and-build (time-first). Matrix instances are concurrent.
@@ -186,3 +216,28 @@ jobs:
         env:
           SESSION_STORE_TEST_PG_URL: postgres://proto:proto@localhost:55432/proto
         run: pnpm test:store:postgres
+
+  # https://github.com/marketplace/actions/alls-green#why
+  check:
+    if: always()
+    needs:
+      - detect-changes
+      - typecheck-and-build
+      - package-checks
+      - store-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        env:
+          DETECT_CHANGES: ${{ needs.detect-changes.result }}
+          TYPECHECK_AND_BUILD: ${{ needs.typecheck-and-build.result }}
+          PACKAGE_CHECKS: ${{ needs.package-checks.result }}
+          STORE_TESTS: ${{ needs.store-tests.result }}
+        run: |
+          ok() { [ "$1" = success ] || [ "$1" = skipped ]; }
+          echo "detect-changes=$DETECT_CHANGES typecheck-and-build=$TYPECHECK_AND_BUILD package-checks=$PACKAGE_CHECKS store-tests=$STORE_TESTS"
+          [ "$DETECT_CHANGES" = success ] || exit 1
+          [ "$TYPECHECK_AND_BUILD" = success ] || exit 1
+          ok "$PACKAGE_CHECKS" || exit 1
+          ok "$STORE_TESTS" || exit 1
