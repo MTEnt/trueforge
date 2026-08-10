@@ -218,6 +218,7 @@ export type {
 // Server port types + factory
 export { ClearChatButton } from './atoms/ClearChatButton.js';
 export { SelectAgentEmptyState } from './atoms/SelectAgentEmptyState.js';
+export { ShellActionsActionSlot } from './atoms/ShellActionsActionSlot.js';
 export { createTrueFoundryServer } from './server/createTrueFoundryServer.js';
 export type { CreateTrueFoundryServerOptions, TrueFoundryServer } from './server/createTrueFoundryServer.js';
 export {
@@ -226,6 +227,7 @@ export {
   useOptionalCatalogServer,
   useOptionalServer,
   useServer,
+  useServerCapabilities,
 } from './server/ServerContext.js';
 export {
   DEFAULT_AGENT_CONFIG,
@@ -237,6 +239,7 @@ export {
 } from './server/ShellModeContext.js';
 export type { AgentConfig, SelectLibraryAgentRequest, ShellMode } from './server/ShellModeContext.js';
 export type {
+  AgentBuilderCapabilitiesResponse,
   AgentBuilderServer,
   AgentChatServer,
   AgentLibraryEntry,
@@ -325,6 +328,7 @@ export type {
 // Utils
 export { computeAgentStepsSplit } from './utils/computeAgentStepsSplit.js';
 export type { AgentStepPart, AgentStepsSplitResult } from './utils/computeAgentStepsSplit.js';
+export { getErrorMessage } from './utils/getErrorMessage.js';
 
 export { AgentsLibrary } from './atoms/AgentsLibrary.js';
 export type { AgentsLibraryProps } from './atoms/AgentsLibrary.js';

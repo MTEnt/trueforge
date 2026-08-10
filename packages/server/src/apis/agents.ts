@@ -8,19 +8,27 @@ import type { IMcpServerStore } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
-import { createAgentRoute, getAgentRoute, listAgentsRoute, putAgentRoute } from '../routes/agentRoutes';
+import type { WithTransaction } from '../db/transaction';
+import {
+  createAgentRoute,
+  deleteAgentRoute,
+  getAgentRoute,
+  listAgentsRoute,
+  putAgentRoute,
+} from '../routes/agentRoutes';
 import { validateAgentSpec } from '../runtime/sessionResources';
 import type { SandboxSnapshotSyncService } from '../sandbox/SandboxSnapshotSyncService';
 import { toAgentManifest, type Agent, type AgentWriteRequest } from '../schemas/agent';
 import { TENANT_ID } from './sessions';
 
-export interface AgentsRouterDeps {
-  agentStore: IAgentStore;
-  modelProviderStore: IModelProviderStore;
-  mcpServerStore: IMcpServerStore;
-  skillStore: ISkillStore;
-  sandboxProviderStore: ISandboxProviderStore;
+export interface AgentsRouterDeps<TTransaction> {
+  agentStore: IAgentStore<TTransaction>;
+  modelProviderStore: IModelProviderStore<TTransaction>;
+  mcpServerStore: IMcpServerStore<TTransaction>;
+  skillStore: ISkillStore<TTransaction>;
+  sandboxProviderStore: ISandboxProviderStore<TTransaction>;
   sandboxSnapshotSync: SandboxSnapshotSyncService;
+  withTransaction: WithTransaction<TTransaction>;
 }
 
 /** Wire view: identity columns plus AgentSpec fields flattened. */
@@ -32,7 +40,13 @@ function toWireAgent(record: AgentRecord): Agent {
   };
 }
 
-async function validateManifest({ spec, deps }: { spec: AgentSpec; deps: AgentsRouterDeps }): Promise<AgentSpec> {
+async function validateManifest<TTransaction>({
+  spec,
+  deps,
+}: {
+  spec: AgentSpec;
+  deps: AgentsRouterDeps<TTransaction>;
+}): Promise<AgentSpec> {
   await validateAgentSpec({
     spec,
     tenant_id: TENANT_ID,
@@ -45,7 +59,7 @@ async function validateManifest({ spec, deps }: { spec: AgentSpec; deps: AgentsR
   return spec;
 }
 
-export function createAgentsRouter(deps: AgentsRouterDeps) {
+export function createAgentsRouter<TTransaction>(deps: AgentsRouterDeps<TTransaction>) {
   const listHandler: RouteHandler<typeof listAgentsRoute> = async c => {
     const records = await deps.agentStore.listAgents(TENANT_ID);
     return c.json({ data: records.map(toWireAgent) }, 200);
@@ -78,6 +92,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     return c.json({ data: toWireAgent(record) }, 200);
   };
 
+  const deleteHandler: RouteHandler<typeof deleteAgentRoute> = async c => {
+    const { agent_id: agentId } = c.req.valid('param');
+    await deps.agentStore.deleteAgent({ tenant_id: TENANT_ID, id: agentId });
+    return c.body(null, 204);
+  };
+
   const putHandler: RouteHandler<typeof putAgentRoute> = async c => {
     const { name } = c.req.valid('param');
     const body = c.req.valid('json');
@@ -97,6 +117,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
   router.openapi(listAgentsRoute, listHandler);
   router.openapi(createAgentRoute, createHandler);
   router.openapi(getAgentRoute, getHandler);
+  router.openapi(deleteAgentRoute, deleteHandler);
   router.openapi(putAgentRoute, putHandler);
   return router;
 }

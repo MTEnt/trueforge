@@ -6,6 +6,7 @@ import { Button } from '../../atoms/primitives/Button.js';
 import { Icon } from '../../icons/Icon.js';
 import { useCatalogServer } from '../../server/ServerContext.js';
 import type { SandboxProviderBase, SandboxProviderCatalogEntry, SandboxProviderConfig } from '../../server/types.js';
+import { getErrorMessage } from '../../utils/getErrorMessage.js';
 import ConfigureSandboxForm, { type SandboxConfigDraft } from './ConfigureSandboxForm.js';
 
 const configFrom = ({
@@ -67,7 +68,7 @@ const SandboxSettings = () => {
         setProviders(listed);
         setCatalog(available);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load sandbox providers');
+        setError(getErrorMessage(err, 'Failed to load sandbox providers'));
       } finally {
         if (!quiet) setLoading(false);
       }
@@ -118,7 +119,7 @@ const SandboxSettings = () => {
       await fn();
       await refresh({ quiet: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Request failed');
+      setError(getErrorMessage(err, 'Request failed'));
       throw err;
     } finally {
       setBusy(false);
@@ -171,8 +172,7 @@ const SandboxSettings = () => {
     <>
       <h3 className="text-xl font-semibold tracking-tight text-foreground">Sandbox providers</h3>
       <p className="mt-1 text-sm text-muted-foreground">
-        Choose a provider that runs sandboxes for code, files, and shell commands. These are providers, not sandboxes
-        themselves. Only one sandbox provider can be configured for this workspace.
+        Choose a provider that runs sandboxes for code, files and shell commands. Only one can be active at a time.
       </p>
 
       {error ? (
@@ -266,7 +266,7 @@ const SandboxSettings = () => {
               {availableEntries.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   {hasConfiguredProvider
-                    ? 'A sandbox provider is already configured. Remove it to choose a different one.'
+                    ? 'One provider is set up. Update it or remove it to switch.'
                     : catalog.length > 0
                       ? 'All catalog providers are configured.'
                       : 'No sandbox providers in the catalog.'}

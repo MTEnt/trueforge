@@ -1,12 +1,15 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
+import { isAdmin, resolveUserContext } from '../auth/identity';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
+import type { WithTransaction } from '../db/transaction';
 import { getCapabilitiesRoute } from '../routes/capabilityRoutes';
 import type { SandboxSnapshotSyncService } from '../sandbox/SandboxSnapshotSyncService';
 import { TENANT_ID } from './sessions';
 
-export function createCapabilitiesRouter(deps: {
-  sandboxProviderStore: ISandboxProviderStore;
+export function createCapabilitiesRouter<TTransaction>(deps: {
+  sandboxProviderStore: ISandboxProviderStore<TTransaction>;
   sandboxSnapshotSync: SandboxSnapshotSyncService;
+  withTransaction: WithTransaction<TTransaction>;
 }) {
   /**
    * A configured provider is not enough: sandboxes can only be created once the
@@ -26,6 +29,7 @@ export function createCapabilitiesRouter(deps: {
   const router = new OpenAPIHono();
   router.openapi(getCapabilitiesRoute, async c => {
     const unavailableReason = await sandboxUnavailableReason();
+    const settingsEnabled = isAdmin(resolveUserContext(c));
 
     return c.json(
       {
@@ -35,7 +39,7 @@ export function createCapabilitiesRouter(deps: {
             unavailableReason === undefined
               ? { enabled: true }
               : { enabled: false, reason: `Skills run in a sandbox, which is unavailable. ${unavailableReason}` },
-          settings: { enabled: true },
+          settings: { enabled: settingsEnabled },
         },
       },
       200,

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import type { Configuration } from 'openid-client';
 import winston from 'winston';
 import { createAuthRouter } from '../../../src/apis/auth';
+import { LOCAL_USER_CONTEXT } from '../../../src/auth/identity';
 import { disableOidcAuth, initOidc } from '../../../src/auth/oidc';
 import configuration from '../../../src/config';
 
@@ -14,6 +15,7 @@ jest.mock('../../../src/config', () => {
     OIDC_USER_REFERENCE_CLAIM: 'sub',
     OIDC_USER_ROLE_CLAIM: 'groups',
     OIDC_ADMIN_ROLE_VALUE: 'admin',
+    OIDC_SCOPES: ['openid', 'profile', 'email', 'groups'],
   };
   return {
     __esModule: true,
@@ -70,13 +72,17 @@ describe('auth router (no identity provider configured)', () => {
     expect(res.status).toBe(204);
   });
 
-  it('GET /auth/me returns the default identity when OIDC is off', async () => {
+  it('GET /auth/me returns the default identity when auth is disabled', async () => {
     const router = createAuthRouter({ oidcClient: undefined, logger });
 
     const res = await router.request('/me');
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ type: 'default', email: 'default', role: 'user' });
+    expect(await res.json()).toEqual({
+      type: 'default',
+      email: LOCAL_USER_CONTEXT.userRef,
+      role: LOCAL_USER_CONTEXT.role,
+    });
   });
 });
 
@@ -102,7 +108,7 @@ function cookieValue(cookies: string[], name: string): string | undefined {
   return undefined;
 }
 
-describe('auth router (OIDC configured)', () => {
+describe('auth router (auth enabled)', () => {
   const realFetch = globalThis.fetch;
   let privateKey: Awaited<ReturnType<typeof generateKeyPair>>['privateKey'];
   let publicJwk: JWK;
@@ -195,7 +201,38 @@ describe('auth router (OIDC configured)', () => {
     expect(authUrl.searchParams.get('client_id')).toBe(CLIENT_ID);
     expect(authUrl.searchParams.get('redirect_uri')).toBe('https://harness.example.com/api/v1/auth/callback');
     expect(authUrl.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(authUrl.searchParams.get('scope')?.split(' ')).toEqual(
+      expect.arrayContaining(['openid', 'profile', 'email', 'groups']),
+    );
+    expect(JSON.parse(authUrl.searchParams.get('claims') ?? '{}')).toEqual({
+      id_token: { sub: { essential: true }, groups: { essential: true } },
+    });
     expect(cookieValue(setCookies(res), STATE_COOKIE)).toBeTruthy();
+  });
+
+  it('GET /login requests roles claim without groups scope when OIDC_USER_ROLE_CLAIM=roles', async () => {
+    const rolesOidcClient = await initOidc({
+      ...configuredOidc,
+      OIDC_USER_ROLE_CLAIM: 'roles',
+      OIDC_SCOPES: ['openid', 'profile', 'email'],
+    });
+    if (!rolesOidcClient) {
+      throw new Error('OIDC client was not initialized');
+    }
+
+    const res = await createAuthRouter({ oidcClient: rolesOidcClient, logger }).request('/login', {
+      redirect: 'manual',
+    });
+
+    expect(res.status).toBe(302);
+    const authUrl = new URL(res.headers.get('location') ?? '');
+    expect(authUrl.searchParams.get('scope')?.split(' ')).toEqual(
+      expect.arrayContaining(['openid', 'profile', 'email']),
+    );
+    expect(authUrl.searchParams.get('scope')?.split(' ')).not.toContain('groups');
+    expect(JSON.parse(authUrl.searchParams.get('claims') ?? '{}')).toEqual({
+      id_token: { sub: { essential: true }, roles: { essential: true } },
+    });
   });
 
   // `iss` is forwarded verbatim: IdPs advertising it reject an exchange that drops it.
@@ -215,6 +252,52 @@ describe('auth router (OIDC configured)', () => {
     expect(callbackRes.headers.get('location')).toBe('/sessions/abc123');
     const idTokenCookie = setCookies(callbackRes).find(cookie => cookie.startsWith(`${ID_TOKEN_COOKIE}=`));
     expect(idTokenCookie).toContain('Max-Age=86400');
+  });
+
+  it('GET /callback redirects home with error when the IdP returns an error', async () => {
+    const res = await createAuthRouter({ oidcClient, logger }).request(
+      '/callback?state=any&error=access_denied&error_description=user%20cancelled',
+      { redirect: 'manual' },
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/?error=user%20cancelled');
+  });
+
+  it('GET /callback uses login_failed when the IdP error has no description', async () => {
+    const res = await createAuthRouter({ oidcClient, logger }).request('/callback?state=any&error=access_denied', {
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/?error=login_failed');
+  });
+
+  it('GET /callback uses login_failed when the IdP error description is blank', async () => {
+    const res = await createAuthRouter({ oidcClient, logger }).request(
+      '/callback?state=any&error=access_denied&error_description=%20%20',
+      { redirect: 'manual' },
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/?error=login_failed');
+  });
+
+  it('GET /callback ignores a crafted error_description when the IdP did not return an error', async () => {
+    // No `error` code → this is our own validation failure, so the attacker-supplied
+    // description must not be reflected; the reason stays generic.
+    const crafted = 'Your%20account%20is%20compromised%2C%20call%201-800-EVIL';
+    const res = await createAuthRouter({ oidcClient, logger }).request(
+      `/callback?state=any&error_description=${crafted}`,
+      { redirect: 'manual' },
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/?error=login_failed');
+  });
+
+  it('GET /callback redirects home with error when state mismatches', async () => {
+    const res = await createAuthRouter({ oidcClient, logger }).request('/callback?code=abc&state=wrong', {
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/?error=login_failed');
   });
 
   it('POST /logout clears id_token even when no cookie is present', async () => {

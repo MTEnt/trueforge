@@ -7,6 +7,7 @@
  */
 import { createRoute } from '@hono/zod-openapi';
 import { AuthLoginQuerySchema, MeResponseSchema, OAuthCallbackQuerySchema } from '../schemas/auth';
+import { RequestErrorResponseSchema } from '../schemas/errors';
 
 const AUTH_TAG = 'Auth';
 
@@ -36,7 +37,7 @@ export const oAuthCallbackRoute = createRoute({
   'x-fern-ignore': true,
   request: { query: OAuthCallbackQuerySchema },
   responses: {
-    302: { description: 'Redirect back into the app on success, or to /?error=login_failed on failure.' },
+    302: { description: 'Redirect back into the app on success, or to /?error=<reason> on failure.' },
   },
 });
 
@@ -61,8 +62,9 @@ export const meRoute = createRoute({
   tags: [AUTH_TAG],
   summary: 'Current session',
   description:
-    'Returns the authenticated caller identity. When OIDC is configured this requires a valid session cookie ' +
-    '(401 otherwise). Without OIDC, returns the default anonymous identity.',
+    'Returns the authenticated caller identity. When auth is enabled this requires a valid ' +
+    '`id_token` cookie or `Authorization: Bearer` ID token (401 otherwise). When auth is disabled, ' +
+    'returns the default identity.',
   'x-fern-sdk-group-name': ['auth'],
   'x-fern-sdk-method-name': 'me',
   responses: {
@@ -70,6 +72,9 @@ export const meRoute = createRoute({
       content: { 'application/json': { schema: MeResponseSchema } },
       description: 'Session type and identity for the current request.',
     },
-    401: { description: 'OIDC is configured and the request has no valid session cookie.' },
+    401: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description: 'Auth is enabled and the request has no valid cookie or Bearer ID token.',
+    },
   },
 });

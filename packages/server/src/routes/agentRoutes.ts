@@ -37,6 +37,10 @@ export const listAgentsRoute = createRoute({
       content: { 'application/json': { schema: ListAgentsResponseSchema } },
       description: 'All configured agents.',
     },
+    401: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description: 'OIDC is configured and the request has no valid session cookie.',
+    },
   },
 });
 
@@ -95,6 +99,28 @@ export const getAgentRoute = createRoute({
     404: {
       content: { 'application/json': { schema: RequestErrorResponseSchema } },
       description: 'Agent not found.',
+    },
+  },
+});
+
+export const deleteAgentRoute = createRoute({
+  method: 'delete',
+  path: '/{agent_id}',
+  tags: [AGENTS_TAG],
+  summary: 'Delete an agent',
+  description: 'Delete a configured agent by immutable id. Idempotent if already gone.',
+  'x-fern-sdk-group-name': ['agents'],
+  'x-fern-sdk-method-name': 'delete',
+  request: {
+    params: AgentIdParamsSchema,
+  },
+  responses: {
+    204: {
+      description: 'Agent deleted.',
+    },
+    401: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description: 'OIDC is configured and the request has no valid session cookie.',
     },
   },
 });

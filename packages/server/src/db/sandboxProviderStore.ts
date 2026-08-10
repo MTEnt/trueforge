@@ -25,10 +25,10 @@ export interface PatchSandboxProviderSnapshotSyncInput {
   snapshot_sync: SandboxSnapshotSyncState;
 }
 
-export interface ISandboxProviderStore {
-  getSandboxProvider(tenantId: string): Promise<SandboxProviderRecord | undefined>;
+export interface ISandboxProviderStore<TTransaction = never> {
+  getSandboxProvider(tenantId: string, transaction?: TTransaction): Promise<SandboxProviderRecord | undefined>;
   /** Single-row write: creates the provider or replaces the whole manifest. */
-  upsertSandboxProvider(input: UpsertSandboxProviderInput): Promise<SandboxProviderRecord>;
+  upsertSandboxProvider(input: UpsertSandboxProviderInput, transaction?: TTransaction): Promise<SandboxProviderRecord>;
   /**
    * Replaces only the server-owned `snapshot_sync` key inside the manifest.
    * Narrow on purpose: snapshot sync runs on reads, and a read-modify-write of the

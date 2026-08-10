@@ -5,9 +5,9 @@ import { TrueForge } from "../../src/Client";
 import { mockServerPool } from "../mock-server/MockServerPool";
 
 describe("AgentsClient", () => {
-    test("list", async () => {
+    test("list (1)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
 
         const rawResponseBody = {
             data: [
@@ -18,7 +18,6 @@ describe("AgentsClient", () => {
                     model: { name: "name" },
                     response_format: { type: "json_object" },
                     skills: [{ name: "name" }],
-                    variables: { key: "value" },
                     id: "id",
                     name: "name",
                 },
@@ -54,9 +53,6 @@ describe("AgentsClient", () => {
                             name: "name",
                         },
                     ],
-                    variables: {
-                        key: "value",
-                    },
                     id: "id",
                     name: "name",
                 },
@@ -64,9 +60,22 @@ describe("AgentsClient", () => {
         });
     });
 
+    test("list (2)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
+
+        const rawResponseBody = { error: { message: "message" } };
+
+        server.mockEndpoint().get("/api/v1/agents").respondWith().statusCode(401).jsonBody(rawResponseBody).build();
+
+        await expect(async () => {
+            return await client.agents.list();
+        }).rejects.toThrow(TrueForgeTypes.UnauthorizedError);
+    });
+
     test("create (1)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = { model: { name: "name" }, name: "name" };
         const rawResponseBody = {
             data: {
@@ -77,7 +86,6 @@ describe("AgentsClient", () => {
                 model: { name: "name" },
                 response_format: { type: "json_object" },
                 skills: [{ name: "name" }],
-                variables: { key: "value" },
                 id: "id",
                 name: "name",
             },
@@ -129,9 +137,6 @@ describe("AgentsClient", () => {
                         name: "name",
                     },
                 ],
-                variables: {
-                    key: "value",
-                },
                 id: "id",
                 name: "name",
             },
@@ -140,7 +145,7 @@ describe("AgentsClient", () => {
 
     test("create (2)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = { name: "xy", model: { name: "x" } };
         const rawResponseBody = { error: { message: "message" } };
 
@@ -165,7 +170,7 @@ describe("AgentsClient", () => {
 
     test("create (3)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = { name: "xy", model: { name: "x" } };
         const rawResponseBody = { error: { message: "message" } };
 
@@ -190,7 +195,7 @@ describe("AgentsClient", () => {
 
     test("create (4)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = { name: "xy", model: { name: "x" } };
         const rawResponseBody = { error: { message: "message" } };
 
@@ -215,7 +220,7 @@ describe("AgentsClient", () => {
 
     test("get (1)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
 
         const rawResponseBody = {
             data: {
@@ -226,7 +231,6 @@ describe("AgentsClient", () => {
                 model: { name: "name" },
                 response_format: { type: "json_object" },
                 skills: [{ name: "name" }],
-                variables: { key: "value" },
                 id: "id",
                 name: "name",
             },
@@ -272,9 +276,6 @@ describe("AgentsClient", () => {
                         name: "name",
                     },
                 ],
-                variables: {
-                    key: "value",
-                },
                 id: "id",
                 name: "name",
             },
@@ -283,7 +284,7 @@ describe("AgentsClient", () => {
 
     test("get (2)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
 
         const rawResponseBody = { error: { message: "message" } };
 
@@ -300,9 +301,38 @@ describe("AgentsClient", () => {
         }).rejects.toThrow(TrueForgeTypes.NotFoundError);
     });
 
+    test("delete (1)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
+
+        server.mockEndpoint().delete("/api/v1/agents/agent_id").respondWith().statusCode(200).build();
+
+        const response = await client.agents.delete("agent_id");
+        expect(response).toEqual(undefined);
+    });
+
+    test("delete (2)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
+
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .delete("/api/v1/agents/agent_id")
+            .respondWith()
+            .statusCode(401)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.agents.delete("agent_id");
+        }).rejects.toThrow(TrueForgeTypes.UnauthorizedError);
+    });
+
     test("update (1)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = { model: { name: "name" } };
         const rawResponseBody = {
             data: {
@@ -313,7 +343,6 @@ describe("AgentsClient", () => {
                 model: { name: "name" },
                 response_format: { type: "json_object" },
                 skills: [{ name: "name" }],
-                variables: { key: "value" },
                 id: "id",
                 name: "name",
             },
@@ -364,9 +393,6 @@ describe("AgentsClient", () => {
                         name: "name",
                     },
                 ],
-                variables: {
-                    key: "value",
-                },
                 id: "id",
                 name: "name",
             },
@@ -375,7 +401,7 @@ describe("AgentsClient", () => {
 
     test("update (2)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = { model: { name: "x" } };
         const rawResponseBody = { error: { message: "message" } };
 
@@ -399,7 +425,7 @@ describe("AgentsClient", () => {
 
     test("update (3)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = { model: { name: "x" } };
         const rawResponseBody = { error: { message: "message" } };
 
@@ -423,7 +449,7 @@ describe("AgentsClient", () => {
 
     test("update (4)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = { model: { name: "x" } };
         const rawResponseBody = { error: { message: "message" } };
 

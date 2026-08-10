@@ -10,6 +10,7 @@ import { DEFAULT_AGENT_CONFIG, ShellModeProvider, useShellMode, type AgentConfig
 import type { TrueforgeServerConfig } from '../server/TrueforgeServerConfig.js';
 import { SlotsProvider, type SlotOverrides } from '../theme/SlotsProvider.js';
 import type { LayoutProp, ThemeConfig } from '../theme/types.js';
+import { getErrorMessage } from '../utils/getErrorMessage.js';
 import PostMcpOauthScreen from './McpOauthContainer/PostMcpOauthScreen.js';
 import { TrueFoundryChatProvider, type TrueFoundryChatProviderProps } from './TrueFoundryChatProvider.js';
 import { useResolvedServer } from './useResolvedServer.js';
@@ -40,6 +41,8 @@ export type TrueforgeUIProps = {
    * Defaults to `{ mode: "AgentLibraryWithComposer" }`.
    */
   agentConfig?: AgentConfig;
+  /** Open settings on first paint only (host boot with no models configured). */
+  initialSettingsOpen?: boolean;
 };
 
 function LayoutFallback({ className }: { className?: string }) {
@@ -78,7 +81,7 @@ function ServerInitLoader({ className }: { className?: string }) {
 }
 
 function ServerInitError({ error, className }: { error: unknown; className?: string }) {
-  const message = error instanceof Error ? error.message : 'Failed to initialize server';
+  const message = getErrorMessage(error, 'Failed to initialize server');
   return (
     <div
       role="alert"
@@ -206,6 +209,7 @@ function TrueforgeUIShell(props: TrueforgeUIProps) {
     theme,
     className,
     agentConfig = DEFAULT_AGENT_CONFIG,
+    initialSettingsOpen = false,
     server: serverConfig,
     onError,
     ...providerRest
@@ -235,7 +239,7 @@ function TrueforgeUIShell(props: TrueforgeUIProps) {
   return (
     <SlotsProvider overrides={overrides} theme={theme}>
       <ServerProvider server={server}>
-        <ShellModeProvider agentConfig={agentConfig}>
+        <ShellModeProvider agentConfig={agentConfig} initialSettingsOpen={initialSettingsOpen}>
           <ChatProviderFromShell server={server} onError={onError} {...providerRest}>
             {layoutTree}
           </ChatProviderFromShell>

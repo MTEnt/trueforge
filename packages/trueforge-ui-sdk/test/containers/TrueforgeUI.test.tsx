@@ -113,6 +113,49 @@ describe('TrueforgeUI', () => {
     });
   });
 
+  it('refetches composer data when starting a new chat', async () => {
+    const getCapabilities = vi
+      .fn()
+      .mockResolvedValueOnce({ data: { sandbox: { enabled: true }, skill: { enabled: true } } })
+      .mockResolvedValueOnce({
+        data: {
+          sandbox: { enabled: false },
+          skill: { enabled: false, reason: 'Select Sandbox first' },
+        },
+      });
+    const getModels = vi.fn(async () => []);
+    const getSkills = vi.fn(async () => []);
+    const getMcp = vi.fn(async () => []);
+
+    render(
+      <TrueforgeUI
+        server={createMockAgentUIServer({ getCapabilities, getModels, getSkills, getMcp })}
+        agentConfig={{ mode: 'AgentComposer' }}
+        layout="sidebar"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(getCapabilities).toHaveBeenCalledTimes(1);
+      expect(getModels).toHaveBeenCalledTimes(1);
+      expect(getSkills).toHaveBeenCalledTimes(1);
+      expect(getMcp).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start new chat' }));
+
+    await waitFor(() => {
+      expect(getCapabilities).toHaveBeenCalledTimes(2);
+      expect(getModels).toHaveBeenCalledTimes(2);
+      expect(getSkills).toHaveBeenCalledTimes(2);
+      expect(getMcp).toHaveBeenCalledTimes(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add connectors, skills, or attachments' }));
+    fireEvent.click(screen.getByRole('button', { name: /Skills/ }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Select Sandbox first');
+  });
+
   it('renders only the MCP authorization screen when requested by the URL', async () => {
     const originalUrl = window.location.href;
     const postMessage = vi.fn();
@@ -291,6 +334,41 @@ describe('SidebarLayout', () => {
       </SlotsProvider>,
     );
     expect(screen.getAllByRole('button', { name: 'Settings' })).toHaveLength(2);
+    const [settingsButton] = screen.getAllByRole('button', { name: 'Settings' });
+    if (settingsButton === undefined) {
+      throw new Error('Expected settings button');
+    }
+    fireEvent.click(settingsButton);
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+
+    rerender(
+      <SlotsProvider theme={{ brand: { name: 'Acme' } }}>
+        <ServerProvider
+          server={createMockAgentUIServer({
+            catalog: stubCatalog,
+            getCapabilities: async () => ({
+              data: {
+                sandbox: { enabled: true },
+                skill: { enabled: true },
+                settings: { enabled: false },
+              },
+            }),
+          })}
+        >
+          <ShellModeProvider>
+            <RuntimeHarness messages={[]}>
+              <div className="h-96">
+                <SidebarLayout />
+              </div>
+            </RuntimeHarness>
+          </ShellModeProvider>
+        </ServerProvider>
+      </SlotsProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument();
+    });
 
     // No catalog → no Settings button.
     rerender(
@@ -366,6 +444,10 @@ describe('layout slot overrides', () => {
     return <button type="button">custom clear</button>;
   }
 
+  function CustomActionSlot() {
+    return <button type="button">custom action</button>;
+  }
+
   // dock and widget render their header through StackChatPanel.
   const hosts = [
     ['sidebar', SidebarLayout],
@@ -389,6 +471,72 @@ describe('layout slot overrides', () => {
     expect(screen.getByRole('button', { name: 'custom clear' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Clear chat' })).not.toBeInTheDocument();
   });
+
+  it.each(hosts)('%s honors overrides.ShellActionsActionSlot to the right of shell actions', (_name, Layout) => {
+    render(
+      <SlotsProvider overrides={{ ShellActionsActionSlot: CustomActionSlot }}>
+        <ShellModeProvider agentConfig={{ mode: 'SingleAgent', name: 'a' }}>
+          <RuntimeHarness messages={[]}>
+            <div className="h-96">
+              <Layout />
+            </div>
+          </RuntimeHarness>
+        </ShellModeProvider>
+      </SlotsProvider>,
+    );
+
+    expect(screen.getAllByRole('button', { name: 'custom action' }).length).toBeGreaterThan(0);
+  });
+
+  const settingsCatalog: CatalogServer = {
+    modelCatalog: {
+      getModelProviderCatalog: vi.fn(async () => []),
+      listModelProviders: vi.fn(async () => []),
+      createModelProvider: vi.fn(),
+      updateModelProvider: vi.fn(),
+    },
+    connectorCatalog: {
+      getConnectorCatalog: vi.fn(async () => []),
+      getConnector: vi.fn(),
+      listConnectors: vi.fn(async () => []),
+      getToolsByConnectorId: vi.fn(async () => []),
+      createConnector: vi.fn(),
+      updateConnector: vi.fn(),
+      authenticateConnector: vi.fn(),
+      disconnectConnector: vi.fn(),
+    },
+  };
+
+  it.each(hosts)(
+    '%s keeps ShellActionsActionSlot mounted when Settings opens (no remount handoff)',
+    (_name, Layout) => {
+      render(
+        <SlotsProvider overrides={{ ShellActionsActionSlot: CustomActionSlot }}>
+          <ServerProvider server={mockServer(settingsCatalog)}>
+            <ShellModeProvider agentConfig={{ mode: 'SingleAgent', name: 'a' }}>
+              <RuntimeHarness messages={[]}>
+                <div className="h-96">
+                  <Layout />
+                </div>
+              </RuntimeHarness>
+            </ShellModeProvider>
+          </ServerProvider>
+        </SlotsProvider>,
+      );
+
+      const before = screen.getAllByRole('button', { name: 'custom action' });
+      expect(before.length).toBeGreaterThan(0);
+      const beforeNode = before[0];
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'Settings' })[0]!);
+      expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+
+      const after = screen.getAllByRole('button', { name: 'custom action' });
+      expect(after.length).toBeGreaterThan(0);
+      // Same DOM node — layout did not remount the host override on Settings toggle.
+      expect(after).toContain(beforeNode);
+    },
+  );
 });
 
 describe('WidgetLayout a11y', () => {

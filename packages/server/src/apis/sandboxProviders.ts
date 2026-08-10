@@ -2,6 +2,7 @@ import { OpenAPIHono, type RouteHandler } from '@hono/zod-openapi';
 import { DaytonaSnapshotAuthError } from '@truefoundry/utils-core/core';
 import type { SandboxCatalog } from '../catalog/SandboxCatalog';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
+import type { WithTransaction } from '../db/transaction';
 import {
   getSandboxProviderCatalogRoute,
   getSandboxProviderRoute,
@@ -12,14 +13,15 @@ import { toConfiguredSandboxProvider } from '../schemas/sandboxProvider';
 import type { SandboxSnapshotSyncState } from '../schemas/sandboxSnapshot';
 import { TENANT_ID } from './sessions';
 
-export interface SandboxProvidersRouterDeps {
+export interface SandboxProvidersRouterDeps<TTransaction> {
   sandboxCatalog: SandboxCatalog;
-  sandboxProviderStore: ISandboxProviderStore;
+  sandboxProviderStore: ISandboxProviderStore<TTransaction>;
   sandboxSnapshotSync: SandboxSnapshotSyncService;
+  withTransaction: WithTransaction<TTransaction>;
 }
 
 /** Admin/settings sandbox provider surface (mounted at /api/v1/settings/sandbox-providers). */
-export function createSandboxProvidersRouter(deps: SandboxProvidersRouterDeps) {
+export function createSandboxProvidersRouter<TTransaction>(deps: SandboxProvidersRouterDeps<TTransaction>) {
   const catalogHandler: RouteHandler<typeof getSandboxProviderCatalogRoute> = c => {
     return c.json({ data: [...deps.sandboxCatalog.list()] }, 200);
   };

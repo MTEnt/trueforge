@@ -7,7 +7,7 @@ import { mockServerPool } from "../mock-server/MockServerPool";
 describe("AuthClient", () => {
     test("logout", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
 
         server.mockEndpoint().post("/api/v1/auth/logout").respondWith().statusCode(200).build();
 
@@ -17,7 +17,7 @@ describe("AuthClient", () => {
 
     test("me (1)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
 
         const rawResponseBody = { email: "email", role: "role", type: "default" };
 
@@ -33,9 +33,9 @@ describe("AuthClient", () => {
 
     test("me (2)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
 
-        const rawResponseBody = { key: "value" };
+        const rawResponseBody = { error: { message: "message" } };
 
         server.mockEndpoint().get("/api/v1/auth/me").respondWith().statusCode(401).jsonBody(rawResponseBody).build();
 

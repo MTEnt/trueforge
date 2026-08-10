@@ -1,6 +1,6 @@
 /** The API: resource routers, the OpenAPI document and Swagger UI, all under /api/v1. */
 import { swaggerUI } from '@hono/swagger-ui';
-import { OpenAPIHono } from '@hono/zod-openapi';
+import { OpenAPIHono, z } from '@hono/zod-openapi';
 import type { ISessionStore, Sessions, TurnStreamingEvent } from '@truefoundry/utils-core/agent-session';
 import type { RequestReplyRouter } from '@truefoundry/utils-core/request-reply';
 import type { Context } from 'hono';
@@ -18,7 +18,8 @@ import { createSessionsRouter } from './apis/sessions';
 import { createSettingsRouter } from './apis/settings';
 import { createAvailableSkillsRouter } from './apis/skills';
 import { createTurnsRouter } from './apis/turns';
-import { authMiddleware } from './auth/middleware';
+import { resolveUserContext } from './auth/identity';
+import { adminAuthMiddleware, authMiddleware } from './auth/middleware';
 import type { McpCatalog } from './catalog/McpCatalog';
 import type { ModelCatalog } from './catalog/ModelCatalog';
 import type { SandboxCatalog } from './catalog/SandboxCatalog';
@@ -28,24 +29,56 @@ import type { IMcpServerStore } from './db/mcpServerStore';
 import type { IModelProviderStore } from './db/modelProviderStore';
 import type { ISandboxProviderStore } from './db/sandboxProviderStore';
 import type { ISkillStore } from './db/skillStore';
+import type { WithTransaction } from './db/transaction';
 import type { IOAuthTokenStore } from './mcp/auth/types';
 import type { ActiveTurnRegistry } from './runtime/activeTurns';
 import type { EventSubscriptionRegistry } from './runtime/event-subscription';
 import type { SandboxSnapshotSyncService } from './sandbox/SandboxSnapshotSyncService';
+import { zodErrorResponse, zodValidationHook } from './zodErrorResponse';
+
+const BEARER_AUTH_SCHEME = 'BearerAuth';
 
 const openApiDocConfig = {
   openapi: '3.1.0',
   info: {
-    title: 'Agent Server',
+    title: 'TrueForge API',
     description:
-      'Agent server with DB-backed sessions, agent registry, settings catalogs, and model/MCP/skill providers.',
+      'HTTP API for the TrueForge agent server (`/api/v1`). Interactive docs are served at `/api/v1/docs` ' +
+      '(OpenAPI JSON at `/api/v1/openapi.json`).\n\n' +
+      '**Authentication:** Standalone deployments (no OIDC) accept requests without credentials — middleware ' +
+      'stamps a local default user. When OIDC is configured, protected routes require a valid `id_token` cookie ' +
+      'or `Authorization: Bearer` ID token. There is no built-in API-key scheme; ' +
+      'pass custom headers only if your reverse proxy or IdP layer requires them.\n\n' +
+      'Covers DB-backed sessions, the agent registry, settings catalogs, and model/MCP/skill/sandbox providers.',
     version: '0.1.0',
   },
 };
 
-/** Single source for both the served document and the one the SDK is built from. */
-export function buildOpenApiDocument(app: OpenAPIHono) {
-  return app.getOpenAPI31Document(openApiDocConfig);
+/** Registers the Bearer ID-token scheme used by {@link buildOpenApiDocument}. */
+export function registerOpenApiBearerAuth(app: OpenAPIHono): void {
+  app.openAPIRegistry.registerComponent('securitySchemes', BEARER_AUTH_SCHEME, {
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
+    description:
+      'ID token (`Authorization: Bearer <id_token>`). Required on protected routes. ' +
+      'Browser sessions may use the HttpOnly `id_token` cookie instead.',
+  });
+}
+
+/**
+ * Single source for both the served document and the one the SDK is built from.
+ * When `authEnabled`, advertises required Bearer auth on operations that inherit global security.
+ */
+export function buildOpenApiDocument(app: OpenAPIHono, options?: { authEnabled?: boolean }) {
+  const authEnabled = options?.authEnabled ?? false;
+  if (authEnabled) {
+    registerOpenApiBearerAuth(app);
+  }
+  return app.getOpenAPI31Document({
+    ...openApiDocConfig,
+    ...(authEnabled ? { security: [{ [BEARER_AUTH_SCHEME]: [] }] } : {}),
+  });
 }
 
 function routeNotFound(c: Context) {
@@ -60,19 +93,28 @@ function withAuth(router: OpenAPIHono): OpenAPIHono {
   return shell;
 }
 
-export interface ServerDeps {
+/** Admin-only routes: standalone passes through; with OIDC requires an authenticated admin. */
+function withAdminAuth(router: OpenAPIHono): OpenAPIHono {
+  const shell = new OpenAPIHono();
+  shell.use('*', adminAuthMiddleware);
+  shell.route('/', router);
+  return shell;
+}
+
+export interface ServerDeps<TTransaction> {
   modelCatalog: ModelCatalog;
   mcpCatalog: McpCatalog;
   skillCatalog: SkillCatalog;
   sandboxCatalog: SandboxCatalog;
-  modelProviderStore: IModelProviderStore;
-  mcpServerStore: IMcpServerStore;
-  tokenStore: IOAuthTokenStore;
-  skillStore: ISkillStore;
-  sandboxProviderStore: ISandboxProviderStore;
+  modelProviderStore: IModelProviderStore<TTransaction>;
+  withTransaction: WithTransaction<TTransaction>;
+  mcpServerStore: IMcpServerStore<TTransaction>;
+  tokenStore: IOAuthTokenStore<TTransaction>;
+  skillStore: ISkillStore<TTransaction>;
+  sandboxProviderStore: ISandboxProviderStore<TTransaction>;
   /** Keeps the sandbox image synced to the configured provider and gates its use. */
   sandboxSnapshotSync: SandboxSnapshotSyncService;
-  agentStore: IAgentStore;
+  agentStore: IAgentStore<TTransaction>;
   sessionStore: ISessionStore;
   sessions: Sessions;
   activeTurns: ActiveTurnRegistry;
@@ -87,8 +129,9 @@ export interface ServerDeps {
   oidcClient: Configuration | undefined;
 }
 
-export function createServerApp(deps: ServerDeps) {
-  const app = new OpenAPIHono();
+export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
+  const app = new OpenAPIHono({ defaultHook: zodValidationHook });
+  const authEnabled = deps.oidcClient != null;
 
   app.get('/healthz', c => c.text('OK!'));
 
@@ -99,10 +142,19 @@ export function createServerApp(deps: ServerDeps) {
       createCapabilitiesRouter({
         sandboxProviderStore: deps.sandboxProviderStore,
         sandboxSnapshotSync: deps.sandboxSnapshotSync,
+        withTransaction: deps.withTransaction,
       }),
     ),
   );
-  app.route('/api/v1/models', withAuth(createModelsRouter(deps.modelProviderStore)));
+  app.route(
+    '/api/v1/models',
+    withAuth(
+      createModelsRouter({
+        modelProviderStore: deps.modelProviderStore,
+        withTransaction: deps.withTransaction,
+      }),
+    ),
+  );
   // Public MCP OAuth callback must be registered before the gated `/mcp-servers` mount so
   // `withAuth` cannot intercept IdP redirects to `/api/v1/mcp-servers/oauth/*`.
   app.route(
@@ -110,6 +162,7 @@ export function createServerApp(deps: ServerDeps) {
     createMcpOAuthRouter({
       tokenStore: deps.tokenStore,
       mcpServerStore: deps.mcpServerStore,
+      withTransaction: deps.withTransaction,
       logger: deps.logger,
     }),
   );
@@ -119,11 +172,20 @@ export function createServerApp(deps: ServerDeps) {
       createMcpServersRouter({
         mcpServerStore: deps.mcpServerStore,
         tokenStore: deps.tokenStore,
+        withTransaction: deps.withTransaction,
         logger: deps.logger,
       }),
     ),
   );
-  app.route('/api/v1/skills', withAuth(createAvailableSkillsRouter(deps.skillStore)));
+  app.route(
+    '/api/v1/skills',
+    withAuth(
+      createAvailableSkillsRouter({
+        skillStore: deps.skillStore,
+        withTransaction: deps.withTransaction,
+      }),
+    ),
+  );
   app.route(
     '/api/v1/agents',
     withAuth(
@@ -134,12 +196,13 @@ export function createServerApp(deps: ServerDeps) {
         skillStore: deps.skillStore,
         sandboxProviderStore: deps.sandboxProviderStore,
         sandboxSnapshotSync: deps.sandboxSnapshotSync,
+        withTransaction: deps.withTransaction,
       }),
     ),
   );
   app.route(
     '/api/v1/settings',
-    withAuth(
+    withAdminAuth(
       createSettingsRouter({
         modelCatalog: deps.modelCatalog,
         modelProviderStore: deps.modelProviderStore,
@@ -151,6 +214,7 @@ export function createServerApp(deps: ServerDeps) {
         sandboxCatalog: deps.sandboxCatalog,
         sandboxProviderStore: deps.sandboxProviderStore,
         sandboxSnapshotSync: deps.sandboxSnapshotSync,
+        withTransaction: deps.withTransaction,
         logger: deps.logger,
       }),
     ),
@@ -170,6 +234,7 @@ export function createServerApp(deps: ServerDeps) {
         sandboxSnapshotSync: deps.sandboxSnapshotSync,
         redis: deps.redis,
         requestReplyRouter: deps.requestReplyRouter,
+        resolveUserContext: resolveUserContext,
       }),
     ),
   );
@@ -188,16 +253,20 @@ export function createServerApp(deps: ServerDeps) {
         eventSubscriptions: deps.eventSubscriptions,
         sandboxSnapshotSync: deps.sandboxSnapshotSync,
         logger: deps.logger,
+        resolveUserContext: resolveUserContext,
       }),
     ),
   );
 
   app.get('/api/v1/docs', swaggerUI({ url: '/api/v1/openapi.json' }));
-  app.get('/api/v1/openapi.json', c => c.json(buildOpenApiDocument(app)));
+  app.get('/api/v1/openapi.json', c => c.json(buildOpenApiDocument(app, { authEnabled })));
 
   app.notFound(routeNotFound);
 
   app.onError((error, c) => {
+    if (error instanceof z.ZodError) {
+      return zodErrorResponse(c, error);
+    }
     if (error instanceof HTTPException) {
       return c.json({ error: { message: error.message } }, error.status);
     }

@@ -65,6 +65,7 @@ describe('validateAgentSpec', () => {
     const modelProviderStore = new SqliteModelProviderStore(db);
     await modelProviderStore.upsertProvider({
       tenant_id: TENANT_ID,
+      name: 'test-provider',
       manifest: {
         // Caller-named, so `custom` is the only type it can be.
         type: 'custom',

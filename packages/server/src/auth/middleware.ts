@@ -1,25 +1,46 @@
 import type { Context, MiddlewareHandler } from 'hono';
-import { getCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import { jwtVerify } from 'jose';
-import { toUserContext, type IdTokenClaims, type UserContext } from './claims';
-import { ID_TOKEN_COOKIE } from './cookies';
+import { toUserContext, type IdTokenClaims } from './claims';
+import { readIdTokenCookie } from './cookies';
+import { LOCAL_USER_CONTEXT, isAdmin, type UserContext } from './identity';
 import { getOidcVerify } from './oidc';
-
-/** Used when OIDC is not configured (standalone / no IdP). */
-export const DEFAULT_USER_CONTEXT: UserContext = {
-  userRef: 'default',
-  role: 'user',
-};
 
 declare module 'hono' {
   interface ContextVariableMap {
-    user?: UserContext;
+    user_context?: UserContext;
   }
 }
 
+const AUTH_HEADER_TYPE = 'Bearer';
+
 /**
- * Cookie → {@link UserContext} when OIDC is on and the token is valid.
+ * OIDC ID token from `Authorization: Bearer <jwt>` when present.
+ * Case-insensitive scheme; rejects empty credentials. Non-Bearer schemes → undefined
+ * so cookie auth can still apply.
+ */
+export function readBearerIdToken(c: Context): string | undefined {
+  const header = c.req.header('Authorization')?.trim();
+  if (!header) {
+    return undefined;
+  }
+  const prefix = `${AUTH_HEADER_TYPE} `;
+  if (!header.toLowerCase().startsWith(prefix.toLowerCase())) {
+    return undefined;
+  }
+  const token = header.slice(prefix.length).trim();
+  return token.length > 0 ? token : undefined;
+}
+
+/**
+ * Prefer Bearer over the browser cookie when both are sent (explicit API auth wins).
+ */
+export function readIdToken(c: Context): string | undefined {
+  return readBearerIdToken(c) ?? readIdTokenCookie({ context: c });
+}
+
+/**
+ * Bearer or cookie ID token → {@link UserContext} when auth is enabled and the JWT is valid.
  * Missing/invalid JWT → `undefined`. Claim mapping failures after a successful verify rethrow.
  */
 export async function resolveAuthUser(c: Context): Promise<UserContext | undefined> {
@@ -28,7 +49,7 @@ export async function resolveAuthUser(c: Context): Promise<UserContext | undefin
     return undefined;
   }
 
-  const token = getCookie(c, ID_TOKEN_COOKIE);
+  const token = readIdToken(c);
   if (!token) {
     return undefined;
   }
@@ -47,10 +68,10 @@ export async function resolveAuthUser(c: Context): Promise<UserContext | undefin
   return toUserContext(claims, oidcVerify.oidcConfig);
 }
 
-/** Set `c.var.user` and continue, or throw 401. Without OIDC, sets {@link DEFAULT_USER_CONTEXT}. */
+/** Set `c.var.user` and continue, or throw 401. When auth is disabled, sets {@link LOCAL_USER_CONTEXT}. */
 export const authMiddleware: MiddlewareHandler = async (c, next) => {
   if (!getOidcVerify()) {
-    c.set('user', DEFAULT_USER_CONTEXT);
+    c.set('user_context', LOCAL_USER_CONTEXT);
     return next();
   }
 
@@ -59,7 +80,7 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
     if (!user) {
       throw new HTTPException(401, { message: 'Authentication required' });
     }
-    c.set('user', user);
+    c.set('user_context', user);
   } catch (error) {
     if (error instanceof HTTPException) {
       throw error;
@@ -67,5 +88,30 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
     // Valid JWT but claim mapping failed (e.g. missing user reference claim).
     throw new HTTPException(401, { message: 'Authentication required', cause: error });
   }
+  return next();
+};
+
+/** Admin gate: no-op when auth is disabled; when auth is enabled requires an authenticated admin. */
+export const adminAuthMiddleware: MiddlewareHandler = async (c, next) => {
+  if (!getOidcVerify()) {
+    return next();
+  }
+
+  try {
+    const user = await resolveAuthUser(c);
+    if (!user) {
+      throw new HTTPException(401, { message: 'Authentication required' });
+    }
+    if (!isAdmin(user)) {
+      throw new HTTPException(403, { message: 'Admin access required' });
+    }
+    c.set('user_context', user);
+  } catch (error) {
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+    throw new HTTPException(401, { message: 'Authentication required', cause: error });
+  }
+
   return next();
 };

@@ -10,15 +10,14 @@ import {
   randomState,
 } from 'openid-client';
 import configuration, { type OIDCConfig } from '../config';
+import { buildAuthorizationRequestParams } from './claims';
 import { ID_TOKEN_COOKIE, OAUTH_STATE_COOKIE, setAuthCookie } from './cookies';
 
 const CALLBACK_PATH = '/api/v1/auth/callback';
 const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
 const ID_TOKEN_COOKIE_MAX_AGE_SECONDS = 24 * 60 * 60;
-// TODO: use dynamic claims/scopes when we add RBAC
-const OIDC_SCOPES = 'openid email profile';
 
-/** JWKS + claim config used by cookie JWT verification when browser OIDC is on. */
+/** JWKS + claim config used by cookie JWT verification when auth is enabled. */
 export interface OidcVerify {
   jwks: JWTVerifyGetKey;
   issuer: string;
@@ -26,6 +25,7 @@ export interface OidcVerify {
   oidcConfig: OIDCConfig;
 }
 
+/** Single instance of the OIDC verification. */
 let oidcVerify: OidcVerify | null = null;
 
 /** Enable cookie JWT verification using the IdP client + claim-mapping config from `initOidc`. */
@@ -48,12 +48,12 @@ export function disableOidcAuth(): void {
   oidcVerify = null;
 }
 
-/** Active verification config, or `null` when OIDC browser auth is off. */
+/** Active verification config, or `null` when auth is disabled. */
 export function getOidcVerify(): OidcVerify | null {
   return oidcVerify;
 }
 
-/** Discover the IdP once at process startup when OIDC is configured; wires cookie auth verification. */
+/** Discover the IdP once at process startup when auth is enabled; wires cookie auth verification. */
 export async function initOidc(oidc: OIDCConfig | undefined): Promise<Configuration | undefined> {
   if (!oidc) {
     disableOidcAuth();
@@ -66,7 +66,11 @@ export async function initOidc(oidc: OIDCConfig | undefined): Promise<Configurat
 }
 
 function authCallbackUrl(): string {
-  return `${configuration.PUBLIC_BASE_URL}${CALLBACK_PATH}`;
+  const publicBaseUrl = configuration.PUBLIC_BASE_URL;
+  if (publicBaseUrl === '') {
+    throw new Error('PUBLIC_BASE_URL is required for OIDC callbacks but was empty');
+  }
+  return `${publicBaseUrl}${CALLBACK_PATH}`;
 }
 
 /**
@@ -89,12 +93,21 @@ export async function buildLoginAuthorization(params: {
   client: Configuration;
   returnTo: string | undefined;
 }): Promise<string> {
+  const oidcConfig = getOidcVerify()?.oidcConfig;
+  if (!oidcConfig) {
+    throw new Error(
+      'OIDC claim configuration is unavailable; call initOidc before building a login authorization URL.',
+    );
+  }
+
+  const { scopes, claims } = buildAuthorizationRequestParams(oidcConfig);
   const returnTo = safeReturnTo(params.returnTo);
   const codeVerifier = randomPKCECodeVerifier();
   const state = randomState();
   const authorizationUrl = buildAuthorizationUrl(params.client, {
     redirect_uri: authCallbackUrl(),
-    scope: OIDC_SCOPES,
+    scope: scopes.join(' '),
+    claims: JSON.stringify(claims),
     code_challenge: await calculatePKCECodeChallenge(codeVerifier),
     code_challenge_method: 'S256',
     state,

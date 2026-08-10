@@ -9,6 +9,7 @@ import { useMCPAuth } from '@/hooks/useMcpAuth.js';
 import { Icon } from '@/icons/Icon.js';
 import { useCatalogServer } from '@/server/ServerContext.js';
 import type { ConnectorAuth, ConnectorBase, ConnectorCatalogEntry } from '@/server/types.js';
+import { getErrorMessage } from '@/utils/getErrorMessage.js';
 import AddMcpServerForm, { type AddMcpServerDraft } from './AddMcpServerForm.js';
 import { AUTH_TYPE_LABELS } from './authTypeLabels.js';
 import ConnectorDetails from './ConnectorDetails.js';
@@ -75,7 +76,7 @@ const ConnectorSettings = () => {
       });
       setSelectedConnector(current => (current ? (listed.find(item => item.id === current.id) ?? null) : null));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load connectors');
+      setError(getErrorMessage(err, 'Failed to load connectors'));
     } finally {
       setLoading(false);
     }
@@ -127,7 +128,7 @@ const ConnectorSettings = () => {
       await fn();
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Request failed');
+      setError(getErrorMessage(err, 'Request failed'));
       throw err;
     } finally {
       setBusy(false);
@@ -152,7 +153,7 @@ const ConnectorSettings = () => {
             });
           })
           .catch(err => {
-            setError(err instanceof Error ? err.message : 'Failed to load connector');
+            setError(getErrorMessage(err, 'Failed to load connector'));
           });
       }
     });
@@ -362,7 +363,7 @@ const ConnectorSettings = () => {
   return (
     <>
       <h3 className="text-xl font-semibold tracking-tight text-foreground">Connectors</h3>
-      <p className="mt-1 text-sm text-muted-foreground">Enable the tools agents may call.</p>
+      <p className="mt-1 text-sm text-muted-foreground">Connect tools your agents can use.</p>
 
       {error ? (
         <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">

@@ -78,11 +78,13 @@ describe('sandboxProviders router', () => {
       sandboxCatalog: catalog,
       sandboxProviderStore: store,
       sandboxSnapshotSync: createTestSandboxSnapshotSync({ store, snapshots, images }),
+      withTransaction: callback => db.transaction().execute(callback),
     });
   };
 
+  let db: ReturnType<typeof createSqliteDb>;
   beforeEach(async () => {
-    const db = createSqliteDb(':memory:');
+    db = createSqliteDb(':memory:');
     await migrateSqliteToLatest(db);
     store = new SqliteSandboxProviderStore(db);
     snapshots = new ScriptedSnapshots();

@@ -7,10 +7,13 @@ import SearchInput from '../../atoms/primitives/SearchInput.js';
 import { Icon } from '../../icons/Icon.js';
 import { useCatalogServer } from '../../server/ServerContext.js';
 import type { ModelEntry, ModelProviderBase, ModelProviderCatalogEntry } from '../../server/types.js';
+import { getErrorMessage } from '../../utils/getErrorMessage.js';
+import { useErrorToasterOptional } from '../ErrorToasterContainer.js';
 import CustomModelProviderForm, { type CustomProviderDraft } from './CustomModelProviderForm.js';
 
 const ModelSettings = () => {
   const { modelCatalog } = useCatalogServer();
+  const toaster = useErrorToasterOptional();
 
   const [query, setQuery] = useState('');
   const [configured, setConfigured] = useState<ModelProviderBase[]>([]);
@@ -47,7 +50,7 @@ const ModelSettings = () => {
       setConfigured(listed);
       setCatalog(available);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load model providers');
+      setError(getErrorMessage(err, 'Failed to load model providers'));
     } finally {
       setLoading(false);
     }
@@ -113,7 +116,11 @@ const ModelSettings = () => {
       await refresh();
       closeKeyEditor();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Request failed');
+      if (toaster != null) {
+        toaster.showError(err);
+      } else {
+        setError(getErrorMessage(err, 'Request failed'));
+      }
       throw err;
     } finally {
       setBusy(false);
@@ -204,7 +211,7 @@ const ModelSettings = () => {
         onChange={event => {
           setApiKey(event.target.value);
         }}
-        placeholder="sk-..."
+        placeholder="Enter API Key"
         autoFocus
         className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
       />

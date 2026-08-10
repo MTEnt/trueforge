@@ -1,8 +1,5 @@
-/* The SDK ships utilities and theme tokens but no reset. Preflight goes in its
-   own layer: unlayered it would outrank `tfy-agent-ui-utilities` and strip the
-   SDK's own margin, padding and border. */
+/* Host Tailwind for this app's chrome. SDK styles inject via ThemeProvider. */
 @import 'tailwindcss';
-@import '@truefoundry/trueforge-ui/styles.css';
 
 html,
 body,
@@ -10,19 +7,9 @@ body,
   height: 100%;
 }
 
-/* Tokens for chrome outside the SDK shell (boot screen). The SDK sets its own
-   on `.aui-theme-root`, which wins for everything inside. */
-:root {
-  color-scheme: dark;
-  --background: #161618;
-  --foreground: #ececee;
-  --muted-foreground: #9b9ba3;
-  --destructive: #f87171;
-}
-
 body {
-  color: var(--foreground);
-  background: var(--background);
+  color: #09090b;
+  background: #fff;
 }
 
 .app-root {
@@ -39,9 +26,33 @@ body {
   display: grid;
   place-items: center;
   padding: 2rem;
-  color: var(--muted-foreground);
+  color: #71717a;
 }
 
 .boot-screen[data-error='true'] {
-  color: var(--destructive);
+  color: #ef4444;
+}
+
+.harness-logout {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.harness-logout:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.harness-logout:disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
 }

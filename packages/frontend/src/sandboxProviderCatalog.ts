@@ -13,7 +13,7 @@ import type {
   SandboxProviderCatalogEntry,
   SandboxProviderConfig,
 } from '@truefoundry/trueforge-ui';
-import { TrueForgeApi as Harness } from 'trueforge';
+import { TrueForgeApi as Harness } from 'trueforge-sdk';
 import { harnessClient as client } from './harnessClient';
 
 export type UiSandboxProvider = SandboxProviderBase;

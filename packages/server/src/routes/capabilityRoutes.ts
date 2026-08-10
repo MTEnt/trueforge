@@ -1,4 +1,5 @@
 import { createRoute, z } from '@hono/zod-openapi';
+import { RequestErrorResponseSchema } from '../schemas/errors';
 
 const GetCapabilitiesResponseSchema = z
   .object({
@@ -36,6 +37,10 @@ export const getCapabilitiesRoute = createRoute({
     200: {
       content: { 'application/json': { schema: GetCapabilitiesResponseSchema } },
       description: 'Server capabilities.',
+    },
+    401: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description: 'OIDC is configured and the request has no valid session cookie.',
     },
   },
 });

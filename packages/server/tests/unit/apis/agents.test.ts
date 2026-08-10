@@ -10,7 +10,6 @@ import { createTestSandboxSnapshotSync } from '../support/sandboxSnapshotSync';
 
 const modelProvider = {
   type: 'anthropic' as const,
-  name: 'anthropic' as const,
   base_url: 'https://api.anthropic.com/v1',
   auth: { api_key: 'sk-ant-secret' },
   models: [
@@ -48,7 +47,7 @@ describe('agents router', () => {
     const db = createSqliteDb(':memory:');
     await migrateSqliteToLatest(db);
     const modelProviderStore = new SqliteModelProviderStore(db);
-    await modelProviderStore.upsertProvider({ tenant_id: 'default', manifest: modelProvider });
+    await modelProviderStore.upsertProvider({ tenant_id: 'default', name: 'anthropic', manifest: modelProvider });
     const sandboxProviderStore = new SqliteSandboxProviderStore(db);
     router = createAgentsRouter({
       agentStore: new SqliteAgentStore(db),
@@ -57,6 +56,7 @@ describe('agents router', () => {
       skillStore: new SqliteSkillStore(db),
       sandboxProviderStore,
       sandboxSnapshotSync: createTestSandboxSnapshotSync({ store: sandboxProviderStore }),
+      withTransaction: callback => db.transaction().execute(callback),
     });
   });
 
@@ -89,6 +89,16 @@ describe('agents router', () => {
 
     const put = await router.request('/missing-agent', jsonInit('PUT', updateBody));
     expect(put.status).toBe(404);
+  });
+
+  it('DELETE removes an agent by id and is idempotent', async () => {
+    const created = await router.request('/', jsonInit('POST', { ...writeBody, name: 'deletable' }));
+    expect(created.status).toBe(200);
+    const { data } = (await created.json()) as { data: { id: string } };
+
+    expect((await router.request(`/${data.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await router.request(`/${data.id}`)).status).toBe(404);
+    expect((await router.request(`/${data.id}`, { method: 'DELETE' })).status).toBe(204);
   });
 
   it('POST rejects invalid bodies, unknown models, and duplicate names', async () => {
