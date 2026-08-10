@@ -3,6 +3,8 @@
  */
 import { OpenAPIHono, type RouteHandler } from '@hono/zod-openapi';
 import type { AgentSpec } from '@truefoundry/utils-core/agent-session';
+import { extractErrorLogFields } from '@truefoundry/utils-core/core';
+import type { Logger } from 'winston';
 import { AgentNameConflictError, type AgentRecord, type IAgentStore } from '../db/agentStore';
 import type { IMcpServerStore } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
@@ -27,6 +29,7 @@ export interface AgentsRouterDeps<TTransaction> {
   skillStore: ISkillStore<TTransaction>;
   sandboxProviderStore: ISandboxProviderStore<TTransaction>;
   withTransaction: WithTransaction<TTransaction>;
+  logger: Logger;
 }
 
 /** Wire view: identity columns plus AgentSpec fields flattened. */
@@ -74,6 +77,7 @@ export function createAgentsRouter<TTransaction>(deps: AgentsRouterDeps<TTransac
       return c.json({ data: toWireAgent(record) }, 200);
     } catch (error) {
       if (error instanceof AgentNameConflictError) {
+        deps.logger.warn('Agent name conflict', extractErrorLogFields(error));
         return c.json({ error: { message: error.message } }, 409);
       }
       throw error;

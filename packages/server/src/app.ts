@@ -1,10 +1,9 @@
 /** The API: resource routers, the OpenAPI document and Swagger UI, all under /api/v1. */
 import { swaggerUI } from '@hono/swagger-ui';
-import { OpenAPIHono, z } from '@hono/zod-openapi';
+import { OpenAPIHono } from '@hono/zod-openapi';
 import type { ISessionStore, Sessions, TurnStreamingEvent } from '@truefoundry/utils-core/agent-session';
 import type { RequestReplyRouter } from '@truefoundry/utils-core/request-reply';
 import type { Context } from 'hono';
-import { HTTPException } from 'hono/http-exception';
 import type { Configuration } from 'openid-client';
 import type { RedisClientType } from 'redis';
 import type { Logger } from 'winston';
@@ -30,10 +29,11 @@ import type { IModelProviderStore } from './db/modelProviderStore';
 import type { ISandboxProviderStore } from './db/sandboxProviderStore';
 import type { ISkillStore } from './db/skillStore';
 import type { WithTransaction } from './db/transaction';
+import { handleHttpError } from './httpErrorHandler';
 import type { IOAuthTokenStore } from './mcp/auth/types';
 import type { ActiveTurnRegistry } from './runtime/activeTurns';
 import type { EventSubscriptionRegistry } from './runtime/event-subscription';
-import { zodErrorResponse, zodValidationHook } from './zodErrorResponse';
+import { createZodValidationHook } from './zodErrorResponse';
 
 const BEARER_AUTH_SCHEME = 'BearerAuth';
 
@@ -127,7 +127,7 @@ export interface ServerDeps<TTransaction> {
 }
 
 export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
-  const app = new OpenAPIHono({ defaultHook: zodValidationHook });
+  const app = new OpenAPIHono({ defaultHook: createZodValidationHook(deps.logger) });
   const authEnabled = deps.oidcClient != null;
 
   app.get('/healthz', c => c.text('OK!'));
@@ -192,6 +192,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
         skillStore: deps.skillStore,
         sandboxProviderStore: deps.sandboxProviderStore,
         withTransaction: deps.withTransaction,
+        logger: deps.logger,
       }),
     ),
   );
@@ -228,6 +229,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
         redis: deps.redis,
         requestReplyRouter: deps.requestReplyRouter,
         resolveUserContext: resolveUserContext,
+        logger: deps.logger,
       }),
     ),
   );
@@ -256,16 +258,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
 
   app.notFound(routeNotFound);
 
-  app.onError((error, c) => {
-    if (error instanceof z.ZodError) {
-      return zodErrorResponse(c, error);
-    }
-    if (error instanceof HTTPException) {
-      return c.json({ error: { message: error.message } }, error.status);
-    }
-    deps.logger.error('Unhandled error', { message: error.message, stack: error.stack });
-    return c.json({ error: { message: 'Internal server error' } }, 500);
-  });
+  app.onError((error, c) => handleHttpError({ error, c, logger: deps.logger }));
 
   return app;
 }

@@ -1,3 +1,4 @@
+import { createLogger } from 'winston';
 import { createAgentsRouter } from '../../../src/apis/agents';
 import { migrateSqliteToLatest } from '../../../src/db/migrateSqlite';
 import { SqliteAgentStore } from '../../../src/db/sqlite/agent-store/SqliteAgentStore';
@@ -54,6 +55,7 @@ describe('agents router', () => {
       skillStore: new SqliteSkillStore(db),
       sandboxProviderStore: new SqliteSandboxProviderStore(db),
       withTransaction: callback => db.transaction().execute(callback),
+      logger: createLogger({ silent: true }),
     });
   });
 

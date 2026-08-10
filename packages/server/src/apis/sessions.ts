@@ -9,6 +9,7 @@ import {
   SessionStoreInvariantError,
   SessionStoreNotFoundError,
 } from '@truefoundry/utils-core/agent-session';
+import { extractErrorLogFields } from '@truefoundry/utils-core/core';
 import type {
   RouteHandler as RequestReplyRouteHandler,
   RequestReplyRouter,
@@ -17,6 +18,7 @@ import { NoResponderError, redisRequest, RequestTimeoutError } from '@truefoundr
 import { HTTPException } from 'hono/http-exception';
 import type { RedisClientType } from 'redis';
 import { ulid } from 'ulid';
+import type { Logger } from 'winston';
 import { z } from 'zod';
 import type { ResolveUserContext } from '../auth/identity';
 import configuration from '../config';
@@ -76,6 +78,7 @@ export interface SessionsRouterDeps {
   redis?: RedisClientType | undefined;
   requestReplyRouter: RequestReplyRouter;
   resolveUserContext: ResolveUserContext;
+  logger: Logger;
 }
 
 function cancelTurnOnThisExecutor(
@@ -288,9 +291,11 @@ export function createSessionsRouter(deps: SessionsRouterDeps) {
       });
     } catch (error) {
       if (error instanceof SessionStoreNotFoundError) {
+        deps.logger.warn('Session update failed: not found', extractErrorLogFields(error));
         return c.json({ error: { message: `Session not found: ${sessionId}` } }, 404);
       }
       if (error instanceof SessionStoreInvariantError) {
+        deps.logger.warn('Session update failed: invariant', extractErrorLogFields(error));
         return c.json({ error: { message: error.message } }, 422);
       }
       throw error;
@@ -319,6 +324,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps) {
       return c.json({ data: data.map(toWireSession), pagination }, 200);
     } catch (error) {
       if (error instanceof SessionStoreConflictError) {
+        deps.logger.warn('Session list failed: conflict', extractErrorLogFields(error));
         return c.json({ error: { message: error.message } }, 400);
       }
       throw error;
@@ -362,9 +368,11 @@ export function createSessionsRouter(deps: SessionsRouterDeps) {
       return c.json({ data, pagination }, 200);
     } catch (error) {
       if (error instanceof SessionStoreConflictError) {
+        deps.logger.warn('Session events list failed: conflict', extractErrorLogFields(error));
         return c.json({ error: { message: error.message } }, 400);
       }
       if (error instanceof SessionStoreNotFoundError) {
+        deps.logger.warn('Session events list failed: not found', extractErrorLogFields(error));
         return c.json({ error: { message: error.message } }, 404);
       }
       throw error;

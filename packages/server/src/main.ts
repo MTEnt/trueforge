@@ -239,7 +239,11 @@ try {
   // Console logger shared by the server runtime (harness components require one).
   const logger = winston.createLogger({
     level: configuration.LOG_LEVEL,
-    format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+    format: winston.format.combine(
+      winston.format.errors({ stack: true, cause: true }),
+      winston.format.timestamp(),
+      winston.format.json(),
+    ),
     transports: [new winston.transports.Console()],
   });
 

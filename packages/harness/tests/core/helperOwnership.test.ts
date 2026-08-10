@@ -15,6 +15,15 @@ describe('canonical helper ownership fidelity', () => {
     expect(extractErrorLogFields('plain')).toEqual({ error: 'plain' });
   });
 
+  it('extractErrorLogFields walks Error.cause chains', () => {
+    const inner = new Error('inner');
+    const outer = new Error('outer', { cause: inner });
+    expect(extractErrorLogFields(outer)).toEqual({
+      error: 'outer',
+      stack: `${outer.stack}\nCaused by: ${inner.stack}`,
+    });
+  });
+
   it('DaytonaProvider owns http→ws URL conversion (no shared helper module)', () => {
     // Folded into DaytonaProvider per ISSUE-042; assert the conversion contract via URL API.
     const https = new URL('https://example.com/path');

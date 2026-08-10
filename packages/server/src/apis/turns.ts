@@ -351,6 +351,7 @@ export function createTurnsRouter(deps: TurnsRouterDeps) {
       return c.json({ data: data.map(toWireTurn), pagination }, 200);
     } catch (error) {
       if (error instanceof SessionStoreConflictError) {
+        deps.logger.warn('Turn list failed: conflict', extractErrorLogFields(error));
         return c.json({ error: { message: error.message } }, 400);
       }
       throw error;
@@ -422,6 +423,11 @@ export function createTurnsRouter(deps: TurnsRouterDeps) {
     } catch (error) {
       // Every guard and the provider itself raise SandboxError, whose statusCode is the contract.
       if (error instanceof SandboxError) {
+        if (error.statusCode < 500) {
+          deps.logger.warn('Sandbox file download rejected', extractErrorLogFields(error));
+        } else {
+          deps.logger.error('Sandbox file download failed', extractErrorLogFields(error));
+        }
         return c.json({ error: { message: error.message } }, error.statusCode);
       }
       deps.logger.error('Sandbox file download failed', {
@@ -458,6 +464,7 @@ export function createTurnsRouter(deps: TurnsRouterDeps) {
       return c.json({ data, pagination }, 200);
     } catch (error) {
       if (error instanceof SessionStoreConflictError) {
+        deps.logger.warn('Turn events list failed: conflict', extractErrorLogFields(error));
         return c.json({ error: { message: error.message } }, 400);
       }
       throw error;
@@ -504,15 +511,18 @@ export function createTurnsRouter(deps: TurnsRouterDeps) {
       });
     } catch (error) {
       if (error instanceof SessionStoreNotFoundError) {
+        deps.logger.warn('Create turn failed: session not found', extractErrorLogFields(error));
         return c.json({ error: { message: error.message } }, 404);
       }
       if (error instanceof AgentHarnessError && !(error instanceof McpConnectionError)) {
         switch (error.code) {
           case 'invalid_file_input':
+            deps.logger.warn('Create turn failed: invalid file input', extractErrorLogFields(error));
             return c.json({ error: { message: error.message } }, 400);
           case 'invalid_send_input':
           case 'agent_sandbox_required':
           case 'tool_name_collision':
+            deps.logger.warn('Create turn failed: invalid request', extractErrorLogFields(error));
             return c.json({ error: { message: error.message } }, 422);
           case 'capability_state_error':
           case 'mcp_connection_failed':
