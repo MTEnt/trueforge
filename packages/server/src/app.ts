@@ -174,6 +174,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
         tokenStore: deps.tokenStore,
         withTransaction: deps.withTransaction,
         logger: deps.logger,
+        resolveUserContext,
       }),
     ),
   );
@@ -216,6 +217,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
         sandboxSnapshotSync: deps.sandboxSnapshotSync,
         withTransaction: deps.withTransaction,
         logger: deps.logger,
+        resolveUserContext,
       }),
     ),
   );

@@ -5,6 +5,7 @@
  */
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { Logger } from 'winston';
+import type { ResolveUserContext } from '../auth/identity';
 import type { McpCatalog } from '../catalog/McpCatalog';
 import type { ModelCatalog } from '../catalog/ModelCatalog';
 import type { SandboxCatalog } from '../catalog/SandboxCatalog';
@@ -34,6 +35,7 @@ export interface SettingsRouterDeps<TTransaction> {
   sandboxSnapshotSync: SandboxSnapshotSyncService;
   withTransaction: WithTransaction<TTransaction>;
   logger: Logger;
+  resolveUserContext: ResolveUserContext;
 }
 
 export function createSettingsRouter<TTransaction>(deps: SettingsRouterDeps<TTransaction>) {
@@ -54,6 +56,7 @@ export function createSettingsRouter<TTransaction>(deps: SettingsRouterDeps<TTra
       tokenStore: deps.tokenStore,
       withTransaction: deps.withTransaction,
       logger: deps.logger,
+      resolveUserContext: deps.resolveUserContext,
     }),
   );
   router.route(
