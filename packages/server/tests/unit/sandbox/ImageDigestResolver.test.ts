@@ -3,6 +3,7 @@ import {
   CachedImageDigestResolver,
   ImageResolutionError,
   RegistryImageDigestResolver,
+  registryApiHost,
   type FetchLike,
   type IImageDigestResolver,
 } from '../../../src/sandbox/ImageDigestResolver';
@@ -55,6 +56,16 @@ function challenge(realm = 'https://ghcr.io/token'): Response {
   });
 }
 
+describe('registryApiHost', () => {
+  it('sends Docker Hub catalog refs to registry-1.docker.io', () => {
+    expect(registryApiHost('docker.io')).toBe('registry-1.docker.io');
+    expect(registryApiHost('index.docker.io')).toBe('registry-1.docker.io');
+    expect(registryApiHost('registry.docker.io')).toBe('registry-1.docker.io');
+    expect(registryApiHost('ghcr.io')).toBe('ghcr.io');
+    expect(registryApiHost('tfy.jfrog.io')).toBe('tfy.jfrog.io');
+  });
+});
+
 describe('RegistryImageDigestResolver', () => {
   it('resolves a tag to the digest the registry advertises', async () => {
     const { fetch, calls } = recordingFetch([manifest({ digest: DIGEST })]);
@@ -63,6 +74,34 @@ describe('RegistryImageDigestResolver', () => {
 
     expect(resolved).toBe(DIGEST);
     expect(calls[0]?.url).toBe(MANIFEST_URL);
+  });
+
+  it('queries registry-1.docker.io for a docker.io catalog reference', async () => {
+    const { fetch, calls } = recordingFetch([
+      new Response('', {
+        status: 401,
+        headers: {
+          'www-authenticate':
+            'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:truefoundrycloud/truefoundry-utils-core-sandbox:pull"',
+        },
+      }),
+      new Response(JSON.stringify({ token: 'hub-token' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+      manifest({ digest: DIGEST }),
+    ]);
+
+    const resolved = await new RegistryImageDigestResolver({ fetch }).resolve(
+      'docker.io/truefoundrycloud/truefoundry-utils-core-sandbox:029ea5ff6438cf86b79282e087bfc17528067946',
+    );
+
+    expect(resolved).toBe(DIGEST);
+    expect(calls[0]?.url).toBe(
+      'https://registry-1.docker.io/v2/truefoundrycloud/truefoundry-utils-core-sandbox/manifests/029ea5ff6438cf86b79282e087bfc17528067946',
+    );
+    expect(calls[1]?.url).toContain('auth.docker.io/token');
+    expect(calls[2]?.headers['authorization']).toBe('Bearer hub-token');
   });
 
   it('asks for index manifests first, so multi-arch tags resolve to the index digest', async () => {

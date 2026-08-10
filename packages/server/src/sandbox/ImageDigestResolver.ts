@@ -90,7 +90,9 @@ export class RegistryImageDigestResolver implements IImageDigestResolver {
 
     // Always HTTPS: a plaintext registry would put both the credentials and the
     // digest the sandbox is built from on the wire for anyone to rewrite.
-    const url = `https://${parsed.registry}/v2/${parsed.repository}/manifests/${parsed.tag}`;
+    // Catalog references may say `docker.io/...` (what humans and `docker pull` use),
+    // but Docker Hub's distribution API only answers on `registry-1.docker.io`.
+    const url = `https://${registryApiHost(parsed.registry)}/v2/${parsed.repository}/manifests/${parsed.tag}`;
     const unauthenticated = await this.send({ url, headers: manifestHeaders() });
     const response =
       unauthenticated.status === HTTP_UNAUTHORIZED
@@ -330,4 +332,16 @@ function parseBearerChallenge(challenge: string): BearerChallenge {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Host to send OCI distribution requests to. Kept separate from the parsed
+ * reference so the catalog can keep `docker.io/...` as the pull string while
+ * the resolver still hits Docker Hub's registry endpoint (not the website).
+ */
+export function registryApiHost(registry: string): string {
+  if (registry === 'docker.io' || registry === 'index.docker.io' || registry === 'registry.docker.io') {
+    return 'registry-1.docker.io';
+  }
+  return registry;
 }
