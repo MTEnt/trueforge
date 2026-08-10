@@ -242,7 +242,7 @@ async function createServerRuntime<TTransaction>(persistence: ServerPersistence<
     oidcClient,
   });
 
-  return { activeTurns, app, destroyDb, redis, requestReplyRouter };
+  return { activeTurns, app, destroyDb, redis, requestReplyRouter, sandboxSnapshotSync };
 }
 
 try {
@@ -253,7 +253,7 @@ try {
     transports: [new winston.transports.Console()],
   });
 
-  const { activeTurns, app, destroyDb, redis, requestReplyRouter } = configuration.STANDALONE
+  const { activeTurns, app, destroyDb, redis, requestReplyRouter, sandboxSnapshotSync } = configuration.STANDALONE
     ? await createServerRuntime(
         await createStandalonePersistence({ sqlitePath: configuration.SQLITE_PATH, logger }),
         logger,
