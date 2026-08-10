@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { cn } from '@/atoms/lib/cn.js';
 import { Button } from '../../atoms/primitives/Button.js';
 import { Icon } from '../../icons/Icon.js';
 import { useCatalogServer } from '../../server/ServerContext.js';
@@ -21,6 +22,12 @@ const configFrom = ({
   autoArchiveIntervalInMinutes,
   autoDeleteIntervalInMinutes,
 });
+
+const SNAPSHOT_STATUS_BASED_COLORS = {
+  ready: 'text-green-600',
+  failed: 'text-red-600',
+  syncing: 'text-blue-600',
+};
 
 const SandboxSettings = () => {
   const { sandboxCatalog } = useCatalogServer();
@@ -203,25 +210,21 @@ const SandboxSettings = () => {
                         >
                           <Icon name="cube" className="size-4.5" />
                         </span>
-                        <div className="min-w-0 space-y-1">
-                          <h5 className="truncate text-sm font-medium text-foreground">{provider.name}</h5>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-foreground">{provider.name}</div>
                           {provider.imageSync.isUpdating ? (
                             <p className="text-xs text-muted-foreground">Preparing a newer sandbox image…</p>
                           ) : null}
-                          <span className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
-                            <span
-                              className={
-                                provider.imageSync.status === 'ready'
-                                  ? 'h-1.5 w-1.5 rounded-full bg-primary'
-                                  : provider.imageSync.status === 'failed'
-                                    ? 'h-1.5 w-1.5 rounded-full bg-destructive'
-                                    : 'h-1.5 w-1.5 rounded-full bg-muted-foreground'
-                              }
-                            />
+                          <span
+                            className={cn(
+                              'text-xs font-medium',
+                              SNAPSHOT_STATUS_BASED_COLORS[provider.imageSync.status],
+                            )}
+                          >
                             {provider.imageSync.status === 'ready'
                               ? 'Ready'
                               : provider.imageSync.status === 'failed'
-                                ? 'Unavailable'
+                                ? 'Sync Failed'
                                 : 'Syncing'}
                           </span>
                         </div>
