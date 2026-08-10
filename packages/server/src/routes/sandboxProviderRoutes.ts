@@ -36,7 +36,11 @@ export const getSandboxProviderRoute = createRoute({
   path: '/',
   tags: [SANDBOX_PROVIDERS_TAG],
   summary: 'Get the configured sandbox provider',
-  description: 'The single configured sandbox provider for this tenant.',
+  description:
+    'The single configured sandbox provider for this tenant, including `snapshot_sync`: the state of the sandbox ' +
+    'image in Daytona. `active` is the snapshot sandboxes are created from; `pending` is a newer image being prepared, ' +
+    'which does not interrupt sandbox creation. Reading this endpoint also advances the sync, so poll it while ' +
+    '`pending` is set or `active` is still absent.',
   'x-fern-sdk-group-name': ['settings', 'sandboxProviders'],
   'x-fern-sdk-method-name': 'get',
   responses: {
@@ -56,7 +60,9 @@ export const putSandboxProviderRoute = createRoute({
   path: '/',
   tags: [SANDBOX_PROVIDERS_TAG],
   summary: 'Create or replace the sandbox provider',
-  description: 'Upserts the single sandbox provider for this tenant: creates it or replaces its entire configuration.',
+  description:
+    'Upserts the single sandbox provider for this tenant: creates it or replaces its entire configuration. ' +
+    'The sandbox image is server-owned, so the response carries the `snapshot_sync` state rather than accepting a snapshot name.',
   'x-fern-sdk-group-name': ['settings', 'sandboxProviders'],
   'x-fern-sdk-method-name': 'upsert',
   request: {
@@ -73,6 +79,10 @@ export const putSandboxProviderRoute = createRoute({
     400: {
       content: { 'application/json': { schema: RequestErrorResponseSchema } },
       description: 'Invalid request body.',
+    },
+    422: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description: 'Daytona rejected the supplied API key; nothing was saved.',
     },
   },
 });

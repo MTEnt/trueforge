@@ -22,6 +22,7 @@ import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
 import { isMcpAuthRequired, resolveMcpAuth } from '../mcp/auth/mcpDcr';
 import type { IOAuthTokenStore } from '../mcp/auth/types';
+import type { SandboxSnapshotSyncService } from '../sandbox/SandboxSnapshotSyncService';
 import { resolveConfiguredMcpRequestHeaders } from '../schemas/mcpServer';
 import { toDaytonaSandboxProviderInput } from '../schemas/sandboxProvider';
 
@@ -194,25 +195,39 @@ export async function resolveGitSkills({
 }
 
 /**
- * Build a runtime SandboxProvider from the configured store row, or undefined
- * when no provider is configured. Builds a fresh Daytona client per call (no network I/O).
+ * Build a runtime SandboxProvider for the configured provider, or undefined when
+ * none is configured. Turn start is also what heals a snapshot sync nobody is
+ * watching from the settings page, and it refuses to build a provider until Daytona
+ * holds a usable snapshot, because creating a sandbox from a missing one fails deep
+ * inside a turn.
  */
 export async function resolveSandboxProvider({
   tenant_id,
-  store,
+  snapshotSync,
   logger,
 }: {
   tenant_id: string;
-  store: ISandboxProviderStore;
+  snapshotSync: SandboxSnapshotSyncService;
   logger: Logger;
 }): Promise<SandboxProvider | undefined> {
-  const record = await store.getSandboxProvider(tenant_id);
-  if (record === undefined) {
+  const loaded = await snapshotSync.loadForTurn({ tenant_id });
+  if (loaded === undefined) {
     return undefined;
   }
-  const { apiKey, ...settings } = toDaytonaSandboxProviderInput(record.manifest);
+  const readiness = snapshotSync.readiness(loaded.manifest);
+  if (!readiness.ready) {
+    throw new HTTPException(422, {
+      message: readiness.syncing
+        ? `${readiness.reason} Retry once it is ready.`
+        : `The sandbox image could not be prepared in Daytona: ${readiness.reason}`,
+    });
+  }
+  const { apiKey, ...settings } = toDaytonaSandboxProviderInput({
+    manifest: loaded.manifest,
+    snapshotName: readiness.snapshotName,
+  });
   return new DaytonaSandboxProvider({
-    client: new Daytona({ apiKey }),
+    client: new Daytona({ apiKey, apiUrl: configuration.DAYTONA_API_URL }),
     ...settings,
     tenantName: tenant_id,
     fileMaxBytesForDownload: configuration.SANDBOX_FILE_MAX_BYTES_FOR_DOWNLOAD,
@@ -262,6 +277,7 @@ export async function validateAgentSpec({
   mcpServerStore,
   skillStore,
   sandboxProviderStore,
+  snapshotSync,
 }: {
   spec: AgentSpec;
   tenant_id: string;
@@ -269,6 +285,7 @@ export async function validateAgentSpec({
   mcpServerStore: IMcpServerStore;
   skillStore: ISkillStore;
   sandboxProviderStore: ISandboxProviderStore;
+  snapshotSync: SandboxSnapshotSyncService;
 }): Promise<void> {
   const parsed = parseModelFqn(spec.model.name);
   if (parsed === undefined) {
@@ -335,6 +352,16 @@ export async function validateAgentSpec({
         message: hasSkills
           ? 'skills require a sandbox provider — configure via PUT /settings/sandbox-providers'
           : 'sandbox is enabled but no sandbox provider is configured — PUT /settings/sandbox-providers',
+      });
+    }
+    // Snapshot readiness is read from persisted state only: admitting a session is
+    // not the right place to wait on Daytona, and turn start reconciles anyway.
+    const readiness = snapshotSync.readiness(record.manifest);
+    if (!readiness.ready) {
+      throw new HTTPException(422, {
+        message: readiness.syncing
+          ? `The sandbox image is not ready in Daytona yet: ${readiness.reason} Retry once it is ready.`
+          : `The sandbox image could not be prepared in Daytona: ${readiness.reason}`,
       });
     }
   }

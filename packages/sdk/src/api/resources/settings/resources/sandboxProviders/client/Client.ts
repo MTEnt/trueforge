@@ -24,7 +24,7 @@ export class SandboxProvidersClient {
     }
 
     /**
-     * The single configured sandbox provider for this tenant.
+     * The single configured sandbox provider for this tenant, including `snapshot_sync`: the state of the sandbox image in Daytona. `active` is the snapshot sandboxes are created from; `pending` is a newer image being prepared, which does not interrupt sandbox creation. Reading this endpoint also advances the sync, so poll it while `pending` is set or `active` is still absent.
      *
      * @param {SandboxProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
@@ -104,12 +104,13 @@ export class SandboxProvidersClient {
     }
 
     /**
-     * Upserts the single sandbox provider for this tenant: creates it or replaces its entire configuration.
+     * Upserts the single sandbox provider for this tenant: creates it or replaces its entire configuration. The sandbox image is server-owned, so the response carries the `snapshot_sync` state rather than accepting a snapshot name.
      *
-     * @param {TrueForge.DaytonaSandboxProvider} request
+     * @param {TrueForge.settings.DaytonaSandboxProvider} request
      * @param {SandboxProvidersClient.RequestOptions} requestOptions - Request-specific configuration.
      *
      * @throws {@link TrueForge.BadRequestError}
+     * @throws {@link TrueForge.UnprocessableEntityError}
      * @throws {@link errors.TrueForgeError}
      * @throws {@link errors.TrueForgeTimeoutError}
      *
@@ -121,20 +122,18 @@ export class SandboxProvidersClient {
      *         autoArchiveIntervalInMinutes: 1,
      *         autoDeleteIntervalInMinutes: 1,
      *         autoStopIntervalInMinutes: 1,
-     *         execTimeoutMs: 1,
-     *         snapshotName: "snapshot_name",
-     *         type: "daytona"
+     *         execTimeoutMs: 1
      *     })
      */
     public upsert(
-        request: TrueForge.DaytonaSandboxProvider,
+        request: TrueForge.settings.DaytonaSandboxProvider,
         requestOptions?: SandboxProvidersClient.RequestOptions,
     ): core.HttpResponsePromise<TrueForge.PutSandboxProviderResponse> {
         return core.HttpResponsePromise.fromPromise(this.__upsert(request, requestOptions));
     }
 
     private async __upsert(
-        request: TrueForge.DaytonaSandboxProvider,
+        request: TrueForge.settings.DaytonaSandboxProvider,
         requestOptions?: SandboxProvidersClient.RequestOptions,
     ): Promise<core.WithRawResponse<TrueForge.PutSandboxProviderResponse>> {
         const _headers: core.Fetcher.Args["headers"] = mergeHeaders(this._options?.headers, requestOptions?.headers);
@@ -150,12 +149,15 @@ export class SandboxProvidersClient {
             queryString: core.url.queryBuilder().mergeAdditional(requestOptions?.queryParams).build(),
             requestType: "json",
             body: mergeAdditionalBodyParameters(
-                serializers.DaytonaSandboxProvider.jsonOrThrow(request, {
-                    unrecognizedObjectKeys: "passthrough",
-                    allowUnrecognizedUnionMembers: true,
-                    allowUnrecognizedEnumValues: true,
-                    omitUndefined: true,
-                }),
+                {
+                    ...serializers.settings.DaytonaSandboxProvider.jsonOrThrow(request, {
+                        unrecognizedObjectKeys: "passthrough",
+                        allowUnrecognizedUnionMembers: true,
+                        allowUnrecognizedEnumValues: true,
+                        omitUndefined: true,
+                    }),
+                    type: "daytona",
+                },
                 requestOptions?.additionalBodyParameters,
             ),
             timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
@@ -181,6 +183,17 @@ export class SandboxProvidersClient {
             switch (_response.error.statusCode) {
                 case 400:
                     throw new TrueForge.BadRequestError(
+                        serializers.RequestErrorResponse.parseOrThrow(_response.error.body, {
+                            unrecognizedObjectKeys: "passthrough",
+                            allowUnrecognizedUnionMembers: true,
+                            allowUnrecognizedEnumValues: true,
+                            skipValidation: true,
+                            breadcrumbsPrefix: ["response"],
+                        }),
+                        _response.rawResponse,
+                    );
+                case 422:
+                    throw new TrueForge.UnprocessableEntityError(
                         serializers.RequestErrorResponse.parseOrThrow(_response.error.body, {
                             unrecognizedObjectKeys: "passthrough",
                             allowUnrecognizedUnionMembers: true,

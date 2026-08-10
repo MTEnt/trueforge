@@ -17,6 +17,7 @@ import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/Sqlite
 import { ActiveTurnRegistry } from '../../../src/runtime/activeTurns';
 import { EventSubscriptionRegistry } from '../../../src/runtime/event-subscription/index.js';
 import { ListSessionsResponseSchema } from '../../../src/schemas/session';
+import { createTestSandboxSnapshotSync } from '../support/sandboxSnapshotSync';
 
 describe('public CRUD after session deletion', () => {
   it('returns not found for session and turn operations', async () => {
@@ -31,6 +32,7 @@ describe('public CRUD after session deletion', () => {
     const skillStore = new SqliteSkillStore(db);
     const agentStore = new SqliteAgentStore(db);
     const sandboxProviderStore = new SqliteSandboxProviderStore(db);
+    const sandboxSnapshotSync = createTestSandboxSnapshotSync({ store: sandboxProviderStore });
     const app = new OpenAPIHono();
 
     app.route(
@@ -44,6 +46,7 @@ describe('public CRUD after session deletion', () => {
         skillStore,
         agentStore,
         sandboxProviderStore,
+        sandboxSnapshotSync,
         redis: createClient(),
         requestReplyRouter: new RequestReplyRouter(),
       }),
@@ -60,7 +63,7 @@ describe('public CRUD after session deletion', () => {
         skillStore,
         agentStore,
         eventSubscriptions: new EventSubscriptionRegistry(undefined),
-        sandboxProviderStore,
+        sandboxSnapshotSync,
         logger: createLogger({ silent: true }),
       }),
     );

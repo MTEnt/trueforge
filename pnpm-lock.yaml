@@ -127,6 +127,9 @@ importers:
       '@ai-sdk/provider-utils':
         specifier: ^5.0.16
         version: 5.0.20(zod@4.4.3)
+      '@daytona/api-client':
+        specifier: ^0.190.0
+        version: 0.190.1(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)
       '@daytona/sdk':
         specifier: ^0.190.0
         version: 0.190.1(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)(ws@8.21.1)

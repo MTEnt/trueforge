@@ -31,6 +31,7 @@ import type { ISkillStore } from './db/skillStore';
 import type { IOAuthTokenStore } from './mcp/auth/types';
 import type { ActiveTurnRegistry } from './runtime/activeTurns';
 import type { EventSubscriptionRegistry } from './runtime/event-subscription';
+import type { SandboxSnapshotSyncService } from './sandbox/SandboxSnapshotSyncService';
 
 const openApiDocConfig = {
   openapi: '3.1.0',
@@ -69,6 +70,8 @@ export interface ServerDeps {
   tokenStore: IOAuthTokenStore;
   skillStore: ISkillStore;
   sandboxProviderStore: ISandboxProviderStore;
+  /** Keeps the sandbox image synced to the configured provider and gates its use. */
+  sandboxSnapshotSync: SandboxSnapshotSyncService;
   agentStore: IAgentStore;
   sessionStore: ISessionStore;
   sessions: Sessions;
@@ -92,7 +95,12 @@ export function createServerApp(deps: ServerDeps) {
   app.route('/api/v1/auth', createAuthRouter({ oidcClient: deps.oidcClient, logger: deps.logger }));
   app.route(
     '/api/v1/capabilities',
-    withAuth(createCapabilitiesRouter({ sandboxProviderStore: deps.sandboxProviderStore })),
+    withAuth(
+      createCapabilitiesRouter({
+        sandboxProviderStore: deps.sandboxProviderStore,
+        sandboxSnapshotSync: deps.sandboxSnapshotSync,
+      }),
+    ),
   );
   app.route('/api/v1/models', withAuth(createModelsRouter(deps.modelProviderStore)));
   // Public MCP OAuth callback must be registered before the gated `/mcp-servers` mount so
@@ -125,6 +133,7 @@ export function createServerApp(deps: ServerDeps) {
         mcpServerStore: deps.mcpServerStore,
         skillStore: deps.skillStore,
         sandboxProviderStore: deps.sandboxProviderStore,
+        sandboxSnapshotSync: deps.sandboxSnapshotSync,
       }),
     ),
   );
@@ -141,6 +150,7 @@ export function createServerApp(deps: ServerDeps) {
         skillStore: deps.skillStore,
         sandboxCatalog: deps.sandboxCatalog,
         sandboxProviderStore: deps.sandboxProviderStore,
+        sandboxSnapshotSync: deps.sandboxSnapshotSync,
         logger: deps.logger,
       }),
     ),
@@ -157,6 +167,7 @@ export function createServerApp(deps: ServerDeps) {
         skillStore: deps.skillStore,
         agentStore: deps.agentStore,
         sandboxProviderStore: deps.sandboxProviderStore,
+        sandboxSnapshotSync: deps.sandboxSnapshotSync,
         redis: deps.redis,
         requestReplyRouter: deps.requestReplyRouter,
       }),
@@ -175,7 +186,7 @@ export function createServerApp(deps: ServerDeps) {
         skillStore: deps.skillStore,
         agentStore: deps.agentStore,
         eventSubscriptions: deps.eventSubscriptions,
-        sandboxProviderStore: deps.sandboxProviderStore,
+        sandboxSnapshotSync: deps.sandboxSnapshotSync,
         logger: deps.logger,
       }),
     ),

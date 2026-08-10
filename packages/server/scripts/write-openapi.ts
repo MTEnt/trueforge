@@ -25,6 +25,7 @@ import { SqliteSkillStore } from '../src/db/sqlite/skill-store/SqliteSkillStore'
 import { SqliteOAuthTokenStore } from '../src/db/sqlite/token-store/SqliteOAuthTokenStore';
 import { ActiveTurnRegistry } from '../src/runtime/activeTurns';
 import { EventSubscriptionRegistry } from '../src/runtime/event-subscription';
+import { createSandboxSnapshotSyncService } from '../src/sandbox/SandboxSnapshotSyncService';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -48,6 +49,9 @@ function canonicalise(value: unknown): unknown {
 // Unconnected stand-ins suffice: route registration never reads a dependency.
 const sessionStore = new InMemorySessionStore();
 const db = createSqliteDb(':memory:');
+const sandboxCatalog = SandboxCatalog.load();
+const sandboxProviderStore = new SqliteSandboxProviderStore(db);
+const logger = winston.createLogger({ silent: true });
 const app = createServerApp({
   modelCatalog: ModelCatalog.load(),
   modelProviderStore: new SqliteModelProviderStore(db),
@@ -56,15 +60,20 @@ const app = createServerApp({
   tokenStore: new SqliteOAuthTokenStore(db),
   skillCatalog: SkillCatalog.load(),
   skillStore: new SqliteSkillStore(db),
-  sandboxCatalog: SandboxCatalog.load(),
-  sandboxProviderStore: new SqliteSandboxProviderStore(db),
+  sandboxCatalog,
+  sandboxProviderStore,
+  sandboxSnapshotSync: createSandboxSnapshotSyncService({
+    store: sandboxProviderStore,
+    catalog: sandboxCatalog,
+    logger,
+  }),
   agentStore: new SqliteAgentStore(db),
   sessionStore,
   sessions: new Sessions({ sessionStore }),
   activeTurns: new ActiveTurnRegistry(),
   requestReplyRouter: new RequestReplyRouter(),
   eventSubscriptions: new EventSubscriptionRegistry<TurnStreamingEvent>(undefined),
-  logger: winston.createLogger({ silent: true }),
+  logger,
   oidcClient: undefined,
 });
 

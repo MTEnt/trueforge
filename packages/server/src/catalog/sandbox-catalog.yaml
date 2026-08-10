@@ -1,9 +1,24 @@
-# Shipped sandbox catalog: provider presets offered by
-# GET /api/v1/settings/sandbox-providers/catalog for the settings UI to copy into
-# PUT /api/v1/settings/sandbox-providers bodies. Discovery-only — never executed against.
+# Shipped sandbox catalog.
+#
+# `sandbox_snapshot` is the server-owned definition of what a sandbox is. The
+# server keeps a Daytona snapshot matching this spec in each tenant's account, so
+# users only ever supply an API key.
+#
+# `docker_image` may be a moving tag: the server resolves it to a digest, so a new push
+# provisions a new snapshot on its own while the current one keeps serving. The tag below
+# is a commit SHA, which never moves, so each release has to be written in here; point it
+# at a tag CI repoints (`:main`, `:stable`) to pick up new images automatically.
+#
+# The reference must name its registry, must carry an explicit tag that is not `latest`,
+# and must not be a digest. The last two are Daytona's rules, and the server rejects all
+# three at startup rather than letting the sync fail later.
+#
+# `providers` are presets offered by GET /api/v1/settings/sandbox-providers/catalog
+# for the settings UI to copy into PUT bodies. Discovery-only — never executed against.
+sandbox_snapshot:
+  docker_image: tfy.jfrog.io/tfy-images/truefoundry-utils-core-sandbox:029ea5ff6438cf86b79282e087bfc17528067946
 providers:
   - type: daytona
-    snapshot_name: trueforge-local
     exec_timeout_ms: 60000
     auto_stop_interval_in_minutes: 5
     auto_archive_interval_in_minutes: 60

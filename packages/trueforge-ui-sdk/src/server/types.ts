@@ -620,11 +620,27 @@ export interface SkillCatalogServer<
 
 /** Mutable sandbox provider settings shared by catalog rows, create, and update. */
 export interface SandboxProviderConfig {
-  snapshotName: string;
   execTimeoutMs: number;
   autoStopIntervalInMinutes: number;
   autoArchiveIntervalInMinutes: number;
   autoDeleteIntervalInMinutes: number;
+}
+
+/**
+ * Progress of the host-managed sandbox image in the provider account. Sandboxes
+ * cannot run until `status` is `ready`, and the host may still be working on it
+ * after a save returns.
+ *
+ * `isUpdating` is a newer image being prepared in the background, which does not
+ * stop sandboxes from running: hosts that track a moving image tag roll forward
+ * on their own. So an error can arrive alongside a `ready` status, meaning the
+ * current image still works but the update did not land.
+ */
+export interface SandboxImageSync {
+  status: 'syncing' | 'ready' | 'failed';
+  /** Set whenever the last attempt to prepare an image failed. */
+  errorMessage: string | undefined;
+  isUpdating: boolean;
 }
 
 export interface SandboxProviderCatalogEntry extends SandboxProviderConfig {
@@ -642,6 +658,8 @@ export interface SandboxProviderBase extends SandboxProviderConfig {
   name: string;
   catalogId: string;
   isConnected: boolean;
+  /** Host-managed; poll `listSandboxProviders` while it is syncing or updating. */
+  imageSync: SandboxImageSync;
 }
 
 /**

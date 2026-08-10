@@ -403,11 +403,6 @@
             "exclusiveMinimum": 0,
             "type": "integer"
           },
-          "snapshot_name": {
-            "description": "Daytona snapshot used when creating sandboxes.",
-            "minLength": 1,
-            "type": "string"
-          },
           "type": {
             "enum": [
               "daytona"
@@ -417,7 +412,6 @@
         },
         "required": [
           "type",
-          "snapshot_name",
           "exec_timeout_ms",
           "auto_stop_interval_in_minutes",
           "auto_archive_interval_in_minutes",
@@ -684,6 +678,50 @@
           }
         ]
       },
+      "ConfiguredSandboxProvider": {
+        "additionalProperties": false,
+        "properties": {
+          "auth": {
+            "$ref": "#/components/schemas/DaytonaSandboxProviderAuth"
+          },
+          "auto_archive_interval_in_minutes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "auto_delete_interval_in_minutes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "auto_stop_interval_in_minutes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "exec_timeout_ms": {
+            "description": "Default sandbox command exec timeout in milliseconds.",
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "snapshot_sync": {
+            "$ref": "#/components/schemas/SandboxSnapshotSync"
+          },
+          "type": {
+            "enum": [
+              "daytona"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "auth",
+          "exec_timeout_ms",
+          "auto_stop_interval_in_minutes",
+          "auto_archive_interval_in_minutes",
+          "auto_delete_interval_in_minutes",
+          "snapshot_sync"
+        ],
+        "type": "object"
+      },
       "ContextManagementConfig": {
         "default": {
           "compaction": {
@@ -818,11 +856,6 @@
             "exclusiveMinimum": 0,
             "type": "integer"
           },
-          "snapshot_name": {
-            "description": "Daytona snapshot used when creating sandboxes.",
-            "minLength": 1,
-            "type": "string"
-          },
           "type": {
             "enum": [
               "daytona"
@@ -832,7 +865,6 @@
         },
         "required": [
           "type",
-          "snapshot_name",
           "auth",
           "exec_timeout_ms",
           "auto_stop_interval_in_minutes",
@@ -988,8 +1020,12 @@
               "sandbox": {
                 "properties": {
                   "enabled": {
-                    "description": "Whether a sandbox provider is configured for this tenant.",
+                    "description": "Whether sandboxes can be created: a provider is configured and its sandbox image is synced to the provider.",
                     "type": "boolean"
+                  },
+                  "reason": {
+                    "description": "Present when sandbox is disabled. Explains why.",
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -1095,7 +1131,7 @@
       "GetSandboxProviderResponse": {
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/DaytonaSandboxProvider"
+            "$ref": "#/components/schemas/ConfiguredSandboxProvider"
           }
         },
         "required": [
@@ -2251,7 +2287,7 @@
       "PutSandboxProviderResponse": {
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/DaytonaSandboxProvider"
+            "$ref": "#/components/schemas/ConfiguredSandboxProvider"
           }
         },
         "required": [
@@ -2600,6 +2636,57 @@
             "type": "array"
           }
         },
+        "type": "object"
+      },
+      "SandboxSnapshotRef": {
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "image": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "snapshot_name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_name",
+          "image",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "SandboxSnapshotSync": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "$ref": "#/components/schemas/SandboxSnapshotRef"
+          },
+          "desired_image": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "error_message": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "pending": {
+            "$ref": "#/components/schemas/SandboxSnapshotRef"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "desired_image",
+          "updated_at"
+        ],
         "type": "object"
       },
       "Session": {
@@ -5897,7 +5984,7 @@
     },
     "/api/v1/settings/sandbox-providers": {
       "get": {
-        "description": "The single configured sandbox provider for this tenant.",
+        "description": "The single configured sandbox provider for this tenant, including `snapshot_sync`: the state of the sandbox image in Daytona. `active` is the snapshot sandboxes are created from; `pending` is a newer image being prepared, which does not interrupt sandbox creation. Reading this endpoint also advances the sync, so poll it while `pending` is set or `active` is still absent.",
         "responses": {
           "200": {
             "content": {
@@ -5931,7 +6018,7 @@
         "x-fern-sdk-method-name": "get"
       },
       "put": {
-        "description": "Upserts the single sandbox provider for this tenant: creates it or replaces its entire configuration.",
+        "description": "Upserts the single sandbox provider for this tenant: creates it or replaces its entire configuration. The sandbox image is server-owned, so the response carries the `snapshot_sync` state rather than accepting a snapshot name.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5962,6 +6049,16 @@
               }
             },
             "description": "Invalid request body."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestErrorResponse"
+                }
+              }
+            },
+            "description": "Daytona rejected the supplied API key; nothing was saved."
           }
         },
         "summary": "Create or replace the sandbox provider",

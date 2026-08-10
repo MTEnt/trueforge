@@ -6,6 +6,7 @@ import { SqliteMcpServerStore } from '../../../src/db/sqlite/mcp-server-store/Sq
 import { SqliteModelProviderStore } from '../../../src/db/sqlite/model-provider-store/SqliteModelProviderStore';
 import { SqliteSandboxProviderStore } from '../../../src/db/sqlite/sandbox-provider-store/SqliteSandboxProviderStore';
 import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkillStore';
+import { createTestSandboxSnapshotSync } from '../support/sandboxSnapshotSync';
 
 const modelProvider = {
   type: 'anthropic' as const,
@@ -48,12 +49,14 @@ describe('agents router', () => {
     await migrateSqliteToLatest(db);
     const modelProviderStore = new SqliteModelProviderStore(db);
     await modelProviderStore.upsertProvider({ tenant_id: 'default', manifest: modelProvider });
+    const sandboxProviderStore = new SqliteSandboxProviderStore(db);
     router = createAgentsRouter({
       agentStore: new SqliteAgentStore(db),
       modelProviderStore,
       mcpServerStore: new SqliteMcpServerStore(db),
       skillStore: new SqliteSkillStore(db),
-      sandboxProviderStore: new SqliteSandboxProviderStore(db),
+      sandboxProviderStore,
+      sandboxSnapshotSync: createTestSandboxSnapshotSync({ store: sandboxProviderStore }),
     });
   });
 

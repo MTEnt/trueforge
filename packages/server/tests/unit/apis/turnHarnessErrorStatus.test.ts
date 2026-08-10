@@ -14,6 +14,7 @@ import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkill
 import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/SqliteOAuthTokenStore';
 import { ActiveTurnRegistry } from '../../../src/runtime/activeTurns';
 import { EventSubscriptionRegistry } from '../../../src/runtime/event-subscription/index.js';
+import { createTestSandboxSnapshotSync } from '../support/sandboxSnapshotSync';
 
 async function postTurnRejectingWith(error: AgentHarnessError): Promise<Response> {
   const db = createSqliteDb(':memory:');
@@ -59,7 +60,7 @@ async function postTurnRejectingWith(error: AgentHarnessError): Promise<Response
       skillStore: new SqliteSkillStore(db),
       agentStore: new SqliteAgentStore(db),
       eventSubscriptions: new EventSubscriptionRegistry(undefined),
-      sandboxProviderStore: new SqliteSandboxProviderStore(db),
+      sandboxSnapshotSync: createTestSandboxSnapshotSync({ store: new SqliteSandboxProviderStore(db) }),
       logger: createLogger({ silent: true }),
     }),
   );

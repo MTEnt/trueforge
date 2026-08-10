@@ -1,9 +1,10 @@
 /**
- * Shipped sandbox-catalog.yaml schemas (discovery presets). Separate from
- * configured provider manifests in sandboxProvider.ts.
+ * Shipped sandbox-catalog.yaml schemas: the server-owned snapshot spec plus the
+ * discovery presets. Configured provider manifests live in sandboxProvider.ts.
  */
 import { z } from '@hono/zod-openapi';
 import { DaytonaSandboxProviderSchema } from './sandboxProvider';
+import { SandboxSnapshotSpecSchema } from './sandboxSnapshot';
 
 /** Catalog entry: Daytona preset without secrets. */
 export const CatalogDaytonaSandboxProviderSchema = DaytonaSandboxProviderSchema.omit({ auth: true })
@@ -18,6 +19,7 @@ export const CatalogSandboxProviderSchema = CatalogDaytonaSandboxProviderSchema;
 
 export const SandboxCatalogFileSchema = z
   .object({
+    sandbox_snapshot: SandboxSnapshotSpecSchema,
     providers: z.array(CatalogSandboxProviderSchema),
   })
   .strict();

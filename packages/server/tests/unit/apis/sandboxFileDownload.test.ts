@@ -15,6 +15,7 @@ import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkill
 import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/SqliteOAuthTokenStore';
 import { ActiveTurnRegistry } from '../../../src/runtime/activeTurns';
 import { EventSubscriptionRegistry } from '../../../src/runtime/event-subscription';
+import { createTestSandboxSnapshotSync } from '../support/sandboxSnapshotSync';
 
 /** Parsed rather than built literally, so config defaults match what the create route stores. */
 function agentSpec(): AgentSpec {
@@ -43,7 +44,7 @@ async function buildApp() {
       skillStore: new SqliteSkillStore(db),
       agentStore: new SqliteAgentStore(db),
       eventSubscriptions: new EventSubscriptionRegistry(undefined),
-      sandboxProviderStore: new SqliteSandboxProviderStore(db),
+      sandboxSnapshotSync: createTestSandboxSnapshotSync({ store: new SqliteSandboxProviderStore(db) }),
       logger: createLogger({ silent: true }),
     }),
   );
@@ -109,6 +110,7 @@ describe('GET /{session_id}/turns/{turn_id}/download', () => {
     const session = await sessions.create({
       tenant_id: TENANT_ID,
       session_id: 'no-turn',
+      created_by: 'trueforge-default',
       agent: { type: 'value', agent_spec: agentSpec() },
     });
 

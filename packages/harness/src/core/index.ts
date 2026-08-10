@@ -139,6 +139,20 @@ export { PromiseTimeoutError, withTimeout } from './util/promiseUtils';
 // Sandbox (concrete implementation; provider details exported for composition)
 export { DaytonaSandboxProvider } from './sandbox/provider/DaytonaProvider';
 export type { DaytonaSandboxProviderOptions } from './sandbox/provider/DaytonaProvider';
+export {
+  DaytonaSnapshotAuthError,
+  DaytonaSnapshots,
+  classifyDaytonaSnapshotState,
+} from './sandbox/provider/DaytonaSnapshots';
+export type {
+  CreateDaytonaSnapshotParams,
+  DaytonaSnapshot,
+  DaytonaSnapshotLifecycle,
+  DaytonaSnapshotResources,
+  DaytonaSnapshotState,
+  DaytonaSnapshotsOptions,
+  IDaytonaSnapshots,
+} from './sandbox/provider/DaytonaSnapshots';
 export type { SandboxExecParams, SandboxInit, SandboxProvider } from './sandbox/provider/Provider';
 export { TFYSandboxProvider } from './sandbox/provider/TFYSandboxProvider';
 export { SKILL_DOWNLOAD_TIMEOUT_SECONDS, Sandbox, buildWriteAndRunScriptCommand } from './sandbox/Sandbox';

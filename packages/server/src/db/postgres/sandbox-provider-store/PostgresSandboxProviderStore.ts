@@ -1,10 +1,11 @@
-import type { Kysely, Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable } from 'kysely';
 import {
   type ISandboxProviderStore,
+  type PatchSandboxProviderSnapshotSyncInput,
   type SandboxProviderRecord,
   type UpsertSandboxProviderInput,
 } from '../../sandboxProviderStore';
-import { json, now } from '../sqlExpressions';
+import { json, jsonbSet, now } from '../sqlExpressions';
 import type { Database, SandboxProviderTable } from '../types';
 
 function toRecord(row: Selectable<SandboxProviderTable>): SandboxProviderRecord {
@@ -50,5 +51,16 @@ export class PostgresSandboxProviderStore implements ISandboxProviderStore {
       .returningAll()
       .executeTakeFirstOrThrow();
     return toRecord(row);
+  }
+
+  async patchSandboxProviderSnapshotSync(input: PatchSandboxProviderSnapshotSyncInput): Promise<void> {
+    await this.#db
+      .updateTable('sandbox_provider')
+      .set({
+        manifest: jsonbSet(sql.ref('manifest'), sql`'{snapshot_sync}'`, json(input.snapshot_sync)),
+        updated_at: now(),
+      })
+      .where('tenant_id', '=', input.tenant_id)
+      .execute();
   }
 }

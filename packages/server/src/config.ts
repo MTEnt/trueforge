@@ -39,6 +39,8 @@ const DEFAULT_REDIS_URL = 'redis://localhost:6379';
 const DEFAULT_OIDC_USER_REFERENCE_CLAIM = 'sub';
 const DEFAULT_OIDC_USER_ROLE_CLAIM = 'groups';
 const DEFAULT_OIDC_ADMIN_ROLE_VALUE = 'admin';
+/** Daytona's hosted API, the same default `@daytona/sdk` applies. */
+const DEFAULT_DAYTONA_API_URL = 'https://app.daytona.io/api';
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -323,6 +325,20 @@ export interface SharedServerConfiguration {
    */
   SANDBOX_FILE_MAX_BYTES_FOR_DOWNLOAD: number;
   /**
+   * Daytona API base URL, used for both sandboxes and snapshot sync so the two
+   * cannot disagree. Env: `DAYTONA_API_URL`. Default: Daytona's hosted API.
+   */
+  DAYTONA_API_URL: string;
+  /**
+   * Credentials for reading the sandbox image manifest, needed only when that
+   * image is private. Snapshot sync resolves the catalog tag to a digest so a new
+   * push rolls forward; public registries hand out anonymous pull tokens, so these
+   * stay unset for the shipped image.
+   * Env: `SANDBOX_IMAGE_REGISTRY_USERNAME`, `SANDBOX_IMAGE_REGISTRY_PASSWORD`.
+   */
+  SANDBOX_IMAGE_REGISTRY_USERNAME: string | undefined;
+  SANDBOX_IMAGE_REGISTRY_PASSWORD: string | undefined;
+  /**
    * Max seconds to wait for turn cancellation + connection drain on SIGTERM/SIGINT.
    * Env: `GRACEFUL_TIMEOUT_SECONDS`. Default 30.
    */
@@ -467,6 +483,9 @@ const shared: SharedServerConfiguration = {
     raw: getEnv('SANDBOX_FILE_MAX_BYTES_FOR_DOWNLOAD'),
     defaultValue: 20_971_520,
   }),
+  DAYTONA_API_URL: getEnv('DAYTONA_API_URL', { defaultValue: DEFAULT_DAYTONA_API_URL }) ?? DEFAULT_DAYTONA_API_URL,
+  SANDBOX_IMAGE_REGISTRY_USERNAME: getEnv('SANDBOX_IMAGE_REGISTRY_USERNAME'),
+  SANDBOX_IMAGE_REGISTRY_PASSWORD: getEnv('SANDBOX_IMAGE_REGISTRY_PASSWORD'),
   GRACEFUL_TIMEOUT_SECONDS: parsePositiveInt({
     envKey: 'GRACEFUL_TIMEOUT_SECONDS',
     raw: getEnv('GRACEFUL_TIMEOUT_SECONDS'),

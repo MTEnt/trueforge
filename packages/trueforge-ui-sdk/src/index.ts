@@ -290,6 +290,7 @@ export type {
   ProviderType,
   RegistrySkill,
   SandboxCatalogServer,
+  SandboxImageSync,
   SandboxProviderBase,
   SandboxProviderCatalogEntry,
   SandboxProviderConfig,

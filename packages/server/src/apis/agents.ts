@@ -10,6 +10,7 @@ import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
 import { createAgentRoute, getAgentRoute, listAgentsRoute, putAgentRoute } from '../routes/agentRoutes';
 import { validateAgentSpec } from '../runtime/sessionResources';
+import type { SandboxSnapshotSyncService } from '../sandbox/SandboxSnapshotSyncService';
 import { toAgentManifest, type Agent, type AgentWriteRequest } from '../schemas/agent';
 import { TENANT_ID } from './sessions';
 
@@ -19,6 +20,7 @@ export interface AgentsRouterDeps {
   mcpServerStore: IMcpServerStore;
   skillStore: ISkillStore;
   sandboxProviderStore: ISandboxProviderStore;
+  sandboxSnapshotSync: SandboxSnapshotSyncService;
 }
 
 /** Wire view: identity columns plus AgentSpec fields flattened. */
@@ -38,6 +40,7 @@ async function validateManifest({ spec, deps }: { spec: AgentSpec; deps: AgentsR
     mcpServerStore: deps.mcpServerStore,
     skillStore: deps.skillStore,
     sandboxProviderStore: deps.sandboxProviderStore,
+    snapshotSync: deps.sandboxSnapshotSync,
   });
   return spec;
 }

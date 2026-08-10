@@ -16,7 +16,13 @@ describe("SandboxProvidersClient", () => {
                 auto_delete_interval_in_minutes: 1,
                 auto_stop_interval_in_minutes: 1,
                 exec_timeout_ms: 1,
-                snapshot_name: "snapshot_name",
+                snapshot_sync: {
+                    active: { digest: "digest", image: "image", snapshot_name: "snapshot_name" },
+                    desired_image: "desired_image",
+                    error_message: "error_message",
+                    pending: { digest: "digest", image: "image", snapshot_name: "snapshot_name" },
+                    updated_at: "2024-01-15T09:30:00Z",
+                },
                 type: "daytona",
             },
         };
@@ -39,7 +45,21 @@ describe("SandboxProvidersClient", () => {
                 autoDeleteIntervalInMinutes: 1,
                 autoStopIntervalInMinutes: 1,
                 execTimeoutMs: 1,
-                snapshotName: "snapshot_name",
+                snapshotSync: {
+                    active: {
+                        digest: "digest",
+                        image: "image",
+                        snapshotName: "snapshot_name",
+                    },
+                    desiredImage: "desired_image",
+                    errorMessage: "error_message",
+                    pending: {
+                        digest: "digest",
+                        image: "image",
+                        snapshotName: "snapshot_name",
+                    },
+                    updatedAt: new Date("2024-01-15T09:30:00.000Z"),
+                },
                 type: "daytona",
             },
         });
@@ -73,7 +93,6 @@ describe("SandboxProvidersClient", () => {
             auto_delete_interval_in_minutes: 1,
             auto_stop_interval_in_minutes: 1,
             exec_timeout_ms: 1,
-            snapshot_name: "snapshot_name",
             type: "daytona",
         };
         const rawResponseBody = {
@@ -83,7 +102,13 @@ describe("SandboxProvidersClient", () => {
                 auto_delete_interval_in_minutes: 1,
                 auto_stop_interval_in_minutes: 1,
                 exec_timeout_ms: 1,
-                snapshot_name: "snapshot_name",
+                snapshot_sync: {
+                    active: { digest: "digest", image: "image", snapshot_name: "snapshot_name" },
+                    desired_image: "desired_image",
+                    error_message: "error_message",
+                    pending: { digest: "digest", image: "image", snapshot_name: "snapshot_name" },
+                    updated_at: "2024-01-15T09:30:00Z",
+                },
                 type: "daytona",
             },
         };
@@ -105,8 +130,6 @@ describe("SandboxProvidersClient", () => {
             autoDeleteIntervalInMinutes: 1,
             autoStopIntervalInMinutes: 1,
             execTimeoutMs: 1,
-            snapshotName: "snapshot_name",
-            type: "daytona",
         });
         expect(response).toEqual({
             data: {
@@ -117,7 +140,21 @@ describe("SandboxProvidersClient", () => {
                 autoDeleteIntervalInMinutes: 1,
                 autoStopIntervalInMinutes: 1,
                 execTimeoutMs: 1,
-                snapshotName: "snapshot_name",
+                snapshotSync: {
+                    active: {
+                        digest: "digest",
+                        image: "image",
+                        snapshotName: "snapshot_name",
+                    },
+                    desiredImage: "desired_image",
+                    errorMessage: "error_message",
+                    pending: {
+                        digest: "digest",
+                        image: "image",
+                        snapshotName: "snapshot_name",
+                    },
+                    updatedAt: new Date("2024-01-15T09:30:00.000Z"),
+                },
                 type: "daytona",
             },
         });
@@ -132,7 +169,6 @@ describe("SandboxProvidersClient", () => {
             auto_delete_interval_in_minutes: 1,
             auto_stop_interval_in_minutes: 1,
             exec_timeout_ms: 1,
-            snapshot_name: "x",
             type: "daytona",
         };
         const rawResponseBody = { error: { message: "message" } };
@@ -155,10 +191,43 @@ describe("SandboxProvidersClient", () => {
                 autoDeleteIntervalInMinutes: 1,
                 autoStopIntervalInMinutes: 1,
                 execTimeoutMs: 1,
-                snapshotName: "x",
-                type: "daytona",
             });
         }).rejects.toThrow(TrueForgeTypes.BadRequestError);
+    });
+
+    test("upsert (3)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const rawRequestBody = {
+            auth: { api_key: "x" },
+            auto_archive_interval_in_minutes: 1,
+            auto_delete_interval_in_minutes: 1,
+            auto_stop_interval_in_minutes: 1,
+            exec_timeout_ms: 1,
+            type: "daytona",
+        };
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .put("/api/v1/settings/sandbox-providers")
+            .jsonBody(rawRequestBody)
+            .respondWith()
+            .statusCode(422)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.settings.sandboxProviders.upsert({
+                auth: {
+                    apiKey: "x",
+                },
+                autoArchiveIntervalInMinutes: 1,
+                autoDeleteIntervalInMinutes: 1,
+                autoStopIntervalInMinutes: 1,
+                execTimeoutMs: 1,
+            });
+        }).rejects.toThrow(TrueForgeTypes.UnprocessableEntityError);
     });
 
     test("catalog", async () => {
@@ -172,7 +241,6 @@ describe("SandboxProvidersClient", () => {
                     auto_delete_interval_in_minutes: 1,
                     auto_stop_interval_in_minutes: 1,
                     exec_timeout_ms: 1,
-                    snapshot_name: "snapshot_name",
                     type: "daytona",
                 },
             ],
@@ -194,7 +262,6 @@ describe("SandboxProvidersClient", () => {
                     autoDeleteIntervalInMinutes: 1,
                     autoStopIntervalInMinutes: 1,
                     execTimeoutMs: 1,
-                    snapshotName: "snapshot_name",
                     type: "daytona",
                 },
             ],

@@ -9,10 +9,12 @@ export const GetCapabilitiesResponseDataSandbox: core.serialization.ObjectSchema
     TrueForge.GetCapabilitiesResponseDataSandbox
 > = core.serialization.object({
     enabled: core.serialization.boolean(),
+    reason: core.serialization.string().optional(),
 });
 
 export declare namespace GetCapabilitiesResponseDataSandbox {
     export interface Raw {
         enabled: boolean;
+        reason?: string | null;
     }
 }

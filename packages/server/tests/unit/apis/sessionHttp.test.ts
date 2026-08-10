@@ -12,6 +12,7 @@ import { SqliteSandboxProviderStore } from '../../../src/db/sqlite/sandbox-provi
 import { SqliteSessionStore } from '../../../src/db/sqlite/session-store/SqliteSessionStore';
 import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkillStore';
 import { ActiveTurnRegistry } from '../../../src/runtime/activeTurns';
+import { createTestSandboxSnapshotSync } from '../support/sandboxSnapshotSync';
 
 const draftSpec = AgentSpecSchema.parse({
   model: { name: 'anthropic/claude-sonnet-4-6' },
@@ -39,6 +40,7 @@ describe('sessions HTTP agent binding', () => {
     const mcpServerStore = new SqliteMcpServerStore(db);
     const skillStore = new SqliteSkillStore(db);
     const sandboxProviderStore = new SqliteSandboxProviderStore(db);
+    const sandboxSnapshotSync = createTestSandboxSnapshotSync({ store: sandboxProviderStore });
     agentStore = new SqliteAgentStore(db);
 
     await modelProviderStore.upsertProvider({
@@ -70,6 +72,7 @@ describe('sessions HTTP agent binding', () => {
         skillStore,
         agentStore,
         sandboxProviderStore,
+        sandboxSnapshotSync,
         redis: createClient(),
         requestReplyRouter: new RequestReplyRouter(),
       }),

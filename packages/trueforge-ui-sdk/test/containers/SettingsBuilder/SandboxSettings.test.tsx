@@ -26,7 +26,6 @@ const catalogEntry: SandboxProviderCatalogEntry = {
   id: 'cat-daytona',
   name: 'Daytona',
   type: 'daytona',
-  snapshotName: 'daytona-default',
   execTimeoutMs: 300000,
   autoStopIntervalInMinutes: 15,
   autoArchiveIntervalInMinutes: 10080,
@@ -48,7 +47,7 @@ function createFakeHost(initial: SandboxProviderBase[] = []) {
         name: req.name,
         catalogId: req.catalogId,
         isConnected: true,
-        snapshotName: req.snapshotName,
+        imageSync: { status: 'syncing', errorMessage: undefined, isUpdating: false },
         execTimeoutMs: req.execTimeoutMs,
         autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
         autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,
@@ -63,7 +62,6 @@ function createFakeHost(initial: SandboxProviderBase[] = []) {
         provider.id === req.id
           ? {
               ...provider,
-              snapshotName: req.snapshotName,
               execTimeoutMs: req.execTimeoutMs,
               autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
               autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,
@@ -108,9 +106,8 @@ describe('SandboxSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Snapshot name')).toHaveProperty('value', 'daytona-default');
+      expect(screen.getByLabelText('Exec timeout (ms)')).toHaveProperty('value', '300000');
     });
-    expect(screen.getByLabelText('Exec timeout (ms)')).toHaveProperty('value', '300000');
     expect(screen.getByLabelText('Auto-stop interval (minutes)')).toHaveProperty('value', '15');
     expect(screen.getByLabelText('Auto-archive interval (minutes)')).toHaveProperty('value', '10080');
     expect(screen.getByLabelText('Auto-delete interval (minutes)')).toHaveProperty('value', '43200');
@@ -128,7 +125,6 @@ describe('SandboxSettings', () => {
       catalogId: 'cat-daytona',
       name: 'Daytona',
       type: 'daytona',
-      snapshotName: 'daytona-default',
       execTimeoutMs: 300000,
       autoStopIntervalInMinutes: 15,
       autoArchiveIntervalInMinutes: 10080,
@@ -143,7 +139,7 @@ describe('SandboxSettings', () => {
       name: 'Daytona',
       catalogId: 'cat-daytona',
       isConnected: true,
-      snapshotName: 'custom-snap',
+      imageSync: { status: 'ready', errorMessage: undefined, isUpdating: false },
       execTimeoutMs: 60000,
       autoStopIntervalInMinutes: 30,
       autoArchiveIntervalInMinutes: 1440,
@@ -165,9 +161,8 @@ describe('SandboxSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Update' }));
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Snapshot name')).toHaveProperty('value', 'custom-snap');
+      expect(screen.getByLabelText('Exec timeout (ms)')).toHaveProperty('value', '60000');
     });
-    expect(screen.getByLabelText('Exec timeout (ms)')).toHaveProperty('value', '60000');
     expect(screen.getByLabelText('Auto-stop interval (minutes)')).toHaveProperty('value', '30');
     expect(screen.getByLabelText(/API key/)).toHaveProperty('value', '');
 
@@ -178,7 +173,6 @@ describe('SandboxSettings', () => {
     });
     expect(host.updated[0]).toEqual({
       id: 'sb-1',
-      snapshotName: 'custom-snap',
       execTimeoutMs: 60000,
       autoStopIntervalInMinutes: 30,
       autoArchiveIntervalInMinutes: 1440,
@@ -187,13 +181,116 @@ describe('SandboxSettings', () => {
     expect(host.updated[0]).not.toHaveProperty('apiKey');
   });
 
+  it('shows the sandbox image state and withholds "Connected" until it is ready', async () => {
+    const preparing: SandboxProviderBase = {
+      id: 'sb-1',
+      name: 'Daytona',
+      catalogId: 'cat-daytona',
+      isConnected: true,
+      imageSync: { status: 'syncing', errorMessage: undefined, isUpdating: false },
+      execTimeoutMs: 60000,
+      autoStopIntervalInMinutes: 30,
+      autoArchiveIntervalInMinutes: 1440,
+      autoDeleteIntervalInMinutes: 10080,
+    };
+    const host = createFakeHost([preparing]);
+    const { wrapper: Wrapper } = host;
+    render(
+      <Wrapper>
+        <SandboxSettings />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Preparing sandbox image…')).toBeTruthy();
+    });
+    expect(screen.queryByText('Connected')).toBeNull();
+  });
+
+  it('surfaces why a sandbox image failed to prepare', async () => {
+    const failed: SandboxProviderBase = {
+      id: 'sb-1',
+      name: 'Daytona',
+      catalogId: 'cat-daytona',
+      isConnected: true,
+      imageSync: { status: 'failed', errorMessage: 'manifest unknown', isUpdating: false },
+      execTimeoutMs: 60000,
+      autoStopIntervalInMinutes: 30,
+      autoArchiveIntervalInMinutes: 1440,
+      autoDeleteIntervalInMinutes: 10080,
+    };
+    const host = createFakeHost([failed]);
+    const { wrapper: Wrapper } = host;
+    render(
+      <Wrapper>
+        <SandboxSettings />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Sandbox image failed: manifest unknown')).toBeTruthy();
+    });
+  });
+
+  it('keeps the row usable while a newer sandbox image is being prepared', async () => {
+    const updating: SandboxProviderBase = {
+      id: 'sb-1',
+      name: 'Daytona',
+      catalogId: 'cat-daytona',
+      isConnected: true,
+      imageSync: { status: 'ready', errorMessage: undefined, isUpdating: true },
+      execTimeoutMs: 60000,
+      autoStopIntervalInMinutes: 30,
+      autoArchiveIntervalInMinutes: 1440,
+      autoDeleteIntervalInMinutes: 10080,
+    };
+    const host = createFakeHost([updating]);
+    const { wrapper: Wrapper } = host;
+    render(
+      <Wrapper>
+        <SandboxSettings />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Sandbox image ready · updating to a newer image…')).toBeTruthy();
+    });
+    expect(screen.queryByText('Connected')).toBeTruthy();
+  });
+
+  it('warns when an image update failed but sandboxes still work', async () => {
+    const degraded: SandboxProviderBase = {
+      id: 'sb-1',
+      name: 'Daytona',
+      catalogId: 'cat-daytona',
+      isConnected: true,
+      imageSync: { status: 'ready', errorMessage: 'manifest unknown', isUpdating: false },
+      execTimeoutMs: 60000,
+      autoStopIntervalInMinutes: 30,
+      autoArchiveIntervalInMinutes: 1440,
+      autoDeleteIntervalInMinutes: 10080,
+    };
+    const host = createFakeHost([degraded]);
+    const { wrapper: Wrapper } = host;
+    render(
+      <Wrapper>
+        <SandboxSettings />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Sandbox image ready · update failed: manifest unknown')).toBeTruthy();
+    });
+    expect(screen.queryByText('Connected')).toBeTruthy();
+  });
+
   it('hides other catalog providers once one is configured', async () => {
     const existing: SandboxProviderBase = {
       id: 'sb-1',
       name: 'Daytona',
       catalogId: 'cat-daytona',
       isConnected: true,
-      snapshotName: 'custom-snap',
+      imageSync: { status: 'ready', errorMessage: undefined, isUpdating: false },
       execTimeoutMs: 60000,
       autoStopIntervalInMinutes: 30,
       autoArchiveIntervalInMinutes: 1440,

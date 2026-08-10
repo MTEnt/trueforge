@@ -14,6 +14,7 @@ import type { IModelProviderStore } from '../db/modelProviderStore';
 import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
 import type { IOAuthTokenStore } from '../mcp/auth/types';
+import type { SandboxSnapshotSyncService } from '../sandbox/SandboxSnapshotSyncService';
 import { createSettingsMcpServersRouter } from './mcpServers';
 import { createModelProvidersRouter } from './modelProviders';
 import { createSandboxProvidersRouter } from './sandboxProviders';
@@ -29,6 +30,7 @@ export interface SettingsRouterDeps {
   skillStore: ISkillStore;
   sandboxCatalog: SandboxCatalog;
   sandboxProviderStore: ISandboxProviderStore;
+  sandboxSnapshotSync: SandboxSnapshotSyncService;
   logger: Logger;
 }
 
@@ -62,6 +64,7 @@ export function createSettingsRouter(deps: SettingsRouterDeps) {
     createSandboxProvidersRouter({
       sandboxCatalog: deps.sandboxCatalog,
       sandboxProviderStore: deps.sandboxProviderStore,
+      sandboxSnapshotSync: deps.sandboxSnapshotSync,
     }),
   );
   return router;

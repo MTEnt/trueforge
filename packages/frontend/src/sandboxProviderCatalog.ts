@@ -8,6 +8,7 @@
  */
 import type {
   SandboxCatalogServer,
+  SandboxImageSync,
   SandboxProviderBase,
   SandboxProviderCatalogEntry,
   SandboxProviderConfig,
@@ -29,10 +30,9 @@ function displayNameForType(type: string): string {
 }
 
 export function configFromHarness(
-  provider: Harness.CatalogDaytonaSandboxProvider | Harness.DaytonaSandboxProvider,
+  provider: Harness.CatalogDaytonaSandboxProvider | Harness.ConfiguredSandboxProvider,
 ): SandboxProviderConfig {
   return {
-    snapshotName: provider.snapshotName,
     execTimeoutMs: provider.execTimeoutMs,
     autoStopIntervalInMinutes: provider.autoStopIntervalInMinutes,
     autoArchiveIntervalInMinutes: provider.autoArchiveIntervalInMinutes,
@@ -49,12 +49,31 @@ export function toUiCatalogEntry(provider: Harness.CatalogDaytonaSandboxProvider
   };
 }
 
-export function toUiSandboxProvider(provider: Harness.DaytonaSandboxProvider): UiSandboxProvider {
+/**
+ * The Harness snapshot state, reduced to what the settings UI shows. Snapshot names
+ * and image digests are deliberately dropped: they are server-derived identifiers,
+ * not something a user can act on.
+ *
+ * An `active` snapshot means sandboxes work, even when a newer image is still being
+ * prepared or its preparation failed — Harness keeps serving the one it has.
+ */
+export function imageSyncFromHarness(snapshotSync: Harness.SandboxSnapshotSync): SandboxImageSync {
+  const { active, pending, errorMessage } = snapshotSync;
+  if (active !== undefined) {
+    return { status: 'ready', errorMessage, isUpdating: pending !== undefined };
+  }
+  return errorMessage === undefined
+    ? { status: 'syncing', errorMessage: undefined, isUpdating: false }
+    : { status: 'failed', errorMessage, isUpdating: false };
+}
+
+export function toUiSandboxProvider(provider: Harness.ConfiguredSandboxProvider): UiSandboxProvider {
   return {
     id: provider.type,
     name: displayNameForType(provider.type),
     catalogId: provider.type,
     isConnected: true,
+    imageSync: imageSyncFromHarness(provider.snapshotSync),
     ...configFromHarness(provider),
   };
 }
@@ -64,13 +83,11 @@ export function toHarnessManifest(
     type: string;
     apiKey: string;
   } & SandboxProviderConfig,
-): Harness.DaytonaSandboxProvider {
+): Harness.settings.sandboxProviders.DaytonaSandboxProvider {
   if (req.type !== DAYTONA_TYPE) {
     throw new Error(`Unsupported sandbox provider type: ${req.type}`);
   }
   return {
-    type: DAYTONA_TYPE,
-    snapshotName: req.snapshotName,
     execTimeoutMs: req.execTimeoutMs,
     autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
     autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,
@@ -112,10 +129,7 @@ export function createSandboxProviderCatalog(): SandboxCatalogServer {
         return providers;
       }
       return providers.filter(
-        provider =>
-          provider.name.toLowerCase().includes(query) ||
-          provider.id.toLowerCase().includes(query) ||
-          provider.snapshotName.toLowerCase().includes(query),
+        provider => provider.name.toLowerCase().includes(query) || provider.id.toLowerCase().includes(query),
       );
     },
     createSandboxProvider: async req => {
@@ -123,7 +137,6 @@ export function createSandboxProviderCatalog(): SandboxCatalogServer {
         toHarnessManifest({
           type: req.type,
           apiKey: req.apiKey,
-          snapshotName: req.snapshotName,
           execTimeoutMs: req.execTimeoutMs,
           autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
           autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,
@@ -138,7 +151,6 @@ export function createSandboxProviderCatalog(): SandboxCatalogServer {
         toHarnessManifest({
           type: DAYTONA_TYPE,
           apiKey,
-          snapshotName: req.snapshotName,
           execTimeoutMs: req.execTimeoutMs,
           autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
           autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,

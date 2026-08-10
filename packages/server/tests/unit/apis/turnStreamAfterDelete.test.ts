@@ -14,6 +14,7 @@ import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkill
 import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/SqliteOAuthTokenStore';
 import { ActiveTurnRegistry } from '../../../src/runtime/activeTurns';
 import { EventSubscriptionRegistry } from '../../../src/runtime/event-subscription/index.js';
+import { createTestSandboxSnapshotSync } from '../support/sandboxSnapshotSync';
 
 describe('turn SSE after session deletion', () => {
   it('warns when the stream ends because the session/turn was removed', async () => {
@@ -78,7 +79,7 @@ describe('turn SSE after session deletion', () => {
         skillStore: new SqliteSkillStore(db),
         agentStore: new SqliteAgentStore(db),
         eventSubscriptions: new EventSubscriptionRegistry(undefined),
-        sandboxProviderStore: new SqliteSandboxProviderStore(db),
+        sandboxSnapshotSync: createTestSandboxSnapshotSync({ store: new SqliteSandboxProviderStore(db) }),
         logger,
       }),
     );

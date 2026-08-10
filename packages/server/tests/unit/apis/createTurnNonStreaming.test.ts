@@ -15,6 +15,7 @@ import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkill
 import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/SqliteOAuthTokenStore';
 import { ActiveTurnRegistry } from '../../../src/runtime/activeTurns';
 import { EventSubscriptionRegistry } from '../../../src/runtime/event-subscription/index.js';
+import { createTestSandboxSnapshotSync } from '../support/sandboxSnapshotSync';
 
 describe('create turn non-streaming', () => {
   it('returns the running turn JSON after dual-writing turn.created so subscribe can attach', async () => {
@@ -91,7 +92,7 @@ describe('create turn non-streaming', () => {
         tokenStore: new SqliteOAuthTokenStore(db),
         skillStore: new SqliteSkillStore(db),
         eventSubscriptions,
-        sandboxProviderStore: new SqliteSandboxProviderStore(db),
+        sandboxSnapshotSync: createTestSandboxSnapshotSync({ store: new SqliteSandboxProviderStore(db) }),
         logger,
       }),
     );

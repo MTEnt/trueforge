@@ -1,11 +1,12 @@
-import type { ExpressionBuilder, Kysely } from 'kysely';
+import { sql, type ExpressionBuilder, type Kysely } from 'kysely';
 import type { SandboxProviderManifest } from '../../../schemas/sandboxProvider';
 import {
   type ISandboxProviderStore,
+  type PatchSandboxProviderSnapshotSyncInput,
   type SandboxProviderRecord,
   type UpsertSandboxProviderInput,
 } from '../../sandboxProviderStore';
-import { jsonbBind, jsonText, nowIso } from '../sqlExpressions';
+import { jsonbBind, jsonbSet, jsonText, nowIso } from '../sqlExpressions';
 import type { Database } from '../types';
 
 /** Column list projecting the JSONB manifest as parsed JSON (see JSON_RESULT_COLUMNS). */
@@ -51,5 +52,16 @@ export class SqliteSandboxProviderStore implements ISandboxProviderStore {
       )
       .returning(recordColumns)
       .executeTakeFirstOrThrow();
+  }
+
+  async patchSandboxProviderSnapshotSync(input: PatchSandboxProviderSnapshotSyncInput): Promise<void> {
+    await this.#db
+      .updateTable('sandbox_provider')
+      .set({
+        manifest: jsonbSet(sql.ref('manifest'), '$.snapshot_sync', input.snapshot_sync),
+        updated_at: nowIso(),
+      })
+      .where('tenant_id', '=', input.tenant_id)
+      .execute();
   }
 }

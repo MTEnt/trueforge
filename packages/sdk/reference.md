@@ -2236,7 +2236,7 @@ await client.settings.modelProviders.catalog();
 <dl>
 <dd>
 
-The single configured sandbox provider for this tenant.
+The single configured sandbox provider for this tenant, including `snapshot_sync`: the state of the sandbox image in Daytona. `active` is the snapshot sandboxes are created from; `pending` is a newer image being prepared, which does not interrupt sandbox creation. Reading this endpoint also advances the sync, so poll it while `pending` is set or `active` is still absent.
 </dd>
 </dl>
 </dd>
@@ -2291,7 +2291,7 @@ await client.settings.sandboxProviders.get();
 <dl>
 <dd>
 
-Upserts the single sandbox provider for this tenant: creates it or replaces its entire configuration.
+Upserts the single sandbox provider for this tenant: creates it or replaces its entire configuration. The sandbox image is server-owned, so the response carries the `snapshot_sync` state rather than accepting a snapshot name.
 </dd>
 </dl>
 </dd>
@@ -2313,9 +2313,7 @@ await client.settings.sandboxProviders.upsert({
     autoArchiveIntervalInMinutes: 1,
     autoDeleteIntervalInMinutes: 1,
     autoStopIntervalInMinutes: 1,
-    execTimeoutMs: 1,
-    snapshotName: "snapshot_name",
-    type: "daytona"
+    execTimeoutMs: 1
 });
 
 ```
@@ -2332,7 +2330,7 @@ await client.settings.sandboxProviders.upsert({
 <dl>
 <dd>
 
-**request:** `TrueForge.DaytonaSandboxProvider` 
+**request:** `TrueForge.settings.DaytonaSandboxProvider` 
     
 </dd>
 </dl>

@@ -4,13 +4,13 @@
  */
 import type { ISandboxProviderStore } from '../../src/db/sandboxProviderStore';
 import type { SandboxProviderManifest } from '../../src/schemas/sandboxProvider';
+import type { SandboxSnapshotSyncState } from '../../src/schemas/sandboxSnapshot';
 
 const TENANT = 'default';
 
 function manifest(overrides: Partial<SandboxProviderManifest> = {}): SandboxProviderManifest {
   return {
     type: 'daytona',
-    snapshot_name: 'trueforge-local',
     auth: { api_key: 'dtn-test' },
     exec_timeout_ms: 60000,
     auto_stop_interval_in_minutes: 5,
@@ -19,6 +19,29 @@ function manifest(overrides: Partial<SandboxProviderManifest> = {}): SandboxProv
     ...overrides,
   };
 }
+
+const snapshotRef = {
+  snapshot_name: 'trueforge-sandbox-0123456789ab',
+  image: 'ghcr.io/truefoundry/trueforge-sandbox:latest',
+  digest: `sha256:${'1'.repeat(64)}`,
+};
+
+const syncBase = {
+  desired_image: 'ghcr.io/truefoundry/trueforge-sandbox:latest',
+  active: undefined,
+  pending: undefined,
+  error_message: undefined,
+  superseded: [],
+  updated_at: '2026-08-07T10:00:00.000Z',
+};
+
+const readySync: SandboxSnapshotSyncState = { ...syncBase, active: snapshotRef };
+const syncingSync: SandboxSnapshotSyncState = { ...syncBase, pending: snapshotRef };
+const failedSync: SandboxSnapshotSyncState = {
+  ...syncBase,
+  error_message: 'pull failed',
+  superseded: [{ ...snapshotRef, snapshot_name: 'trueforge-sandbox-replaced' }],
+};
 
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -52,8 +75,8 @@ export function runSandboxProviderStoreContractSuite(getStore: () => ISandboxPro
     });
 
     const replacement = manifest({
-      snapshot_name: 'other-snapshot',
       exec_timeout_ms: 120000,
+      snapshot_sync: readySync,
     });
     const updated = await store.upsertSandboxProvider({
       tenant_id: TENANT,
@@ -70,12 +93,52 @@ export function runSandboxProviderStoreContractSuite(getStore: () => ISandboxPro
     await store.upsertSandboxProvider({ tenant_id: TENANT, manifest: manifest() });
     await store.upsertSandboxProvider({
       tenant_id: 'other-tenant',
-      manifest: manifest({ snapshot_name: 'other-tenant-snapshot' }),
+      manifest: manifest({ auth: { api_key: 'dtn-other' } }),
     });
 
     const forDefault = await store.getSandboxProvider(TENANT);
     const forOther = await store.getSandboxProvider('other-tenant');
-    expect(forDefault?.manifest.snapshot_name).toBe('trueforge-local');
-    expect(forOther?.manifest.snapshot_name).toBe('other-tenant-snapshot');
+    expect(forDefault?.manifest.auth.api_key).toBe('dtn-test');
+    expect(forOther?.manifest.auth.api_key).toBe('dtn-other');
+  });
+
+  it('patchSandboxProviderSnapshotSync writes sync without touching configuration', async () => {
+    const store = getStore();
+    await store.upsertSandboxProvider({ tenant_id: TENANT, manifest: manifest() });
+
+    const snapshotSync = syncingSync;
+    await store.patchSandboxProviderSnapshotSync({ tenant_id: TENANT, snapshot_sync: snapshotSync });
+
+    const patched = await store.getSandboxProvider(TENANT);
+    expect(patched?.manifest).toEqual(manifest({ snapshot_sync: snapshotSync }));
+  });
+
+  it('patchSandboxProviderSnapshotSync replaces an existing sync in place', async () => {
+    const store = getStore();
+    await store.upsertSandboxProvider({
+      tenant_id: TENANT,
+      manifest: manifest({ snapshot_sync: syncingSync }),
+    });
+
+    await store.patchSandboxProviderSnapshotSync({ tenant_id: TENANT, snapshot_sync: failedSync });
+
+    const patched = await store.getSandboxProvider(TENANT);
+    expect(patched?.manifest.snapshot_sync).toEqual(failedSync);
+  });
+
+  it('patchSandboxProviderSnapshotSync leaves other tenants alone', async () => {
+    const store = getStore();
+    await store.upsertSandboxProvider({ tenant_id: TENANT, manifest: manifest() });
+    await store.upsertSandboxProvider({ tenant_id: 'other-tenant', manifest: manifest() });
+
+    await store.patchSandboxProviderSnapshotSync({ tenant_id: TENANT, snapshot_sync: readySync });
+
+    expect((await store.getSandboxProvider('other-tenant'))?.manifest.snapshot_sync).toBeUndefined();
+  });
+
+  it('patchSandboxProviderSnapshotSync is a no-op when no provider is configured', async () => {
+    const store = getStore();
+    await store.patchSandboxProviderSnapshotSync({ tenant_id: TENANT, snapshot_sync: readySync });
+    expect(await store.getSandboxProvider(TENANT)).toBeUndefined();
   });
 }

@@ -31,7 +31,6 @@ import configuration from '../config';
 import type { IAgentStore } from '../db/agentStore';
 import type { IMcpServerStore } from '../db/mcpServerStore';
 import type { IModelProviderStore } from '../db/modelProviderStore';
-import type { ISandboxProviderStore } from '../db/sandboxProviderStore';
 import type { ISkillStore } from '../db/skillStore';
 import type { IOAuthTokenStore } from '../mcp/auth/types';
 import {
@@ -53,6 +52,7 @@ import {
   resolveGitSkills,
   resolveSandboxProvider,
 } from '../runtime/sessionResources';
+import type { SandboxSnapshotSyncService } from '../sandbox/SandboxSnapshotSyncService';
 import { TENANT_ID } from './sessions';
 
 export function toWireTurn(record: TurnRecordWithoutSnapshot): Turn {
@@ -108,7 +108,7 @@ export interface TurnsRouterDeps {
   agentStore: IAgentStore;
   /** Resumable live turn-event transport: create-turn writes, subscribe polls. */
   eventSubscriptions: EventSubscriptionRegistry<TurnStreamingEvent>;
-  sandboxProviderStore: ISandboxProviderStore;
+  sandboxSnapshotSync: SandboxSnapshotSyncService;
   logger: Logger;
 }
 
@@ -120,7 +120,7 @@ function createTurnResolver(deps: {
   mcpServerStore: IMcpServerStore;
   tokenStore: IOAuthTokenStore;
   skillStore: ISkillStore;
-  sandboxProviderStore: ISandboxProviderStore;
+  sandboxSnapshotSync: SandboxSnapshotSyncService;
   agentStore: IAgentStore;
   modelProviderStore: IModelProviderStore;
   logger: Logger;
@@ -130,7 +130,7 @@ function createTurnResolver(deps: {
     mcpServerStore,
     tokenStore,
     skillStore,
-    sandboxProviderStore,
+    sandboxSnapshotSync,
     agentStore,
     modelProviderStore,
     logger,
@@ -169,7 +169,7 @@ function createTurnResolver(deps: {
     sandboxProvider: async ({ spec, existingSandboxId, tracing }) => {
       const provider = await resolveSandboxProvider({
         tenant_id: TENANT_ID,
-        store: sandboxProviderStore,
+        snapshotSync: sandboxSnapshotSync,
         logger,
       });
       if (provider === undefined) {
@@ -385,7 +385,7 @@ export function createTurnsRouter(deps: TurnsRouterDeps) {
 
       const provider = await resolveSandboxProvider({
         tenant_id: TENANT_ID,
-        store: deps.sandboxProviderStore,
+        snapshotSync: deps.sandboxSnapshotSync,
         logger: deps.logger,
       });
       if (provider === undefined) {
@@ -457,7 +457,7 @@ export function createTurnsRouter(deps: TurnsRouterDeps) {
       mcpServerStore: deps.mcpServerStore,
       tokenStore: deps.tokenStore,
       skillStore: deps.skillStore,
-      sandboxProviderStore: deps.sandboxProviderStore,
+      sandboxSnapshotSync: deps.sandboxSnapshotSync,
       agentStore: deps.agentStore,
       modelProviderStore: deps.modelProviderStore,
       logger: deps.logger,

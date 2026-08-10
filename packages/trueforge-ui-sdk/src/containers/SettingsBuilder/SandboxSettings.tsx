@@ -9,18 +9,38 @@ import type { SandboxProviderBase, SandboxProviderCatalogEntry, SandboxProviderC
 import ConfigureSandboxForm, { type SandboxConfigDraft } from './ConfigureSandboxForm.js';
 
 const configFrom = ({
-  snapshotName,
   execTimeoutMs,
   autoStopIntervalInMinutes,
   autoArchiveIntervalInMinutes,
   autoDeleteIntervalInMinutes,
 }: SandboxProviderConfig): SandboxProviderConfig => ({
-  snapshotName,
   execTimeoutMs,
   autoStopIntervalInMinutes,
   autoArchiveIntervalInMinutes,
   autoDeleteIntervalInMinutes,
 });
+
+/** How often to re-read providers while the host is still preparing an image. */
+const IMAGE_SYNC_POLL_MS = 5000;
+
+/**
+ * A ready image can still carry an update, and an update can fail without taking
+ * sandboxes down, so those two cases read as reassurance rather than a problem.
+ */
+function imageSyncLabel(imageSync: SandboxProviderBase['imageSync']): string {
+  switch (imageSync.status) {
+    case 'ready':
+      if (imageSync.isUpdating) return 'Sandbox image ready · updating to a newer image…';
+      if (imageSync.errorMessage !== undefined) {
+        return `Sandbox image ready · update failed: ${imageSync.errorMessage}`;
+      }
+      return 'Sandbox image ready';
+    case 'syncing':
+      return 'Preparing sandbox image…';
+    case 'failed':
+      return `Sandbox image failed: ${imageSync.errorMessage ?? 'unknown error'}`;
+  }
+}
 
 const SandboxSettings = () => {
   const { sandboxCatalog } = useCatalogServer();
@@ -58,6 +78,21 @@ const SandboxSettings = () => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Image preparation finishes on the host, with no push channel: keep reading
+  // until it settles so the row stops saying "preparing" on its own.
+  const isPreparingImage = providers.some(
+    provider => provider.imageSync.status === 'syncing' || provider.imageSync.isUpdating,
+  );
+  useEffect(() => {
+    if (!isPreparingImage) return;
+    const timer = setInterval(() => {
+      void refresh({ quiet: true });
+    }, IMAGE_SYNC_POLL_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [isPreparingImage, refresh]);
 
   // Tenant/UI-wide: only one sandbox provider may be configured at a time.
   const hasConfiguredProvider = providers.length > 0;
@@ -171,12 +206,21 @@ const SandboxSettings = () => {
                         </span>
                         <div className="min-w-0">
                           <h5 className="truncate text-sm font-medium text-foreground">{provider.name}</h5>
-                          <p className="truncate text-[0.8125rem] text-muted-foreground">{provider.snapshotName}</p>
+                          <p
+                            className={
+                              provider.imageSync.status === 'failed'
+                                ? 'truncate text-[0.8125rem] text-destructive'
+                                : 'truncate text-[0.8125rem] text-muted-foreground'
+                            }
+                            title={imageSyncLabel(provider.imageSync)}
+                          >
+                            {imageSyncLabel(provider.imageSync)}
+                          </p>
                         </div>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2.5 sm:justify-end">
-                        {provider.isConnected ? (
+                        {provider.isConnected && provider.imageSync.status === 'ready' ? (
                           <span className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
                             <span className="h-1.5 w-1.5 rounded-full bg-primary"></span>
                             Connected
@@ -243,9 +287,7 @@ const SandboxSettings = () => {
                         </span>
                         <div className="min-w-0">
                           <h5 className="truncate text-sm font-medium text-foreground">{entry.name}</h5>
-                          <p className="truncate text-[0.8125rem] text-muted-foreground">
-                            {entry.snapshotName} · {entry.type}
-                          </p>
+                          <p className="truncate text-[0.8125rem] text-muted-foreground">{entry.type}</p>
                         </div>
                       </div>
 

@@ -36,6 +36,7 @@ import {
 import type { ActiveTurnRegistry } from '../runtime/activeTurns';
 import { executorFromTurnId } from '../runtime/peeringIds';
 import { validateAgentSpec } from '../runtime/sessionResources';
+import type { SandboxSnapshotSyncService } from '../sandbox/SandboxSnapshotSyncService';
 import type { Session } from '../schemas/session';
 
 /** The server is single-tenant; every record lives under one fixed tenant scope. */
@@ -72,6 +73,7 @@ export interface SessionsRouterDeps {
   skillStore: ISkillStore;
   agentStore: IAgentStore;
   sandboxProviderStore: ISandboxProviderStore;
+  sandboxSnapshotSync: SandboxSnapshotSyncService;
   redis?: RedisClientType | undefined;
   requestReplyRouter: RequestReplyRouter;
 }
@@ -211,6 +213,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps) {
       mcpServerStore: deps.mcpServerStore,
       skillStore: deps.skillStore,
       sandboxProviderStore: deps.sandboxProviderStore,
+      snapshotSync: deps.sandboxSnapshotSync,
     });
     const session = await deps.sessions.create({
       tenant_id: TENANT_ID,
@@ -249,6 +252,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps) {
         mcpServerStore: deps.mcpServerStore,
         skillStore: deps.skillStore,
         sandboxProviderStore: deps.sandboxProviderStore,
+        snapshotSync: deps.sandboxSnapshotSync,
       });
     }
     try {

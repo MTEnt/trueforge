@@ -4,7 +4,12 @@ const GetCapabilitiesResponseSchema = z
   .object({
     data: z.object({
       sandbox: z.object({
-        enabled: z.boolean().describe('Whether a sandbox provider is configured for this tenant.'),
+        enabled: z
+          .boolean()
+          .describe(
+            'Whether sandboxes can be created: a provider is configured and its sandbox image is synced to the provider.',
+          ),
+        reason: z.string().optional().describe('Present when sandbox is disabled. Explains why.'),
       }),
       skill: z.object({
         enabled: z

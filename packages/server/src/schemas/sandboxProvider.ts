@@ -1,12 +1,21 @@
 /**
- * Sandbox-provider domain + wire schemas: configured provider manifests (DB /
- * PUT body) and OpenAPI request/response shapes. Catalog file schemas live in
- * sandboxCatalog.ts.
+ * Sandbox-provider domain + wire schemas: the client-writable configuration
+ * (PUT body), the persisted manifest, and the read responses. Catalog file
+ * schemas live in sandboxCatalog.ts, snapshot sync in sandboxSnapshot.ts.
  *
  * Singleton per tenant — no identity `name` (unlike model providers / skills).
+ *
+ * The snapshot is not configurable: the server derives it from the catalog and
+ * reports progress through the read-only `snapshot_sync` field.
  */
 import { z } from '@hono/zod-openapi';
 import type { DaytonaSandboxProviderOptions } from '@truefoundry/utils-core/core';
+import {
+  SandboxSnapshotSyncSchema,
+  SandboxSnapshotSyncStateSchema,
+  toSandboxSnapshotSync,
+  type SandboxSnapshotSyncState,
+} from './sandboxSnapshot';
 
 const DaytonaSandboxProviderAuthSchema = z
   .object({
@@ -16,13 +25,12 @@ const DaytonaSandboxProviderAuthSchema = z
   .openapi('DaytonaSandboxProviderAuth');
 
 /**
- * Daytona-backed sandbox provider. Wire PUT body and persisted
- * `sandbox_provider.manifest` document share this shape.
+ * Daytona-backed sandbox provider: everything a client may write. The PUT body
+ * and the configuration half of the persisted manifest share this shape.
  */
 export const DaytonaSandboxProviderSchema = z
   .object({
     type: z.literal('daytona'),
-    snapshot_name: z.string().min(1).describe('Daytona snapshot used when creating sandboxes.'),
     auth: DaytonaSandboxProviderAuthSchema,
     exec_timeout_ms: z.number().int().positive().describe('Default sandbox command exec timeout in milliseconds.'),
     auto_stop_interval_in_minutes: z.number().int().nonnegative(),
@@ -39,29 +47,79 @@ export const DaytonaSandboxProviderSchema = z
  */
 export const SandboxProviderSchema = DaytonaSandboxProviderSchema;
 
-/** Persisted jsonb — same fields as the wire SandboxProvider. */
-export type SandboxProviderManifest = z.infer<typeof SandboxProviderSchema>;
+/**
+ * Persisted jsonb. `snapshot_sync` is server-owned and absent until the first
+ * reconcile, which is also how rows migrated off client-supplied snapshot names
+ * are recognised as needing one.
+ */
+export const SandboxProviderManifestSchema = SandboxProviderSchema.extend({
+  snapshot_sync: SandboxSnapshotSyncStateSchema.optional(),
+}).strict();
+
+/** Read shape: handlers reconcile before responding, so sync is always present. */
+export const ConfiguredSandboxProviderSchema = SandboxProviderSchema.extend({
+  snapshot_sync: SandboxSnapshotSyncSchema,
+})
+  .strict()
+  .openapi('ConfiguredSandboxProvider');
 
 export const PutSandboxProviderRequestSchema = SandboxProviderSchema;
 
 export const PutSandboxProviderResponseSchema = z
   .object({
-    data: SandboxProviderSchema,
+    data: ConfiguredSandboxProviderSchema,
   })
   .openapi('PutSandboxProviderResponse');
 
 export const GetSandboxProviderResponseSchema = z
   .object({
-    data: SandboxProviderSchema,
+    data: ConfiguredSandboxProviderSchema,
   })
   .openapi('GetSandboxProviderResponse');
 
 export type DaytonaSandboxProvider = z.infer<typeof DaytonaSandboxProviderSchema>;
 export type SandboxProvider = z.infer<typeof SandboxProviderSchema>;
+export type SandboxProviderManifest = z.infer<typeof SandboxProviderManifestSchema>;
+export type ConfiguredSandboxProvider = z.infer<typeof ConfiguredSandboxProviderSchema>;
 export type PutSandboxProviderRequest = SandboxProvider;
 
-/** Wire/persisted snake_case → Daytona client credentials + provider settings. */
-export function toDaytonaSandboxProviderInput(manifest: SandboxProviderManifest): {
+/**
+ * Drops the server-owned sync state to get back the client-writable configuration.
+ * Field-by-field so a new manifest field is a compile error here rather than
+ * silently leaking into request-shaped payloads.
+ */
+export function toSandboxProviderConfig(manifest: SandboxProviderManifest): SandboxProvider {
+  return {
+    type: manifest.type,
+    auth: manifest.auth,
+    exec_timeout_ms: manifest.exec_timeout_ms,
+    auto_stop_interval_in_minutes: manifest.auto_stop_interval_in_minutes,
+    auto_archive_interval_in_minutes: manifest.auto_archive_interval_in_minutes,
+    auto_delete_interval_in_minutes: manifest.auto_delete_interval_in_minutes,
+  };
+}
+
+export function toConfiguredSandboxProvider({
+  manifest,
+  snapshot_sync,
+}: {
+  manifest: SandboxProviderManifest;
+  snapshot_sync: SandboxSnapshotSyncState;
+}): ConfiguredSandboxProvider {
+  return { ...toSandboxProviderConfig(manifest), snapshot_sync: toSandboxSnapshotSync(snapshot_sync) };
+}
+
+/**
+ * Wire/persisted snake_case → Daytona client credentials + provider settings.
+ * `snapshotName` comes from the synced snapshot, never from client input.
+ */
+export function toDaytonaSandboxProviderInput({
+  manifest,
+  snapshotName,
+}: {
+  manifest: SandboxProviderManifest;
+  snapshotName: string;
+}): {
   apiKey: string;
 } & Pick<
   DaytonaSandboxProviderOptions,
@@ -73,7 +131,7 @@ export function toDaytonaSandboxProviderInput(manifest: SandboxProviderManifest)
 > {
   return {
     apiKey: manifest.auth.api_key,
-    snapshotName: manifest.snapshot_name,
+    snapshotName,
     timeoutMs: manifest.exec_timeout_ms,
     autoStopIntervalInMinutes: manifest.auto_stop_interval_in_minutes,
     autoArchiveIntervalInMinutes: manifest.auto_archive_interval_in_minutes,

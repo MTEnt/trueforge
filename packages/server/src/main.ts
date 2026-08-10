@@ -36,6 +36,7 @@ import { RequestReplyExecutor, RequestReplyRouter } from '@truefoundry/utils-cor
 import type { RedisClientType } from 'redis';
 import winston, { type Logger } from 'winston';
 
+import { TENANT_ID } from './apis/sessions';
 import { createServerApp } from './app';
 import { initOidc } from './auth/oidc';
 import { McpCatalog } from './catalog/McpCatalog';
@@ -52,6 +53,7 @@ import { mountFrontend } from './frontend';
 import type { IOAuthTokenStore } from './mcp/auth/types';
 import { ActiveTurnRegistry } from './runtime/activeTurns';
 import { EventSubscriptionRegistry } from './runtime/event-subscription';
+import { createSandboxSnapshotSyncService } from './sandbox/SandboxSnapshotSyncService';
 
 /** Persistence + optional Redis wired for the selected topology. */
 interface ServerPersistence {
@@ -210,16 +212,24 @@ try {
   }
   const oidcClient = await initOidc(oidc);
 
+  const sandboxCatalog = SandboxCatalog.load();
+  const sandboxSnapshotSync = createSandboxSnapshotSyncService({
+    store: sandboxProviderStore,
+    catalog: sandboxCatalog,
+    logger,
+  });
+
   const app = createServerApp({
     modelCatalog: ModelCatalog.load(),
     mcpCatalog: McpCatalog.load(),
     skillCatalog: SkillCatalog.load(),
-    sandboxCatalog: SandboxCatalog.load(),
+    sandboxCatalog,
     modelProviderStore,
     mcpServerStore,
     tokenStore,
     skillStore,
     sandboxProviderStore,
+    sandboxSnapshotSync,
     agentStore,
     sessionStore,
     sessions: new Sessions({ sessionStore }),
@@ -267,6 +277,11 @@ try {
     });
     await requestReplyExecutor.init();
   }
+
+  // One snapshot reconcile per start, so a release carrying a new sandbox image
+  // converges without waiting for someone to open the settings page. Deliberately
+  // not awaited: it is a network call to a third party and must not delay listen.
+  void sandboxSnapshotSync.reconcileAtBoot({ tenant_id: TENANT_ID });
 
   const server = serve({ fetch: app.fetch, port: configuration.PORT }, info => {
     console.log(`Agent server listening on http://localhost:${String(info.port)} (docs at /api/v1/docs)`);

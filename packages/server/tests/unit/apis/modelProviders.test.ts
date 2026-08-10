@@ -12,6 +12,7 @@ import { SqliteModelProviderStore } from '../../../src/db/sqlite/model-provider-
 import { SqliteSandboxProviderStore } from '../../../src/db/sqlite/sandbox-provider-store/SqliteSandboxProviderStore';
 import { SqliteSkillStore } from '../../../src/db/sqlite/skill-store/SqliteSkillStore';
 import { SqliteOAuthTokenStore } from '../../../src/db/sqlite/token-store/SqliteOAuthTokenStore';
+import { createTestSandboxSnapshotSync } from '../support/sandboxSnapshotSync';
 
 const model = {
   model_id: 'claude-sonnet-4-6',
@@ -51,6 +52,7 @@ async function createRouters(): Promise<{
   const db = createSqliteDb(':memory:');
   await migrateSqliteToLatest(db);
   const modelProviderStore = new SqliteModelProviderStore(db);
+  const sandboxProviderStoreForSettings = new SqliteSandboxProviderStore(db);
   return {
     settingsRouter: createSettingsRouter({
       modelCatalog: ModelCatalog.load(),
@@ -61,7 +63,8 @@ async function createRouters(): Promise<{
       skillCatalog: SkillCatalog.load(),
       skillStore: new SqliteSkillStore(db),
       sandboxCatalog: SandboxCatalog.load(),
-      sandboxProviderStore: new SqliteSandboxProviderStore(db),
+      sandboxProviderStore: sandboxProviderStoreForSettings,
+      sandboxSnapshotSync: createTestSandboxSnapshotSync({ store: sandboxProviderStoreForSettings }),
       logger: winston.createLogger({ silent: true }),
     }),
     modelsRouter: createModelsRouter(modelProviderStore),
