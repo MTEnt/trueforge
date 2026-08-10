@@ -7,7 +7,7 @@ import { mockServerPool } from "../../mock-server/MockServerPool";
 describe("SandboxProvidersClient", () => {
     test("get (1)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
 
         const rawResponseBody = {
             data: {
@@ -67,7 +67,7 @@ describe("SandboxProvidersClient", () => {
 
     test("get (2)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
 
         const rawResponseBody = { error: { message: "message" } };
 
@@ -86,7 +86,7 @@ describe("SandboxProvidersClient", () => {
 
     test("upsert (1)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = {
             auth: { api_key: "api_key" },
             auto_archive_interval_in_minutes: 1,
@@ -162,7 +162,7 @@ describe("SandboxProvidersClient", () => {
 
     test("upsert (2)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = {
             auth: { api_key: "x" },
             auto_archive_interval_in_minutes: 1,
@@ -197,7 +197,7 @@ describe("SandboxProvidersClient", () => {
 
     test("upsert (3)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
         const rawRequestBody = {
             auth: { api_key: "x" },
             auto_archive_interval_in_minutes: 1,
@@ -230,9 +230,9 @@ describe("SandboxProvidersClient", () => {
         }).rejects.toThrow(TrueForgeTypes.UnprocessableEntityError);
     });
 
-    test("catalog", async () => {
+    test("catalog (1)", async () => {
         const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, baseUrl: server.baseUrl });
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
 
         const rawResponseBody = {
             data: [
@@ -266,5 +266,43 @@ describe("SandboxProvidersClient", () => {
                 },
             ],
         });
+    });
+
+    test("catalog (2)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
+
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .get("/api/v1/settings/sandbox-providers/catalog")
+            .respondWith()
+            .statusCode(401)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.settings.sandboxProviders.catalog();
+        }).rejects.toThrow(TrueForgeTypes.UnauthorizedError);
+    });
+
+    test("catalog (3)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
+
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .get("/api/v1/settings/sandbox-providers/catalog")
+            .respondWith()
+            .statusCode(403)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.settings.sandboxProviders.catalog();
+        }).rejects.toThrow(TrueForgeTypes.ForbiddenError);
     });
 });
