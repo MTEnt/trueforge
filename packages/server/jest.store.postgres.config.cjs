@@ -1,6 +1,12 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: 'node',
+  testEnvironmentOptions: {
+    // Resolve @truefoundry/utils-core via package.json exports (one source of truth), not moduleNameMapper.
+    // "development" → src matches host-dev; mappers would duplicate that and drift (incl. bare entrypoints).
+    // Jest replaces default conditions — keep node/node-addons so other packages still resolve.
+    customExportConditions: ['development', 'node', 'node-addons'],
+  },
   globalSetup: '<rootDir>/tests/db/postgres/globalSetup.ts',
   transform: {
     '^.+\\.(m?js|tsx?)$': [
@@ -16,10 +22,6 @@ module.exports = {
   },
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
-    '^@truefoundry/utils-core/agent-session$': '<rootDir>/../harness/src/agent-session/index.ts',
-    '^@truefoundry/utils-core/agent-session/(.*)$': '<rootDir>/../harness/src/agent-session/$1',
-    '^@truefoundry/utils-core/core$': '<rootDir>/../harness/src/core/index.ts',
-    '^@truefoundry/utils-core/core/(.*)$': '<rootDir>/../harness/src/core/$1',
   },
   transformIgnorePatterns: ['/node_modules/(?!.*kysely)'],
   testTimeout: 120_000,

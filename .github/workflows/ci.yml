@@ -79,6 +79,7 @@ jobs:
               - 'packages/harness/tests/agent-session/testHelpers.ts'
               - 'package.json'
               - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
               - '.github/workflows/ci.yml'
 
       - name: Build package matrix

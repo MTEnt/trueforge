@@ -50,10 +50,10 @@
     "test:harness": "pnpm --filter @truefoundry/utils-core test",
     "test:server": "pnpm --filter @truefoundry/utils test",
     "test:store:local": "bash scripts/test-store-local.sh",
-    "test:store:postgres": "pnpm --dir packages/server test:store:postgres",
-    "test:store:sqlite": "pnpm --dir packages/server test:store:sqlite",
+    "test:store:postgres": "pnpm --filter @truefoundry/utils test:store:postgres",
+    "test:store:sqlite": "pnpm --filter @truefoundry/utils test:store:sqlite",
     "test:trueforge-ui": "pnpm --filter @truefoundry/trueforge-ui test",
-    "test": "pnpm --filter @truefoundry/utils-core test && pnpm --filter @truefoundry/trueforge-ui test && pnpm --filter @truefoundry/utils test && pnpm --filter frontend test",
+    "test": "pnpm test:harness && pnpm test:trueforge-ui && pnpm test:server && pnpm test:frontend",
     "typecheck": "pnpm --parallel --filter @truefoundry/utils-core --filter @truefoundry/trueforge-ui --filter @truefoundry/utils --filter frontend typecheck"
   },
   "devDependencies": {
