@@ -10,7 +10,6 @@ import {
 describe('sandboxProviderCatalog mappers', () => {
   const harnessCatalog = {
     type: 'daytona' as const,
-    snapshotName: 'truefoundry-platform-dev',
     execTimeoutMs: 60000,
     autoStopIntervalInMinutes: 5,
     autoArchiveIntervalInMinutes: 60,
@@ -27,7 +26,6 @@ describe('sandboxProviderCatalog mappers', () => {
       id: 'daytona',
       name: 'Daytona',
       type: 'daytona',
-      snapshotName: 'truefoundry-platform-dev',
       execTimeoutMs: 60000,
       autoStopIntervalInMinutes: 5,
       autoArchiveIntervalInMinutes: 60,
@@ -41,7 +39,11 @@ describe('sandboxProviderCatalog mappers', () => {
       name: 'Daytona',
       catalogId: 'daytona',
       isConnected: true,
-      snapshotName: 'truefoundry-platform-dev',
+      imageSync: {
+        status: 'ready',
+        errorMessage: undefined,
+        isUpdating: false,
+      },
       execTimeoutMs: 60000,
       autoStopIntervalInMinutes: 5,
       autoArchiveIntervalInMinutes: 60,
@@ -68,7 +70,6 @@ describe('sandboxProviderCatalog mappers', () => {
         toHarnessManifest({
           type: 'other',
           apiKey: 'x',
-          snapshotName: 'snap',
           execTimeoutMs: 1,
           autoStopIntervalInMinutes: 1,
           autoArchiveIntervalInMinutes: 1,

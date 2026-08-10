@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import SandboxSettings from '@/containers/SettingsBuilder/SandboxSettings.js';
 import { ServerProvider } from '@/server/ServerContext.js';
@@ -26,7 +26,6 @@ const catalogEntry: SandboxProviderCatalogEntry = {
   id: 'cat-daytona',
   name: 'Daytona',
   type: 'daytona',
-  snapshotName: 'daytona-default',
   execTimeoutMs: 300000,
   autoStopIntervalInMinutes: 15,
   autoArchiveIntervalInMinutes: 10080,
@@ -35,12 +34,16 @@ const catalogEntry: SandboxProviderCatalogEntry = {
 
 function createFakeHost(initial: SandboxProviderBase[] = []) {
   let providers = [...initial];
+  let listCalls = 0;
   const created: CreateSandboxProviderRequest[] = [];
   const updated: UpdateSandboxProviderRequest[] = [];
 
   const sandboxCatalog = {
     getSandboxProviderCatalog: async () => [catalogEntry],
-    listSandboxProviders: async () => providers,
+    listSandboxProviders: async () => {
+      listCalls += 1;
+      return providers;
+    },
     createSandboxProvider: async (req: CreateSandboxProviderRequest) => {
       created.push(req);
       const provider: SandboxProviderBase = {
@@ -48,7 +51,7 @@ function createFakeHost(initial: SandboxProviderBase[] = []) {
         name: req.name,
         catalogId: req.catalogId,
         isConnected: true,
-        snapshotName: req.snapshotName,
+        imageSync: { status: 'syncing', errorMessage: undefined, isUpdating: true },
         execTimeoutMs: req.execTimeoutMs,
         autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
         autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,
@@ -63,7 +66,6 @@ function createFakeHost(initial: SandboxProviderBase[] = []) {
         provider.id === req.id
           ? {
               ...provider,
-              snapshotName: req.snapshotName,
               execTimeoutMs: req.execTimeoutMs,
               autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
               autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,
@@ -86,12 +88,20 @@ function createFakeHost(initial: SandboxProviderBase[] = []) {
   return {
     created,
     updated,
+    getListCalls: () => listCalls,
     getProviders: () => providers,
+    setProviders: (next: SandboxProviderBase[]) => {
+      providers = next;
+    },
     wrapper: ({ children }: { children: ReactNode }) => <ServerProvider server={server}>{children}</ServerProvider>,
   };
 }
 
 describe('SandboxSettings', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('autofills create form from catalog except apiKey', async () => {
     const host = createFakeHost();
     const { wrapper: Wrapper } = host;
@@ -107,9 +117,6 @@ describe('SandboxSettings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('Snapshot name')).toHaveProperty('value', 'daytona-default');
-    });
     expect(screen.getByLabelText('Exec timeout (ms)')).toHaveProperty('value', '300000');
     expect(screen.getByLabelText('Auto-stop interval (minutes)')).toHaveProperty('value', '15');
     expect(screen.getByLabelText('Auto-archive interval (minutes)')).toHaveProperty('value', '10080');
@@ -128,7 +135,6 @@ describe('SandboxSettings', () => {
       catalogId: 'cat-daytona',
       name: 'Daytona',
       type: 'daytona',
-      snapshotName: 'daytona-default',
       execTimeoutMs: 300000,
       autoStopIntervalInMinutes: 15,
       autoArchiveIntervalInMinutes: 10080,
@@ -143,7 +149,7 @@ describe('SandboxSettings', () => {
       name: 'Daytona',
       catalogId: 'cat-daytona',
       isConnected: true,
-      snapshotName: 'custom-snap',
+      imageSync: { status: 'ready', errorMessage: undefined, isUpdating: false },
       execTimeoutMs: 60000,
       autoStopIntervalInMinutes: 30,
       autoArchiveIntervalInMinutes: 1440,
@@ -164,9 +170,6 @@ describe('SandboxSettings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Update' }));
 
-    await waitFor(() => {
-      expect(screen.getByLabelText('Snapshot name')).toHaveProperty('value', 'custom-snap');
-    });
     expect(screen.getByLabelText('Exec timeout (ms)')).toHaveProperty('value', '60000');
     expect(screen.getByLabelText('Auto-stop interval (minutes)')).toHaveProperty('value', '30');
     expect(screen.getByLabelText(/API key/)).toHaveProperty('value', '');
@@ -178,7 +181,6 @@ describe('SandboxSettings', () => {
     });
     expect(host.updated[0]).toEqual({
       id: 'sb-1',
-      snapshotName: 'custom-snap',
       execTimeoutMs: 60000,
       autoStopIntervalInMinutes: 30,
       autoArchiveIntervalInMinutes: 1440,
@@ -193,7 +195,7 @@ describe('SandboxSettings', () => {
       name: 'Daytona',
       catalogId: 'cat-daytona',
       isConnected: true,
-      snapshotName: 'custom-snap',
+      imageSync: { status: 'ready', errorMessage: undefined, isUpdating: false },
       execTimeoutMs: 60000,
       autoStopIntervalInMinutes: 30,
       autoArchiveIntervalInMinutes: 1440,
@@ -212,5 +214,108 @@ describe('SandboxSettings', () => {
     });
     expect(screen.queryByRole('button', { name: 'Configure' })).toBeNull();
     expect(screen.getByText('One provider is set up. Update it or remove it to switch.')).toBeTruthy();
+  });
+
+  it('shows readiness separately from update progress and the last error', async () => {
+    const existing: SandboxProviderBase = {
+      id: 'sb-1',
+      name: 'Daytona',
+      catalogId: 'cat-daytona',
+      isConnected: true,
+      imageSync: {
+        status: 'ready',
+        errorMessage: 'manifest unknown',
+        isUpdating: true,
+      },
+      execTimeoutMs: 60000,
+      autoStopIntervalInMinutes: 30,
+      autoArchiveIntervalInMinutes: 1440,
+      autoDeleteIntervalInMinutes: 10080,
+    };
+    const host = createFakeHost([existing]);
+    const { wrapper: Wrapper } = host;
+
+    render(
+      <Wrapper>
+        <SandboxSettings />
+      </Wrapper>,
+    );
+
+    expect(await screen.findByText('Image ready')).toBeTruthy();
+    expect(screen.getByText('Connected')).toBeTruthy();
+    expect(screen.getByText('Preparing a newer sandbox image…')).toBeTruthy();
+    expect(screen.getByText('manifest unknown')).toBeTruthy();
+  });
+
+  it('polls while unavailable and stops once an active image is ready', async () => {
+    vi.useFakeTimers();
+    const syncing: SandboxProviderBase = {
+      id: 'sb-1',
+      name: 'Daytona',
+      catalogId: 'cat-daytona',
+      isConnected: true,
+      imageSync: { status: 'failed', errorMessage: 'build failed', isUpdating: false },
+      execTimeoutMs: 60000,
+      autoStopIntervalInMinutes: 30,
+      autoArchiveIntervalInMinutes: 1440,
+      autoDeleteIntervalInMinutes: 10080,
+    };
+    const host = createFakeHost([syncing]);
+    const { wrapper: Wrapper } = host;
+
+    render(
+      <Wrapper>
+        <SandboxSettings />
+      </Wrapper>,
+    );
+    await act(async () => {});
+    expect(host.getListCalls()).toBe(1);
+
+    host.setProviders([
+      {
+        ...syncing,
+        imageSync: { status: 'ready', errorMessage: undefined, isUpdating: false },
+      },
+    ]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(host.getListCalls()).toBe(2);
+    expect(screen.getByText('Image ready')).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(host.getListCalls()).toBe(2);
+  });
+
+  it('does not poll a ready image solely because its last update failed', async () => {
+    vi.useFakeTimers();
+    const host = createFakeHost([
+      {
+        id: 'sb-1',
+        name: 'Daytona',
+        catalogId: 'cat-daytona',
+        isConnected: true,
+        imageSync: { status: 'ready', errorMessage: 'manifest unknown', isUpdating: false },
+        execTimeoutMs: 60000,
+        autoStopIntervalInMinutes: 30,
+        autoArchiveIntervalInMinutes: 1440,
+        autoDeleteIntervalInMinutes: 10080,
+      },
+    ]);
+    const { wrapper: Wrapper } = host;
+
+    render(
+      <Wrapper>
+        <SandboxSettings />
+      </Wrapper>,
+    );
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(host.getListCalls()).toBe(1);
   });
 });

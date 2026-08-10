@@ -632,11 +632,17 @@ export interface SkillCatalogServer<
 
 /** Mutable sandbox provider settings shared by catalog rows, create, and update. */
 export interface SandboxProviderConfig {
-  snapshotName: string;
   execTimeoutMs: number;
   autoStopIntervalInMinutes: number;
   autoArchiveIntervalInMinutes: number;
   autoDeleteIntervalInMinutes: number;
+}
+
+export interface SandboxImageSync {
+  status: 'syncing' | 'ready' | 'failed';
+  /** Set whenever the last attempt to prepare an image failed. */
+  errorMessage: string | undefined;
+  isUpdating: boolean;
 }
 
 export interface SandboxProviderCatalogEntry extends SandboxProviderConfig {
@@ -653,7 +659,10 @@ export interface SandboxProviderBase extends SandboxProviderConfig {
   id: string;
   name: string;
   catalogId: string;
+  /** Whether this provider has been added to the tenant. */
   isConnected: boolean;
+  /** Snapshot sync status. */
+  imageSync: SandboxImageSync;
 }
 
 /**

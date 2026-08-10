@@ -8,14 +8,14 @@ import { useCatalogServer } from '../../server/ServerContext.js';
 import type { SandboxProviderBase, SandboxProviderCatalogEntry, SandboxProviderConfig } from '../../server/types.js';
 import ConfigureSandboxForm, { type SandboxConfigDraft } from './ConfigureSandboxForm.js';
 
+const SYNC_POLL_INTERVAL_MS = 5000;
+
 const configFrom = ({
-  snapshotName,
   execTimeoutMs,
   autoStopIntervalInMinutes,
   autoArchiveIntervalInMinutes,
   autoDeleteIntervalInMinutes,
 }: SandboxProviderConfig): SandboxProviderConfig => ({
-  snapshotName,
   execTimeoutMs,
   autoStopIntervalInMinutes,
   autoArchiveIntervalInMinutes,
@@ -34,30 +34,65 @@ const SandboxSettings = () => {
   const [createEntry, setCreateEntry] = useState<SandboxProviderCatalogEntry | null>(null);
   const [updateProvider, setUpdateProvider] = useState<SandboxProviderBase | null>(null);
 
-  const refresh = useCallback(
-    async ({ quiet = false }: { quiet?: boolean } = {}) => {
-      if (!sandboxCatalog) return;
-      if (!quiet) setLoading(true);
-      setError(null);
-      try {
-        const [listed, available] = await Promise.all([
-          sandboxCatalog.listSandboxProviders(),
-          sandboxCatalog.getSandboxProviderCatalog(),
-        ]);
-        setProviders(listed);
-        setCatalog(available);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load sandbox providers');
-      } finally {
-        if (!quiet) setLoading(false);
-      }
-    },
-    [sandboxCatalog],
-  );
+  const refreshProviders = useCallback(async () => {
+    if (!sandboxCatalog) return;
+    const listed = await sandboxCatalog.listSandboxProviders();
+    setProviders(listed);
+  }, [sandboxCatalog]);
+
+  const refresh = useCallback(async () => {
+    if (!sandboxCatalog) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [listed, available] = await Promise.all([
+        sandboxCatalog.listSandboxProviders(),
+        sandboxCatalog.getSandboxProviderCatalog(),
+      ]);
+      setProviders(listed);
+      setCatalog(available);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load sandbox providers');
+    } finally {
+      setLoading(false);
+    }
+  }, [sandboxCatalog]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const shouldPoll = providers.some(provider => provider.imageSync.status !== 'ready' || provider.imageSync.isUpdating);
+
+  useEffect(() => {
+    if (!sandboxCatalog || !shouldPoll) return;
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const listed = await sandboxCatalog.listSandboxProviders();
+        if (!cancelled) {
+          setProviders(listed);
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load sandbox providers');
+        }
+      } finally {
+        if (!cancelled) {
+          timeoutId = setTimeout(poll, SYNC_POLL_INTERVAL_MS);
+        }
+      }
+    };
+
+    timeoutId = setTimeout(poll, SYNC_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [sandboxCatalog, shouldPoll]);
 
   // Tenant/UI-wide: only one sandbox provider may be configured at a time.
   const hasConfiguredProvider = providers.length > 0;
@@ -81,7 +116,7 @@ const SandboxSettings = () => {
     setError(null);
     try {
       await fn();
-      await refresh({ quiet: true });
+      await refreshProviders();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
       throw err;
@@ -168,9 +203,27 @@ const SandboxSettings = () => {
                         >
                           <Icon name="cube" className="size-4.5" />
                         </span>
-                        <div className="min-w-0">
+                        <div className="min-w-0 space-y-1">
                           <h5 className="truncate text-sm font-medium text-foreground">{provider.name}</h5>
-                          <p className="truncate text-[0.8125rem] text-muted-foreground">{provider.snapshotName}</p>
+                          {provider.imageSync.isUpdating ? (
+                            <p className="text-xs text-muted-foreground">Preparing a newer sandbox image…</p>
+                          ) : null}
+                          <span className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+                            <span
+                              className={
+                                provider.imageSync.status === 'ready'
+                                  ? 'h-1.5 w-1.5 rounded-full bg-primary'
+                                  : provider.imageSync.status === 'failed'
+                                    ? 'h-1.5 w-1.5 rounded-full bg-destructive'
+                                    : 'h-1.5 w-1.5 rounded-full bg-muted-foreground'
+                              }
+                            />
+                            {provider.imageSync.status === 'ready'
+                              ? 'Ready'
+                              : provider.imageSync.status === 'failed'
+                                ? 'Unavailable'
+                                : 'Syncing'}
+                          </span>
                         </div>
                       </div>
 
@@ -242,9 +295,7 @@ const SandboxSettings = () => {
                         </span>
                         <div className="min-w-0">
                           <h5 className="truncate text-sm font-medium text-foreground">{entry.name}</h5>
-                          <p className="truncate text-[0.8125rem] text-muted-foreground">
-                            {entry.snapshotName} · {entry.type}
-                          </p>
+                          <p className="truncate text-[0.8125rem] text-muted-foreground">{entry.type}</p>
                         </div>
                       </div>
 

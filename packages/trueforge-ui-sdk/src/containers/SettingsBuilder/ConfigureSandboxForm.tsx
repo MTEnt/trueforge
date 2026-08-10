@@ -25,7 +25,6 @@ type ConfigureSandboxFormProps = {
 };
 
 const EMPTY_CONFIG: SandboxProviderConfig = {
-  snapshotName: '',
   execTimeoutMs: 0,
   autoStopIntervalInMinutes: 0,
   autoArchiveIntervalInMinutes: 0,
@@ -52,7 +51,6 @@ const ConfigureSandboxForm = ({
   requireApiKey = true,
   busy = false,
 }: ConfigureSandboxFormProps) => {
-  const [snapshotName, setSnapshotName] = useState('');
   const [execTimeoutMs, setExecTimeoutMs] = useState('');
   const [autoStopIntervalInMinutes, setAutoStopIntervalInMinutes] = useState('');
   const [autoArchiveIntervalInMinutes, setAutoArchiveIntervalInMinutes] = useState('');
@@ -60,7 +58,6 @@ const ConfigureSandboxForm = ({
   const [apiKey, setApiKey] = useState('');
 
   const resetForm = () => {
-    setSnapshotName('');
     setExecTimeoutMs('');
     setAutoStopIntervalInMinutes('');
     setAutoArchiveIntervalInMinutes('');
@@ -71,7 +68,6 @@ const ConfigureSandboxForm = ({
   useEffect(() => {
     if (!open) return;
     const config = initialConfig ?? EMPTY_CONFIG;
-    setSnapshotName(config.snapshotName);
     setExecTimeoutMs(String(config.execTimeoutMs));
     setAutoStopIntervalInMinutes(String(config.autoStopIntervalInMinutes));
     setAutoArchiveIntervalInMinutes(String(config.autoArchiveIntervalInMinutes));
@@ -91,7 +87,6 @@ const ConfigureSandboxForm = ({
   const trimmedKey = apiKey.trim();
 
   const isValid =
-    !!snapshotName.trim() &&
     (!requireApiKey || !!trimmedKey) &&
     execTimeout != null &&
     autoStop != null &&
@@ -106,7 +101,6 @@ const ConfigureSandboxForm = ({
 
     try {
       await onSave({
-        snapshotName: snapshotName.trim(),
         execTimeoutMs: execTimeout,
         autoStopIntervalInMinutes: autoStop,
         autoArchiveIntervalInMinutes: autoArchive,
@@ -139,24 +133,6 @@ const ConfigureSandboxForm = ({
       <form className="flex flex-col overflow-y-auto p-5 md:p-6" onSubmit={handleSubmit}>
         <div className="space-y-4">
           <div>
-            <label htmlFor="sandbox-snapshot-name" className="mb-1.5 block text-sm font-medium text-foreground">
-              Snapshot name
-            </label>
-            <input
-              id="sandbox-snapshot-name"
-              type="text"
-              required
-              value={snapshotName}
-              onChange={event => {
-                setSnapshotName(event.target.value);
-              }}
-              placeholder="daytona-default"
-              autoFocus
-              className={inputClassName}
-            />
-          </div>
-
-          <div>
             <label htmlFor="sandbox-exec-timeout" className="mb-1.5 block text-sm font-medium text-foreground">
               Exec timeout (ms)
             </label>
@@ -170,6 +146,7 @@ const ConfigureSandboxForm = ({
                 setExecTimeoutMs(event.target.value);
               }}
               placeholder="300000"
+              autoFocus
               className={inputClassName}
             />
           </div>

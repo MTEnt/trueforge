@@ -28,11 +28,8 @@ function displayNameForType(type: string): string {
   return type;
 }
 
-export function configFromHarness(
-  provider: TrueForgeApi.CatalogDaytonaSandboxProvider | TrueForgeApi.DaytonaSandboxProvider,
-): SandboxProviderConfig {
+export function configFromHarness(provider: SandboxProviderConfig): SandboxProviderConfig {
   return {
-    snapshotName: provider.snapshotName,
     execTimeoutMs: provider.execTimeoutMs,
     autoStopIntervalInMinutes: provider.autoStopIntervalInMinutes,
     autoArchiveIntervalInMinutes: provider.autoArchiveIntervalInMinutes,
@@ -40,7 +37,9 @@ export function configFromHarness(
   };
 }
 
-export function toUiCatalogEntry(provider: TrueForgeApi.CatalogDaytonaSandboxProvider): UiSandboxProviderCatalogEntry {
+export function toUiCatalogEntry(
+  provider: SandboxProviderConfig & Pick<TrueForgeApi.CatalogDaytonaSandboxProvider, 'type'>,
+): UiSandboxProviderCatalogEntry {
   return {
     id: provider.type,
     name: displayNameForType(provider.type),
@@ -49,12 +48,19 @@ export function toUiCatalogEntry(provider: TrueForgeApi.CatalogDaytonaSandboxPro
   };
 }
 
-export function toUiSandboxProvider(provider: TrueForgeApi.DaytonaSandboxProvider): UiSandboxProvider {
+export function toUiSandboxProvider(
+  provider: SandboxProviderConfig & Pick<TrueForgeApi.DaytonaSandboxProvider, 'auth' | 'type'>,
+): UiSandboxProvider {
   return {
     id: provider.type,
     name: displayNameForType(provider.type),
     catalogId: provider.type,
     isConnected: true,
+    imageSync: {
+      status: 'ready',
+      errorMessage: undefined,
+      isUpdating: false,
+    },
     ...configFromHarness(provider),
   };
 }
@@ -64,28 +70,18 @@ export function toHarnessManifest(
     type: string;
     apiKey: string;
   } & SandboxProviderConfig,
-): TrueForgeApi.DaytonaSandboxProvider {
+) {
   if (req.type !== DAYTONA_TYPE) {
     throw new Error(`Unsupported sandbox provider type: ${req.type}`);
   }
   return {
     type: DAYTONA_TYPE,
-    snapshotName: req.snapshotName,
     execTimeoutMs: req.execTimeoutMs,
     autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
     autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,
     autoDeleteIntervalInMinutes: req.autoDeleteIntervalInMinutes,
     auth: { apiKey: req.apiKey },
   };
-}
-
-async function resolveApiKey(apiKey: string | undefined): Promise<string> {
-  const trimmed = apiKey?.trim();
-  if (trimmed !== undefined && trimmed !== '') {
-    return trimmed;
-  }
-  const existing = await client.settings.sandboxProviders.get();
-  return existing.data.auth.apiKey;
 }
 
 /** Settings sandbox-catalog port for `createTrueFoundryServer`. Delete omitted (no BE route). */
@@ -112,10 +108,7 @@ export function createSandboxProviderCatalog(): SandboxCatalogServer {
         return providers;
       }
       return providers.filter(
-        provider =>
-          provider.name.toLowerCase().includes(query) ||
-          provider.id.toLowerCase().includes(query) ||
-          provider.snapshotName.toLowerCase().includes(query),
+        provider => provider.name.toLowerCase().includes(query) || provider.id.toLowerCase().includes(query),
       );
     },
     createSandboxProvider: async req => {
@@ -123,7 +116,6 @@ export function createSandboxProviderCatalog(): SandboxCatalogServer {
         toHarnessManifest({
           type: req.type,
           apiKey: req.apiKey,
-          snapshotName: req.snapshotName,
           execTimeoutMs: req.execTimeoutMs,
           autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
           autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,
@@ -133,12 +125,18 @@ export function createSandboxProviderCatalog(): SandboxCatalogServer {
       return toUiSandboxProvider(body.data);
     },
     updateSandboxProvider: async req => {
-      const apiKey = await resolveApiKey(req.apiKey);
+      const trimmedApiKey = req.apiKey?.trim();
+      let apiKey: string;
+      if (trimmedApiKey !== undefined && trimmedApiKey !== '') {
+        apiKey = trimmedApiKey;
+      } else {
+        const existing = await client.settings.sandboxProviders.get();
+        apiKey = existing.data.auth.apiKey;
+      }
       const body = await client.settings.sandboxProviders.upsert(
         toHarnessManifest({
           type: DAYTONA_TYPE,
           apiKey,
-          snapshotName: req.snapshotName,
           execTimeoutMs: req.execTimeoutMs,
           autoStopIntervalInMinutes: req.autoStopIntervalInMinutes,
           autoArchiveIntervalInMinutes: req.autoArchiveIntervalInMinutes,
