@@ -9,6 +9,7 @@ import {
   SessionStoreInvariantError,
   SessionStoreNotFoundError,
 } from '@truefoundry/utils-core/agent-session';
+import { PromiseTimeoutError } from '@truefoundry/utils-core/core';
 import type {
   RouteHandler as RequestReplyRouteHandler,
   RequestReplyRouter,
@@ -34,7 +35,7 @@ import {
   listSessionsRoute,
   updateSessionRoute,
 } from '../routes/sessionRoutes';
-import type { ActiveTurnRegistry } from '../runtime/activeTurns';
+import type { ActiveTurnRegistry, CancelIfRunningResult } from '../runtime/activeTurns';
 import { executorFromTurnId } from '../runtime/peeringIds';
 import { validateAgentSpec } from '../runtime/sessionResources';
 import { isSessionAgentNameRef, type Session } from '../schemas/session';
@@ -78,37 +79,52 @@ export interface SessionsRouterDeps {
   resolveUserContext: ResolveUserContext;
 }
 
-function cancelTurnOnThisExecutor(
+async function cancelTurnOnThisExecutor(
   activeTurns: ActiveTurnRegistry,
   input: { sessionId: string; turnId: string; reason: CancellationReason },
-): boolean {
-  return activeTurns.cancelIfRunning({
-    sessionId: input.sessionId,
-    turnId: input.turnId,
-    abortReason: input.reason,
-  });
+): Promise<CancelIfRunningResult> {
+  try {
+    return await activeTurns.cancelIfRunning({
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      abortReason: input.reason,
+    });
+  } catch (error) {
+    if (error instanceof PromiseTimeoutError) {
+      throw new HTTPException(424, {
+        message: 'Timed out waiting for execution to cancel',
+        cause: error,
+      });
+    }
+    throw error;
+  }
 }
 
 /**
- * Peer-facing cancel handler: aborts the turn if it runs in this process.
- * 200 = abort fired, 412 = not running here (treated by callers as a no-op).
+ * Peer-facing cancel handler: aborts the turn if it runs in this process and
+ * waits for teardown. 200 = cancelled, 412 = not running here, 424 = teardown timed out.
  */
 export function cancelSessionTurnPeerHandler(activeTurns: ActiveTurnRegistry): RequestReplyRouteHandler {
-  // Synchronous by nature; the transport expects a Promise and require-await
-  // forbids an async fn without awaits.
-  return request => {
+  return async request => {
     const parsed = CancelPeerBodySchema.safeParse(request.body);
     if (!parsed.success) {
-      return Promise.resolve({ status: 400, body: { message: 'Invalid sessions/cancel payload' } });
+      return { status: 400, body: { message: 'Invalid sessions/cancel payload' } };
     }
-    const found = cancelTurnOnThisExecutor(activeTurns, {
-      sessionId: parsed.data.session_id,
-      turnId: parsed.data.turn_id,
-      reason: parsed.data.reason,
-    });
-    return Promise.resolve(
-      found ? { status: 200, body: {} } : { status: 412, body: { message: 'Turn is not running on this executor' } },
-    );
+    try {
+      const result = await cancelTurnOnThisExecutor(activeTurns, {
+        sessionId: parsed.data.session_id,
+        turnId: parsed.data.turn_id,
+        reason: parsed.data.reason,
+      });
+      return result === 'cancelled'
+        ? { status: 200, body: {} }
+        : { status: 412, body: { message: 'Turn is not running on this executor' } };
+    } catch (error) {
+      if (error instanceof HTTPException && error.status === 424) {
+        return { status: 424, body: { message: error.message } };
+      }
+      throw error;
+    }
   };
 }
 
@@ -121,7 +137,7 @@ export interface CancelTurnDeps {
 
 /**
  * Cancels the turn wherever it runs: locally or on the owning peer over Redis
- * request-reply. Callers state the motive; default is a plain client cancel.
+ * request-reply. Awaits teardown so success means the turn is terminal.
  * Owner failures throw HTTPException (412 unreachable, 424 timed out).
  */
 export async function cancelSessionTurn(
@@ -156,6 +172,12 @@ export async function cancelSessionTurn(
           pollIntervalMs: configuration.REDIS_REQUEST_REPLY_POLL_INTERVAL_MS,
         },
       });
+      if (reply.status === 424) {
+        throw new HTTPException(424, {
+          message: 'Timed out waiting for the owning executor to cancel the turn',
+          cause: reply,
+        });
+      }
       if (reply.status !== 200 && reply.status !== 412) {
         throw new HTTPException(500, { message: 'Failed to cancel turn on the owning executor', cause: reply });
       }
@@ -183,7 +205,7 @@ export async function cancelSessionTurn(
     return;
   }
 
-  cancelTurnOnThisExecutor(deps.activeTurns, { sessionId, turnId, reason });
+  await cancelTurnOnThisExecutor(deps.activeTurns, { sessionId, turnId, reason });
 }
 
 const FORBIDDEN_SESSION_ACCESS = 'Only the session creator can access this session';

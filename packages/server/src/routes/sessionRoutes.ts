@@ -179,7 +179,8 @@ export const cancelSessionRoute = createRoute({
   path: '/{session_id}/cancel',
   tags: [SESSIONS_TAG],
   summary: 'Cancel a running turn in a session',
-  description: 'Cancel the running last turn for a session. Only the session creator (`created_by`) may cancel.',
+  description:
+    'Cancel the running last turn for a session and wait until its terminal state is persisted. Only the session creator (`created_by`) may cancel.',
   'x-fern-sdk-group-name': ['sessions'],
   'x-fern-sdk-method-name': 'cancel',
   request: {
@@ -192,7 +193,7 @@ export const cancelSessionRoute = createRoute({
   responses: {
     200: {
       content: { 'application/json': { schema: CancelSessionResponseSchema } },
-      description: 'Turn cancelled.',
+      description: 'Turn cancelled and terminal state persisted.',
     },
     403: {
       content: { 'application/json': { schema: RequestErrorResponseSchema } },
@@ -206,6 +207,10 @@ export const cancelSessionRoute = createRoute({
       content: { 'application/json': { schema: RequestErrorResponseSchema } },
       description:
         'Requested action cannot be performed on the session because it is no longer usable, or the executor owning the running turn is unreachable.',
+    },
+    424: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description: 'Timed out waiting for the turn to finish after cancel.',
     },
   },
 });

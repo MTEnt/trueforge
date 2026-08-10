@@ -365,6 +365,11 @@ export interface SharedServerConfiguration {
    */
   SERVER_EXECUTION_TIMEOUT_SECONDS: number;
   /**
+   * Max ms to wait for a cancelled turn's stream to finish (terminal state persisted)
+   * before failing cancel with 424. Env: `AGENT_CANCEL_RESPONSE_TIMEOUT_MS`. Default 15000.
+   */
+  AGENT_CANCEL_RESPONSE_TIMEOUT_MS: number;
+  /**
    * TTL for a running turn's resumable event stream.
    * Env: `TURN_STREAM_TTL_SECONDS`. Default execution timeout + 300.
    */
@@ -509,6 +514,11 @@ const shared: SharedServerConfiguration = {
     defaultValue: 30,
   }),
   SERVER_EXECUTION_TIMEOUT_SECONDS: serverExecutionTimeoutSeconds,
+  AGENT_CANCEL_RESPONSE_TIMEOUT_MS: parsePositiveInt({
+    envKey: 'AGENT_CANCEL_RESPONSE_TIMEOUT_MS',
+    raw: getEnv('AGENT_CANCEL_RESPONSE_TIMEOUT_MS'),
+    defaultValue: 15_000,
+  }),
   TURN_STREAM_TTL_SECONDS: parsePositiveInt({
     envKey: 'TURN_STREAM_TTL_SECONDS',
     raw: getEnv('TURN_STREAM_TTL_SECONDS'),

@@ -36,23 +36,35 @@ function unconnectedRedis(): RedisClientType {
   return client;
 }
 
-/** Registers a live run without consuming its stream, mirroring a turn mid-execution. */
+/**
+ * Registers a live run that completes on abort, and drains it so cancel can
+ * await teardown. Mirrors a turn mid-execution whose stream observes cancel.
+ */
 function trackRun(registry: ActiveTurnRegistry, turnId: string): AbortController {
   const abortController = new AbortController();
-  registry.track({
+  const tracked = registry.track({
     sessionId: SESSION_ID,
     turnId,
     abortController,
     stream: (async function* () {
-      await new Promise(() => undefined);
-      yield 'never';
+      if (abortController.signal.aborted) {
+        return;
+      }
+      await new Promise<void>(resolve => {
+        abortController.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
     })(),
   });
+  void (async () => {
+    for await (const value of tracked) {
+      void value;
+    }
+  })();
   return abortController;
 }
 
 describe('cancelSessionTurn', () => {
-  it('aborts a turn running in this process', async () => {
+  it('aborts a turn running in this process and waits for teardown', async () => {
     const activeTurns = new ActiveTurnRegistry();
     const turnId = mintPeeredTurnId(configuration.EXECUTOR_ID);
     const abortController = trackRun(activeTurns, turnId);
@@ -67,6 +79,13 @@ describe('cancelSessionTurn', () => {
 
     expect(abortController.signal.aborted).toBe(true);
     expect(abortController.signal.reason).toBe(CancellationReason.ClientCancelled);
+    await expect(
+      activeTurns.cancelIfRunning({
+        sessionId: SESSION_ID,
+        turnId,
+        abortReason: CancellationReason.ClientCancelled,
+      }),
+    ).resolves.toBe('not-running');
   });
 
   it('does not look for a peer without a Redis client', async () => {

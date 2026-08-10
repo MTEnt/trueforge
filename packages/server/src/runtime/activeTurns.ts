@@ -5,6 +5,8 @@
  * `track()` owns registration and cleanup around the stream lifecycle.
  */
 import { CancellationReason } from '@truefoundry/utils-core/agent-session';
+import { withTimeout } from '@truefoundry/utils-core/core';
+import configuration from '../config';
 
 interface ActiveTurnRun {
   abortController: AbortController;
@@ -15,6 +17,9 @@ interface ActiveTurnRun {
 function activeTurnKey(sessionId: string, turnId: string): string {
   return `${sessionId}:${turnId}`;
 }
+
+/** Outcome of {@link ActiveTurnRegistry.cancelIfRunning} after abort + teardown wait. */
+export type CancelIfRunningResult = 'not-running' | 'cancelled';
 
 export class ActiveTurnRegistry {
   private readonly runs = new Map<string, ActiveTurnRun>();
@@ -69,20 +74,25 @@ export class ActiveTurnRegistry {
   }
 
   /**
-   * Aborts the given turn if it is running in this process. Returns true when
-   * the run was found (already-aborted runs are not re-aborted). Cancelling a
-   * turn that is not running is a no-op, mirroring the store's
-   * first-terminal-write-wins rule.
+   * Aborts the given turn if it is running in this process, then waits until
+   * its tracked stream finishes (terminal persist). Already-aborted runs are
+   * not re-aborted. Throws {@link PromiseTimeoutError} when teardown exceeds
+   * `AGENT_CANCEL_RESPONSE_TIMEOUT_MS`.
    */
-  cancelIfRunning(input: { sessionId: string; turnId: string; abortReason: CancellationReason }): boolean {
+  async cancelIfRunning(input: {
+    sessionId: string;
+    turnId: string;
+    abortReason: CancellationReason;
+  }): Promise<CancelIfRunningResult> {
     const run = this.runs.get(activeTurnKey(input.sessionId, input.turnId));
     if (!run) {
-      return false;
+      return 'not-running';
     }
     if (!run.abortController.signal.aborted) {
       run.abortController.abort(input.abortReason);
     }
-    return true;
+    await withTimeout(run.waitUntilCompleted, configuration.AGENT_CANCEL_RESPONSE_TIMEOUT_MS);
+    return 'cancelled';
   }
 
   /**
