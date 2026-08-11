@@ -509,6 +509,26 @@ describe("SessionsClient", () => {
         }).rejects.toThrow(TrueForgeTypes.PreconditionFailedError);
     });
 
+    test("cancel (5)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
+        const rawRequestBody = {};
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .post("/api/v1/sessions/session_id/cancel")
+            .jsonBody(rawRequestBody)
+            .respondWith()
+            .statusCode(424)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.sessions.cancel("session_id");
+        }).rejects.toThrow(TrueForgeTypes.FailedDependencyError);
+    });
+
     test("list_events (1)", async () => {
         const server = mockServerPool.createServer();
         const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });

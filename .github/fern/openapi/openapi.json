@@ -5249,7 +5249,7 @@
     },
     "/api/v1/sessions/{session_id}/cancel": {
       "post": {
-        "description": "Cancel the running last turn for a session. Only the session creator (`created_by`) may cancel.",
+        "description": "Cancel the running last turn for a session and wait until its terminal state is persisted. Only the session creator (`created_by`) may cancel.",
         "parameters": [
           {
             "description": "Session identifier.",
@@ -5283,7 +5283,7 @@
                 }
               }
             },
-            "description": "Turn cancelled."
+            "description": "Turn cancelled and terminal state persisted."
           },
           "403": {
             "content": {
@@ -5314,6 +5314,16 @@
               }
             },
             "description": "Requested action cannot be performed on the session because it is no longer usable, or the executor owning the running turn is unreachable."
+          },
+          "424": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestErrorResponse"
+                }
+              }
+            },
+            "description": "Timed out waiting for the turn to finish after cancel."
           }
         },
         "summary": "Cancel a running turn in a session",

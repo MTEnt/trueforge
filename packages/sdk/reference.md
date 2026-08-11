@@ -1077,7 +1077,7 @@ await client.sessions.update("session_id");
 <dl>
 <dd>
 
-Cancel the running last turn for a session. Only the session creator (`created_by`) may cancel.
+Cancel the running last turn for a session and wait until its terminal state is persisted. Only the session creator (`created_by`) may cancel.
 </dd>
 </dl>
 </dd>

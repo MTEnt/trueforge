@@ -568,7 +568,7 @@ export class SessionsClient {
     }
 
     /**
-     * Cancel the running last turn for a session. Only the session creator (`created_by`) may cancel.
+     * Cancel the running last turn for a session and wait until its terminal state is persisted. Only the session creator (`created_by`) may cancel.
      *
      * @param {string} session_id - Session identifier.
      * @param {TrueForge.CancelSessionRequest} request
@@ -577,6 +577,7 @@ export class SessionsClient {
      * @throws {@link TrueForge.ForbiddenError}
      * @throws {@link TrueForge.NotFoundError}
      * @throws {@link TrueForge.PreconditionFailedError}
+     * @throws {@link TrueForge.FailedDependencyError}
      * @throws {@link errors.TrueForgeError}
      * @throws {@link errors.TrueForgeTimeoutError}
      *
@@ -667,6 +668,17 @@ export class SessionsClient {
                     );
                 case 412:
                     throw new TrueForge.PreconditionFailedError(
+                        serializers.RequestErrorResponse.parseOrThrow(_response.error.body, {
+                            unrecognizedObjectKeys: "passthrough",
+                            allowUnrecognizedUnionMembers: true,
+                            allowUnrecognizedEnumValues: true,
+                            skipValidation: true,
+                            breadcrumbsPrefix: ["response"],
+                        }),
+                        _response.rawResponse,
+                    );
+                case 424:
+                    throw new TrueForge.FailedDependencyError(
                         serializers.RequestErrorResponse.parseOrThrow(_response.error.body, {
                             unrecognizedObjectKeys: "passthrough",
                             allowUnrecognizedUnionMembers: true,
