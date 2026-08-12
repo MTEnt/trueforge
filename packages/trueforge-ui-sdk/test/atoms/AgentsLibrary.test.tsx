@@ -26,7 +26,12 @@ function mockServer(
   agents: Array<{
     name: string;
     agentId: string;
-    agentSpec?: { model: { name: string }; skills?: Array<{ id: string; name: string }> };
+    agentSpec?: {
+      model: { name: string; providerLogo?: string };
+      instructions?: string;
+      skills?: Array<{ id: string; name: string }>;
+      mcpServers?: Array<{ name: string }>;
+    };
   }> = [{ name: 'alpha-agent', agentId: 'alpha-agent' }],
 ): AgentUIServer {
   return createMockAgentUIServer({
@@ -119,6 +124,84 @@ describe('AgentsLibrary', () => {
     });
     expect(screen.queryByRole('button', { name: 'Edit agent try-only' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try agent try-only' })).toBeInTheDocument();
+  });
+
+  it('renders agentSpec card details from the Agent object only', async () => {
+    const server = mockServer([
+      {
+        name: 'on-call-copilot',
+        agentId: 'on-call-copilot',
+        agentSpec: {
+          model: { name: 'anthropic/claude-opus-4.8' },
+          instructions: 'Builds incident timelines from alerts, pages and chat threads. Extra line ignored.',
+          skills: [{ id: 's1', name: 'Skill' }],
+          mcpServers: [{ name: 'pagerduty' }, { name: 'slack' }, { name: 'logs' }],
+        },
+      },
+      { name: 'try-only', agentId: 'try-only' },
+    ]);
+
+    render(
+      <SlotsProvider>
+        <ServerProvider server={server}>
+          <ShellModeProvider agentConfig={{ mode: 'AgentLibraryWithComposer' }}>
+            <AgentsLibrary open onOpenChange={() => undefined} />
+          </ShellModeProvider>
+        </ServerProvider>
+      </SlotsProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('on-call-copilot')).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText('Builds incident timelines from alerts, pages and chat threads. Extra line ignored.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('claude-opus-4.8')).toBeInTheDocument();
+    expect(screen.getByText('3 tools')).toBeInTheDocument();
+    expect(screen.getByText('1 skill')).toBeInTheDocument();
+    expect(screen.queryByText('anthropic/claude-opus-4.8')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try agent try-only' })).toBeInTheDocument();
+    expect(screen.queryByText('0 tools')).not.toBeInTheDocument();
+  });
+
+  it('shows a model logo only when agentSpec.model carries providerLogo', async () => {
+    const server = mockServer([
+      {
+        name: 'writer',
+        agentId: 'writer',
+        agentSpec: {
+          model: {
+            name: 'openai/gpt-4.1',
+            providerLogo: 'https://assets.example/openai.svg',
+          },
+          mcpServers: [],
+          skills: [],
+        },
+      },
+      {
+        name: 'no-logo',
+        agentId: 'no-logo',
+        agentSpec: { model: { name: 'anthropic/claude-opus-4.8' }, mcpServers: [], skills: [] },
+      },
+    ]);
+
+    render(
+      <SlotsProvider>
+        <ServerProvider server={server}>
+          <ShellModeProvider agentConfig={{ mode: 'AgentLibraryWithComposer' }}>
+            <AgentsLibrary open onOpenChange={() => undefined} />
+          </ShellModeProvider>
+        </ServerProvider>
+      </SlotsProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('gpt-4.1')).toBeInTheDocument();
+    });
+    expect(document.querySelector('img[src="https://assets.example/openai.svg"]')).not.toBeNull();
+    expect(screen.getByText('claude-opus-4.8')).toBeInTheDocument();
+    expect(document.querySelectorAll('img').length).toBe(1);
   });
 
   it('hides Edit when composer is disabled (AgentLibrary only)', async () => {
