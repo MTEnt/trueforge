@@ -34,7 +34,8 @@ export type ThemeContextValue = {
   preference: ThemeMode;
   isDark: boolean;
   setTheme: (mode: ThemeMode) => void;
-  brand: BrandConfig;
+  /** Partial: `theme.brand` is optional, so consumers fall back to SDK defaults. */
+  brand: Partial<BrandConfig>;
   icons: IconMap;
   classNames: ContentClassNames;
   tokens: Partial<SemanticTokens>;
@@ -129,7 +130,7 @@ export function ThemeProvider({ theme, children }: { theme?: ThemeConfig; childr
 
   const value = useMemo<ThemeContextValue>(
     () => ({
-      preset: theme?.preset ?? 'truefoundry',
+      preset: theme?.preset ?? 'trueforge',
       mode,
       preference,
       isDark: mode === 'dark',
@@ -152,7 +153,7 @@ export function ThemeProvider({ theme, children }: { theme?: ThemeConfig; childr
       <div
         className={cn('aui-theme-root h-full min-h-0', mode === 'dark' && 'dark', theme?.className)}
         data-theme={mode}
-        data-preset={theme?.preset ?? 'truefoundry'}
+        data-preset={theme?.preset ?? 'trueforge'}
         style={rootStyle}
       >
         {children}
@@ -174,7 +175,8 @@ export function useTheme(): Pick<ThemeContextValue, 'preset' | 'mode' | 'prefere
   return { preset, mode, preference, isDark, setTheme };
 }
 
-export function useBrand(): BrandConfig {
+/** Configured branding. Fields are optional — `theme.brand` may be omitted entirely. */
+export function useBrand(): Partial<BrandConfig> {
   return useThemeContext().brand;
 }
 
@@ -191,9 +193,9 @@ export function useOptionalThemeMode(): 'light' | 'dark' {
   return useContext(ThemeContext)?.mode ?? 'light';
 }
 
-/** Safe for trees that may sit outside ThemeProvider (falls back to truefoundry). */
+/** Safe for trees that may sit outside ThemeProvider (falls back to trueforge). */
 export function useOptionalThemePreset(): ThemePreset {
-  return useContext(ThemeContext)?.preset ?? 'truefoundry';
+  return useContext(ThemeContext)?.preset ?? 'trueforge';
 }
 
 /** Safe for trees that may sit outside ThemeProvider (falls back to {}). */
