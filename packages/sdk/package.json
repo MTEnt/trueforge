@@ -1,5 +1,5 @@
 {
-    "name": "@truefoundry/trueforge-sdk",
+    "name": "trueforge-sdk",
     "version": "0.0.0",
     "private": false,
     "type": "commonjs",
