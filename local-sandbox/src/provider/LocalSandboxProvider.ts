@@ -1,0 +1,270 @@
+/**
+ * Local SRT SandboxProvider (no Code Mode on provider.exec yet).
+ * createSandbox → host workspace; exec / upload / download → SRT-wrapped command.
+ */
+import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
+import {
+  SandboxFileNotFoundError,
+  SandboxFileTooLargeError,
+  SandboxNotAvailableError,
+  SandboxPathIsDirectoryError,
+  validateNoPathTraversal,
+} from '../core/errors.js';
+import { createWorkspace, initSrt, removeWorkspace, resetSrt, runSupervisorSession } from '../core/host-run.js';
+import type { ExecResult, SandboxExecParams, SandboxProvider } from './types.js';
+
+const DEFAULT_EXEC_TIMEOUT_SECONDS = 60;
+const DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024;
+
+export type LocalSandboxProviderOptions = {
+  tenantName: string;
+  fileMaxBytesForDownload?: number | undefined;
+  defaultExecTimeoutSeconds?: number | undefined;
+  /** Root for per-sandbox workspaces; defaults to local-sandbox/workspaces. */
+  workspacesRoot?: string | undefined;
+};
+
+type XferFileInfo = { size: number; isDir: boolean };
+
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function pythonC(code: string, absPath: string): string {
+  return `python3 -c ${shellEscape(code)} ${shellEscape(absPath)}`;
+}
+
+function statCommand(absPath: string): string {
+  const code = [
+    'import json, os, sys',
+    'p = sys.argv[1]',
+    'st = os.stat(p)',
+    'print(json.dumps({"size": st.st_size, "isDir": os.path.isdir(p)}))',
+  ].join('\n');
+  return pythonC(code, absPath);
+}
+
+function base64EncodeCommand(absPath: string): string {
+  const code = [
+    'import base64, sys',
+    'p = sys.argv[1]',
+    'sys.stdout.write(base64.b64encode(open(p, "rb").read()).decode("ascii"))',
+  ].join('\n');
+  return pythonC(code, absPath);
+}
+
+export class LocalSandboxProvider implements SandboxProvider {
+  private readonly tenantName: string;
+  private readonly fileMaxBytesForDownload: number;
+  private readonly defaultExecTimeoutSeconds: number;
+  private readonly workspacesRoot: string | undefined;
+  private readonly workspaces = new Map<string, string>();
+  private srtInitialized = false;
+
+  constructor(options: LocalSandboxProviderOptions) {
+    this.tenantName = options.tenantName;
+    this.fileMaxBytesForDownload = options.fileMaxBytesForDownload ?? DEFAULT_FILE_MAX_BYTES;
+    this.defaultExecTimeoutSeconds = options.defaultExecTimeoutSeconds ?? DEFAULT_EXEC_TIMEOUT_SECONDS;
+    this.workspacesRoot = options.workspacesRoot;
+  }
+
+  private async ensureSrt(): Promise<void> {
+    if (this.srtInitialized) return;
+    if (process.platform !== 'darwin' && process.platform !== 'linux') {
+      throw new Error('LocalSandboxProvider supports macOS and Linux only');
+    }
+    await initSrt();
+    this.srtInitialized = true;
+  }
+
+  private workspaceFor(sandboxId: string): string {
+    const workspace = this.workspaces.get(sandboxId);
+    if (workspace === undefined) {
+      throw new SandboxNotAvailableError(sandboxId);
+    }
+    return workspace;
+  }
+
+  private resolveInWorkspace(workspace: string, userPath: string): string {
+    validateNoPathTraversal(userPath);
+    const resolved = userPath.startsWith('/') ? resolve(userPath) : resolve(workspace, userPath);
+    const root = resolve(workspace);
+    if (resolved !== root && !resolved.startsWith(root + sep)) {
+      throw new SandboxFileNotFoundError(userPath);
+    }
+    return resolved;
+  }
+
+  private async runSandboxCommand(params: {
+    workspace: string;
+    command: string;
+    stdin?: Buffer;
+  }): Promise<{ exitCode: number; stdoutText: string; stderrText: string }> {
+    const session = await runSupervisorSession({
+      workspace: params.workspace,
+      command: params.command,
+      ...(params.stdin === undefined ? {} : { stdin: params.stdin }),
+      timeoutMs: this.defaultExecTimeoutSeconds * 1000,
+    });
+    if (session.protocolError !== undefined) {
+      throw new Error(session.protocolError);
+    }
+    return {
+      exitCode: session.exitCode,
+      stdoutText: session.stdoutText,
+      stderrText: session.stderrText,
+    };
+  }
+
+  private async getFileInfo(params: { workspace: string; abs: string; userPath: string }): Promise<XferFileInfo> {
+    const result = await this.runSandboxCommand({
+      workspace: params.workspace,
+      command: statCommand(params.abs),
+    });
+    if (result.exitCode !== 0) {
+      throw new SandboxFileNotFoundError(params.userPath);
+    }
+    const line = result.stdoutText.trim();
+    const parsed: unknown = JSON.parse(line);
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      !('size' in parsed) ||
+      !('isDir' in parsed) ||
+      typeof parsed.size !== 'number' ||
+      typeof parsed.isDir !== 'boolean'
+    ) {
+      throw new Error(`invalid stat output: ${line}`);
+    }
+    return { size: parsed.size, isDir: parsed.isDir };
+  }
+
+  async createSandbox(): Promise<{ sandboxId: string }> {
+    await this.ensureSrt();
+    const sandboxId = `${this.tenantName}.${randomUUID()}`;
+    const workspace = await createWorkspace({
+      sandboxId,
+      ...(this.workspacesRoot === undefined ? {} : { workspacesRoot: this.workspacesRoot }),
+    });
+    this.workspaces.set(sandboxId, workspace);
+    await mkdir(join(workspace, 'tool-results'), { recursive: true, mode: 0o700 });
+    await mkdir(join(workspace, 'uploads'), { recursive: true, mode: 0o700 });
+    return { sandboxId };
+  }
+
+  async exec(params: SandboxExecParams): Promise<ExecResult> {
+    try {
+      await this.ensureSrt();
+      const workspace = this.workspaceFor(params.sandboxId);
+      const cwd =
+        params.cwd === undefined || params.cwd === '' ? workspace : this.resolveInWorkspace(workspace, params.cwd);
+      const timeoutSeconds = params.timeoutSeconds ?? this.defaultExecTimeoutSeconds;
+      const session = await runSupervisorSession({
+        workspace,
+        command: params.command,
+        cwd,
+        ...(params.env === undefined ? {} : { env: params.env }),
+        timeoutMs: timeoutSeconds * 1000,
+      });
+      if (session.protocolError !== undefined) {
+        return { success: false, error: session.protocolError };
+      }
+      const result = session.stdoutText + (session.stderrText ? session.stderrText : '');
+      return {
+        success: true,
+        response: { exitCode: session.exitCode, result },
+      };
+    } catch (error) {
+      if (error instanceof SandboxNotAvailableError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  }
+
+  getAdditionalInstructions(): string {
+    return [
+      'SANDBOX RULES:',
+      "- The Agent's first sandbox command should be `pwd` to discover the working directory.",
+      '- ALL file creation and writes MUST stay within that working directory.',
+      '- The Agent must NOT write outside the working directory (including host home and /tmp).',
+    ].join('\n');
+  }
+
+  getToolResultDumpDir(sandboxId: string): string {
+    return join(this.workspaceFor(sandboxId), 'tool-results');
+  }
+
+  getGitCredentialsPath(sandboxId: string): string {
+    return join(this.workspaceFor(sandboxId), '.git-credentials');
+  }
+
+  async downloadFile(params: { sandboxId: string; path: string }): Promise<Buffer> {
+    await this.ensureSrt();
+    const workspace = this.workspaceFor(params.sandboxId);
+    const abs = this.resolveInWorkspace(workspace, params.path);
+    const info = await this.getFileInfo({ workspace, abs, userPath: params.path });
+    if (info.isDir) {
+      throw new SandboxPathIsDirectoryError(params.path);
+    }
+    if (info.size > this.fileMaxBytesForDownload) {
+      throw new SandboxFileTooLargeError(params.path, info.size, this.fileMaxBytesForDownload);
+    }
+    const result = await this.runSandboxCommand({
+      workspace,
+      command: base64EncodeCommand(abs),
+    });
+    if (result.exitCode !== 0) {
+      throw new SandboxFileNotFoundError(params.path);
+    }
+    const buf = Buffer.from(result.stdoutText.trim(), 'base64');
+    if (buf.length > this.fileMaxBytesForDownload) {
+      throw new SandboxFileTooLargeError(params.path, buf.length, this.fileMaxBytesForDownload);
+    }
+    return buf;
+  }
+
+  /** Payload on stdin so large uploads stay off argv. */
+  async uploadFile(params: { sandboxId: string; remotePath: string; content: Buffer }): Promise<void> {
+    await this.ensureSrt();
+    if (params.content.length > this.fileMaxBytesForDownload) {
+      throw new SandboxFileTooLargeError(params.remotePath, params.content.length, this.fileMaxBytesForDownload);
+    }
+    const workspace = this.workspaceFor(params.sandboxId);
+    const abs = this.resolveInWorkspace(workspace, params.remotePath);
+    const parent = dirname(abs);
+    const dest = shellEscape(abs);
+    const result = await this.runSandboxCommand({
+      workspace,
+      command: `mkdir -p ${shellEscape(parent)} && cat > ${dest}`,
+      stdin: params.content,
+    });
+    if (result.exitCode !== 0) {
+      throw new SandboxFileNotFoundError(params.remotePath);
+    }
+  }
+
+  getNatsBridgeUrl(_sandboxId: string): Promise<string> {
+    return Promise.reject(new Error('Code Mode / NATS bridge is not supported by LocalSandboxProvider'));
+  }
+
+  /** PoC helper — not part of SandboxProvider. */
+  async destroySandbox(sandboxId: string): Promise<void> {
+    const workspace = this.workspaces.get(sandboxId);
+    if (workspace === undefined) return;
+    this.workspaces.delete(sandboxId);
+    await removeWorkspace(workspace);
+  }
+
+  /** PoC helper — reset process-scoped SRT after tests. */
+  async dispose(): Promise<void> {
+    for (const sandboxId of [...this.workspaces.keys()]) {
+      await this.destroySandbox(sandboxId);
+    }
+    if (this.srtInitialized) {
+      await resetSrt().catch(() => undefined);
+      this.srtInitialized = false;
+    }
+  }
+}

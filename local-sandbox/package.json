@@ -1,0 +1,23 @@
+{
+  "name": "local-sandbox",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "smoke": "pnpm build && node dist/scripts/smoke.js",
+    "smoke:lima": "bash scripts/smoke-lima.sh",
+    "probe:loopback": "pnpm build && node dist/scripts/probe-loopback.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "^0.0.71",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "typescript": "^5.8.3"
+  }
+}
