@@ -2,8 +2,9 @@
  * Local SRT SandboxProvider (no Code Mode on provider.exec yet).
  * createSandbox → host workspace; exec / upload / download → SRT-wrapped command.
  */
-import type { ExecResult, SandboxExecParams, SandboxProvider } from '@truefoundry/trueforge-core/core';
+import type { ExecResult, SandboxBuild, SandboxExecParams, SandboxProvider } from '@truefoundry/trueforge-core/core';
 import {
+  SANDBOX_IMAGE_URI,
   SandboxFileNotFoundError,
   SandboxFileTooLargeError,
   SandboxNotAvailableError,
@@ -64,11 +65,26 @@ export class LocalSandboxProvider implements SandboxProvider {
   private readonly workspaces = new Map<string, string>();
   private srtInitialized = false;
 
+  /** Local SRT has no image build step — always ready. */
+  private static readonly readyBuild: SandboxBuild = {
+    status: 'ready',
+    reason: null,
+    metadata: { buildRef: 'local-srt', imageUri: SANDBOX_IMAGE_URI },
+  };
+
   constructor(options: LocalSandboxProviderOptions) {
     this.tenantName = options.tenantName;
     this.fileMaxBytesForDownload = options.fileMaxBytesForDownload ?? DEFAULT_FILE_MAX_BYTES;
     this.defaultExecTimeoutSeconds = options.defaultExecTimeoutSeconds ?? DEFAULT_EXEC_TIMEOUT_SECONDS;
     this.workspacesRoot = options.workspacesRoot;
+  }
+
+  buildImage(): Promise<SandboxBuild> {
+    return Promise.resolve(LocalSandboxProvider.readyBuild);
+  }
+
+  getImageBuildStatus(): Promise<SandboxBuild> {
+    return Promise.resolve(LocalSandboxProvider.readyBuild);
   }
 
   private async ensureSrt(): Promise<void> {

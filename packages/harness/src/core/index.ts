@@ -144,6 +144,9 @@ export type {
   ExecErrorResult,
   ExecResult,
   ExecSuccessResult,
+  SandboxBuild,
+  SandboxBuildMetadata,
+  SandboxBuildStatus,
   SandboxExecParams,
   SandboxInit,
   SandboxProvider,
@@ -160,6 +163,7 @@ export {
   validateNoPathTraversal,
   validateSandboxOwnedByTenant,
 } from './sandbox/SandboxErrors';
+export { SANDBOX_IMAGE_URI } from './sandbox/sandboxImage';
 
 // Skills: the ISkillMounter seam lets hosts plug in their own skill sources
 export { InstructionBuilder } from './InstructionBuilder';
