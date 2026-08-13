@@ -18,7 +18,7 @@ export function WelcomeScreen({ heading = 'How can I help you today?', icon, cla
     icon !== undefined ? (
       icon
     ) : preset === 'chatgpt' ? null : preset === 'claude' ? (
-      <Icon name="welcome-sparkle" className="size-5 fill-current text-primary" />
+      <Icon name="welcome-sparkle" className="size-5 fill-current text-primary-button-bg" />
     ) : (
       <BrandLogo className={'size-10'} />
     );
@@ -27,7 +27,7 @@ export function WelcomeScreen({ heading = 'How can I help you today?', icon, cla
     <div
       data-preset={preset}
       className={cn(
-        'aui-thread-welcome-root relative isolate mb-6 flex flex-col items-center px-4 text-center text-foreground',
+        'aui-thread-welcome-root relative isolate mb-6 flex flex-col items-center px-4 text-center text-text-primary',
         preset === 'gemini' && 'py-8',
         className,
       )}
@@ -35,7 +35,7 @@ export function WelcomeScreen({ heading = 'How can I help you today?', icon, cla
       {preset === 'gemini' && (
         <div
           aria-hidden
-          className="pointer-events-none absolute left-1/2 top-1/2 -z-10 size-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/20 blur-3xl motion-safe:animate-pulse motion-reduce:animate-none [animation-duration:4s]"
+          className="pointer-events-none absolute left-1/2 top-1/2 -z-10 size-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-button-bg/20 blur-3xl motion-safe:animate-pulse motion-reduce:animate-none [animation-duration:4s]"
         />
       )}
       {resolvedIcon !== null && (
@@ -51,7 +51,7 @@ export function WelcomeScreen({ heading = 'How can I help you today?', icon, cla
       <h1
         className={cn(
           'aui-thread-welcome-message-inner fill-mode-both text-2xl motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-reduce:animate-none',
-          preset === 'truefoundry' ? 'font-semibold' : 'font-normal',
+          preset === 'trueforge' ? 'font-semibold' : 'font-normal',
           resolvedIcon !== null && 'delay-75',
           preset === 'gemini' ? 'text-[1.75rem] leading-tight duration-300' : 'duration-200',
         )}

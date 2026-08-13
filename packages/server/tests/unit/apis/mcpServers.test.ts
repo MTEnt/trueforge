@@ -1,8 +1,12 @@
 import winston from 'winston';
+import { createCatalogRouter } from '../../../src/apis/catalog';
 import { createMcpServersRouter, createSettingsMcpServersRouter } from '../../../src/apis/mcpServers';
 import { TENANT_ID } from '../../../src/apis/sessions';
 import { LOCAL_USER_CONTEXT } from '../../../src/auth/identity';
 import { McpCatalog } from '../../../src/catalog/McpCatalog';
+import { ModelCatalog } from '../../../src/catalog/ModelCatalog';
+import { SandboxCatalog } from '../../../src/catalog/SandboxCatalog';
+import { SkillCatalog } from '../../../src/catalog/SkillCatalog';
 import { migrateSqliteToLatest } from '../../../src/db/migrateSqlite';
 import { createSqliteDb } from '../../../src/db/sqlite/client';
 import { SqliteMcpServerStore } from '../../../src/db/sqlite/mcp-server-store/SqliteMcpServerStore';
@@ -22,13 +26,25 @@ const putBodyWithDcr = {
   auth: { type: 'dcr' as const },
 };
 
+const HEADER_TOKEN = 'Bearer test-token';
+/** Wire form of HEADER_TOKEN for length ≥ 10: first 3 + SECRET_REDACTION + last 3. */
+const HEADER_TOKEN_REDACTED = 'Bea-***REDACTED***-ken';
+
 const putBodyWithHeaderAuth = {
   type: 'remote' as const,
   name: 'private-mcp',
   url: 'https://mcp.example.com/mcp',
   auth: {
     type: 'header' as const,
-    headers: { Authorization: 'Bearer test-token' },
+    headers: { Authorization: HEADER_TOKEN },
+  },
+};
+
+const putBodyWithHeaderAuthWire = {
+  ...putBodyWithHeaderAuth,
+  auth: {
+    type: 'header' as const,
+    headers: { Authorization: HEADER_TOKEN_REDACTED },
   },
 };
 
@@ -40,8 +56,17 @@ function putInit(body: unknown): RequestInit {
   };
 }
 
+function postInit(body: unknown): RequestInit {
+  return {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
 describe('mcp-servers routers', () => {
   let settingsRouter: ReturnType<typeof createSettingsMcpServersRouter>;
+  let catalogRouter: ReturnType<typeof createCatalogRouter>;
   let mcpServersRouter: ReturnType<typeof createMcpServersRouter>;
   let mcpServerStore: SqliteMcpServerStore;
   let tokenStore: SqliteOAuthTokenStore;
@@ -50,8 +75,8 @@ describe('mcp-servers routers', () => {
   const originalFetch = globalThis.fetch;
 
   beforeAll(async () => {
-    // Eager DCR registration dials the MCP server's authorization server. Fail that outbound call
-    // fast so DCR upserts stay hermetic; the handler treats it as transient and still returns 200.
+    // Eager DCR dials the authorization server. Fail that outbound call fast so hermetic tests
+    // without an OAuth mock hit the "DCR before write" path and must not create rows.
     globalThis.fetch = (async () => {
       throw new Error('network disabled in tests');
     }) as typeof fetch;
@@ -62,12 +87,17 @@ describe('mcp-servers routers', () => {
     withTransaction = callback => db.transaction().execute(callback);
     logger = winston.createLogger({ silent: true });
     settingsRouter = createSettingsMcpServersRouter({
-      mcpCatalog: McpCatalog.load(),
       mcpServerStore,
       tokenStore,
       withTransaction,
       logger,
       resolveUserContext: () => LOCAL_USER_CONTEXT,
+    });
+    catalogRouter = createCatalogRouter({
+      modelCatalog: ModelCatalog.load(),
+      mcpCatalog: McpCatalog.load(),
+      skillCatalog: SkillCatalog.load(),
+      sandboxCatalog: SandboxCatalog.load(),
     });
     mcpServersRouter = createMcpServersRouter({
       mcpServerStore,
@@ -78,12 +108,36 @@ describe('mcp-servers routers', () => {
     });
   });
 
+  /** Persist a DCR server + stub client without calling the authorization server. */
+  async function seedDcrServerWithClient(body: typeof putBodyWithDcr = putBodyWithDcr) {
+    const record = await mcpServerStore.upsertServer({
+      tenant_id: TENANT_ID,
+      name: body.name,
+      manifest: body,
+    });
+    await mcpServerStore.saveClient({
+      id: record.id,
+      record: {
+        server: {
+          authorizationEndpoint: 'https://auth.example.com/authorize',
+          tokenEndpoint: 'https://auth.example.com/token',
+          codeChallengeMethodsSupported: ['S256'],
+        },
+        client: {
+          clientId: 'seed-client',
+          clientSecret: 'seed-secret',
+        },
+      },
+    });
+    return record;
+  }
+
   afterAll(() => {
     globalThis.fetch = originalFetch;
   });
 
-  it('GET /catalog returns the shipped catalog verbatim', async () => {
-    const response = await settingsRouter.request('/catalog');
+  it('GET /catalog/mcp-servers returns the shipped catalog verbatim', async () => {
+    const response = await catalogRouter.request('/mcp-servers');
     expect(response.status).toBe(200);
     const body = (await response.json()) as { data: { name: string }[] };
     expect(body.data.map(server => server.name)).toEqual(
@@ -107,6 +161,25 @@ describe('mcp-servers routers', () => {
     });
   });
 
+  it('POST creates a server and returns 409 on name clash', async () => {
+    const createBody = {
+      type: 'remote' as const,
+      name: 'create-only-mcp',
+      url: 'https://mcp.example.com/create-only',
+    };
+    const created = await settingsRouter.request('/', postInit(createBody));
+    expect(created.status).toBe(200);
+    expect(await created.json()).toEqual({
+      data: { ...createBody, auth_status: { status: 'not_required' } },
+    });
+
+    const clash = await settingsRouter.request('/', postInit(createBody));
+    expect(clash.status).toBe(409);
+    expect(await clash.json()).toEqual({
+      error: { message: 'MCP server name already exists: create-only-mcp' },
+    });
+  });
+
   it('GET /{name} returns the configured server and 404s unknowns', async () => {
     const response = await settingsRouter.request(`/${putBody.name}`);
     expect(response.status).toBe(200);
@@ -121,18 +194,31 @@ describe('mcp-servers routers', () => {
     });
   });
 
-  it('PUT with DCR auth reports auth_required while no token is stored', async () => {
+  it('PUT with DCR fails registration without writing a server row', async () => {
     const response = await settingsRouter.request('/', putInit(putBodyWithDcr));
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(422);
     expect(await response.json()).toEqual({
-      data: { ...putBodyWithDcr, auth_status: { status: 'auth_required' } },
+      error: {
+        message: "Failed to discover OAuth authorization server for MCP server 'linear'",
+      },
     });
+    expect(await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: putBodyWithDcr.name })).toBeUndefined();
+  });
+
+  it('POST with DCR fails registration without writing a server row', async () => {
+    const createDcr = {
+      type: 'remote' as const,
+      name: 'create-dcr-fail',
+      url: 'https://mcp.example.com/dcr-fail',
+      auth: { type: 'dcr' as const },
+    };
+    const response = await settingsRouter.request('/', postInit(createDcr));
+    expect(response.status).toBe(422);
+    expect(await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: createDcr.name })).toBeUndefined();
   });
 
   it('DCR server reads authenticated when a token row exists, auth_required once deleted', async () => {
-    await settingsRouter.request('/', putInit(putBodyWithDcr));
-    const record = await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: putBodyWithDcr.name });
-    if (record === undefined) throw new Error('expected DCR server to exist');
+    const record = await seedDcrServerWithClient();
 
     await tokenStore.saveToken({
       id: record.id,
@@ -179,10 +265,8 @@ describe('mcp-servers routers', () => {
   });
 
   it('PUT re-upsert of a DCR server reports authenticated when a usable token already exists', async () => {
-    // First upsert creates the row (no token yet) so we can key a token off its id.
-    await settingsRouter.request('/', putInit(putBodyWithDcr));
-    const record = await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: putBodyWithDcr.name });
-    if (record === undefined) throw new Error('expected DCR server to exist');
+    // Existing client skips DCR over the wire so network-disabled tests only exercise the DB path.
+    const record = await seedDcrServerWithClient();
 
     await tokenStore.saveToken({
       id: record.id,
@@ -205,12 +289,228 @@ describe('mcp-servers routers', () => {
     await tokenStore.deleteToken({ id: record.id, userRef: LOCAL_USER_CONTEXT.userRef });
   });
 
-  it('PUT with header auth stores headers and reports authenticated', async () => {
+  it('PUT URL change re-registers DCR and keeps existing tokens', async () => {
+    const record = await seedDcrServerWithClient();
+    await tokenStore.saveToken({
+      id: record.id,
+      userRef: LOCAL_USER_CONTEXT.userRef,
+      token: {
+        accessToken: 'stale-for-old-url',
+        refreshToken: 'stale-refresh',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        scope: null,
+      },
+    });
+
+    const newUrl = 'https://mcp.linear.app/v2/mcp';
+    const asOrigin = 'https://auth.example.com';
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.includes('oauth-protected-resource')) {
+        return new Response(JSON.stringify({ resource: newUrl, authorization_servers: [asOrigin] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('oauth-authorization-server') || url.includes('openid-configuration')) {
+        return new Response(
+          JSON.stringify({
+            issuer: asOrigin,
+            authorization_endpoint: `${asOrigin}/authorize`,
+            token_endpoint: `${asOrigin}/token`,
+            registration_endpoint: `${asOrigin}/register`,
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256'],
+            grant_types_supported: ['authorization_code', 'refresh_token'],
+            token_endpoint_auth_methods_supported: ['client_secret_post', 'none'],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.includes('/register') && init?.method === 'POST') {
+        return new Response(
+          JSON.stringify({
+            client_id: 'new-url-client',
+            client_secret: 'new-url-secret',
+            token_endpoint_auth_method: 'client_secret_post',
+            // Absolute URLs only — SDK parses registration responses with SafeUrlSchema.
+            redirect_uris: [mcpOAuthCallbackUrl()],
+            grant_types: ['authorization_code', 'refresh_token'],
+            response_types: ['code'],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(`unexpected url: ${url}`, { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      const response = await settingsRouter.request(
+        '/',
+        putInit({
+          ...putBodyWithDcr,
+          url: newUrl,
+        }),
+      );
+      expect(response.status).toBe(200);
+      // List/GET auth_status is presence-based; tokens are not cleared on re-DCR.
+      expect(await response.json()).toEqual({
+        data: {
+          ...putBodyWithDcr,
+          url: newUrl,
+          auth_status: { status: 'authenticated' },
+        },
+      });
+      expect(await tokenStore.getToken({ id: record.id, userRef: LOCAL_USER_CONTEXT.userRef })).toMatchObject({
+        accessToken: 'stale-for-old-url',
+      });
+      expect(await mcpServerStore.getClient({ id: record.id })).toMatchObject({
+        client: { clientId: 'new-url-client' },
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+      // Restore baseline for later suite cases that still expect original linear URL / no token.
+      await mcpServerStore.upsertServer({
+        tenant_id: TENANT_ID,
+        name: putBodyWithDcr.name,
+        manifest: putBodyWithDcr,
+      });
+      await mcpServerStore.saveClient({
+        id: record.id,
+        record: {
+          server: {
+            authorizationEndpoint: 'https://auth.example.com/authorize',
+            tokenEndpoint: 'https://auth.example.com/token',
+            codeChallengeMethodsSupported: ['S256'],
+          },
+          client: {
+            clientId: 'seed-client',
+            clientSecret: 'seed-secret',
+          },
+        },
+      });
+      await tokenStore.deleteToken({ id: record.id, userRef: LOCAL_USER_CONTEXT.userRef });
+    }
+  });
+
+  it('PUT with header auth stores plaintext and returns redacted headers', async () => {
     const response = await settingsRouter.request('/', putInit(putBodyWithHeaderAuth));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      data: { ...putBodyWithHeaderAuth, auth_status: { status: 'authenticated' } },
+      data: { ...putBodyWithHeaderAuthWire, auth_status: { status: 'authenticated' } },
     });
+
+    const stored = await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: putBodyWithHeaderAuth.name });
+    expect(stored?.manifest.auth).toEqual(putBodyWithHeaderAuth.auth);
+  });
+
+  it('PUT create with a redacted header value returns 400', async () => {
+    const redactedOnly = {
+      ...putBodyWithHeaderAuth,
+      name: 'redacted-only-mcp',
+      auth: {
+        type: 'header' as const,
+        headers: { Authorization: HEADER_TOKEN_REDACTED },
+      },
+    };
+    const response = await settingsRouter.request('/', putInit(redactedOnly));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: { message: 'Header secret is required' } });
+  });
+
+  it('PUT with a redacted header value keeps the stored secret', async () => {
+    await settingsRouter.request('/', putInit(putBodyWithHeaderAuth));
+
+    const keep = {
+      ...putBodyWithHeaderAuth,
+      url: 'https://mcp.example.com/v2/mcp',
+      auth: {
+        type: 'header' as const,
+        headers: { Authorization: HEADER_TOKEN_REDACTED },
+      },
+    };
+    const response = await settingsRouter.request('/', putInit(keep));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: {
+        ...keep,
+        auth: {
+          type: 'header',
+          headers: { Authorization: HEADER_TOKEN_REDACTED },
+        },
+        auth_status: { status: 'authenticated' },
+      },
+    });
+
+    const stored = await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: putBodyWithHeaderAuth.name });
+    expect(stored?.manifest).toEqual({
+      ...putBodyWithHeaderAuth,
+      url: keep.url,
+      auth: putBodyWithHeaderAuth.auth,
+    });
+  });
+
+  it('PUT with a different redacted header value still keeps the stored secret', async () => {
+    await settingsRouter.request('/', putInit(putBodyWithHeaderAuth));
+
+    // Any value containing ***REDACTED*** is treated as keep, not only the exact GET mask.
+    const keep = {
+      ...putBodyWithHeaderAuth,
+      url: 'https://mcp.example.com/v3/mcp',
+      auth: {
+        type: 'header' as const,
+        headers: { Authorization: 'oth-***REDACTED***-xxx' },
+      },
+    };
+    const response = await settingsRouter.request('/', putInit(keep));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: {
+        ...keep,
+        auth: {
+          type: 'header',
+          headers: { Authorization: HEADER_TOKEN_REDACTED },
+        },
+        auth_status: { status: 'authenticated' },
+      },
+    });
+
+    const stored = await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: putBodyWithHeaderAuth.name });
+    expect(stored?.manifest).toEqual({
+      ...putBodyWithHeaderAuth,
+      url: keep.url,
+      auth: putBodyWithHeaderAuth.auth,
+    });
+  });
+
+  it('PUT with a real header value rotates the stored secret', async () => {
+    await settingsRouter.request('/', putInit(putBodyWithHeaderAuth));
+
+    const rotatedToken = 'Bearer rotated-token';
+    const rotatedTokenRedacted = 'Bea-***REDACTED***-ken';
+    const rotated = {
+      ...putBodyWithHeaderAuth,
+      auth: {
+        type: 'header' as const,
+        headers: { Authorization: rotatedToken },
+      },
+    };
+    const response = await settingsRouter.request('/', putInit(rotated));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: {
+        ...rotated,
+        auth: {
+          type: 'header',
+          headers: { Authorization: rotatedTokenRedacted },
+        },
+        auth_status: { status: 'authenticated' },
+      },
+    });
+
+    const stored = await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: putBodyWithHeaderAuth.name });
+    expect(stored?.manifest.auth).toEqual(rotated.auth);
   });
 
   it('GET / on the chat router returns per-user auth_status and public auth type', async () => {
@@ -362,13 +662,12 @@ describe('mcp-servers routers', () => {
           auth: { type: 'dcr' },
         }),
       );
-      expect(put.status).toBe(200);
+      // Registration fails before any DB write — no server exists to authorize.
+      expect(put.status).toBe(422);
+      expect(await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: 'failing-oauth-mcp' })).toBeUndefined();
 
       const authorize = await mcpServersRouter.request('/failing-oauth-mcp/authorize');
-      expect(authorize.status).toBe(424);
-      expect(await authorize.json()).toEqual({
-        error: { message: "Failed to dynamically register OAuth client for MCP server 'failing-oauth-mcp'" },
-      });
+      expect(authorize.status).toBe(404);
     } finally {
       globalThis.fetch = realFetch;
     }
@@ -446,11 +745,7 @@ describe('mcp-servers routers', () => {
   });
 
   it('DELETE /{name}/authorize removes the DCR token, keeps the client, and reports auth_required', async () => {
-    await settingsRouter.request('/', putInit(putBodyWithDcr));
-    const record = await mcpServerStore.getServer({ tenant_id: TENANT_ID, name: putBodyWithDcr.name });
-    if (!record) {
-      throw new Error('expected DCR server to exist');
-    }
+    const record = await seedDcrServerWithClient();
 
     await mcpServerStore.saveClient({
       id: record.id,
@@ -503,10 +798,12 @@ describe('mcp-servers routers', () => {
       data: { ...putBody, auth_status: { status: 'not_required' } },
     });
 
+    // Ensure header-auth fixture is present with a known secret (later tests may have rotated it).
+    await settingsRouter.request('/', putInit(putBodyWithHeaderAuth));
     const headerAuth = await mcpServersRouter.request('/private-mcp/authorize', { method: 'DELETE' });
     expect(headerAuth.status).toBe(200);
     expect(await headerAuth.json()).toEqual({
-      data: { ...putBodyWithHeaderAuth, auth_status: { status: 'authenticated' } },
+      data: { ...putBodyWithHeaderAuthWire, auth_status: { status: 'authenticated' } },
     });
 
     const missing = await mcpServersRouter.request('/missing/authorize', { method: 'DELETE' });

@@ -1,10 +1,10 @@
 /**
  * Model-provider domain + wire schemas: configured provider manifests (DB /
- * PUT body) and OpenAPI request/response shapes. Catalog file schemas live on
- * ModelCatalog.
+ * PUT body / response) and OpenAPI request/response shapes. Catalog file schemas
+ * live on ModelCatalog.
  */
 import { z } from '@hono/zod-openapi';
-import { SUPPORTED_REASONING_EFFORTS, VERCEL_AI_PROVIDER_NAMES } from '@truefoundry/utils-core/core';
+import { SUPPORTED_REASONING_EFFORTS, VERCEL_AI_PROVIDER_NAMES } from '@truefoundry/trueforge-core/core';
 import { NameSchema, uniqueNames, type ResourceName } from './common';
 
 /** Every type the harness has an adapter for; a test asserts each one has a schema below. */
@@ -56,7 +56,12 @@ export function refineUniqueModels(models: { model_id: string; name: string }[],
 
 const ModelProviderAuthSchema = z
   .object({
-    api_key: z.string().min(1).describe('API key used to authenticate with the provider.'),
+    api_key: z
+      .string()
+      .min(1)
+      .describe(
+        'Provider API key. Responses are redacted; on PUT, a real value sets/rotates and a redacted value keeps the stored key.',
+      ),
   })
   .strict()
   .openapi('ModelProviderAuth');
@@ -131,6 +136,7 @@ const CustomModelProviderSchema = ModelProviderManifestBaseSchema.extend({
   type: z.literal('custom'),
   name: NameSchema,
   base_url: z.url().describe("Base URL of the provider's API."),
+  auth: ModelProviderAuthSchema.optional(),
 })
   .strict()
   .openapi('CustomModelProvider');
@@ -149,7 +155,7 @@ export type ModelProperties = z.infer<typeof ModelPropertiesSchema>;
  * in one shape. Only `custom` carries a name, so the row's key column comes from
  * `modelProviderName` rather than from a field every type repeats.
  */
-export const ModelProviderSchema = z
+const ModelProviderBodySchema = z
   .discriminatedUnion('type', [
     OpenAiModelProviderSchema,
     AnthropicModelProviderSchema,
@@ -161,15 +167,14 @@ export const ModelProviderSchema = z
     AlibabaModelProviderSchema,
     CustomModelProviderSchema,
   ])
-  .superRefine(refineModelProviderManifest)
-  .openapi('ModelProvider');
+  .superRefine(refineModelProviderManifest);
+
+export const ModelProviderSchema = ModelProviderBodySchema.openapi('ModelProvider');
 
 /** The row's key: only `custom` carries a name of its own. */
 export function modelProviderName(provider: ModelProvider): ResourceName {
   return provider.type === 'custom' ? provider.name : provider.type;
 }
-
-export const PutModelProviderRequestSchema = ModelProviderSchema;
 
 export const ListModelProvidersResponseSchema = z
   .object({
@@ -177,19 +182,29 @@ export const ListModelProvidersResponseSchema = z
   })
   .openapi('ListModelProvidersResponse');
 
+/** Shared create/upsert response envelope (`{ data: ModelProvider }`). */
 export const PutModelProviderResponseSchema = z
   .object({
     data: ModelProviderSchema,
   })
   .openapi('PutModelProviderResponse');
 
-/** Read view: the fully qualified name resolves the provider, so no provider object is nested. */
+/** Provider identity on the models list read view. */
+export const ModelListProviderSchema = z
+  .object({
+    name: z.string().min(1).describe('Configured provider resource name; matches the FQN prefix of `name`.'),
+  })
+  .strict()
+  .openapi('ModelListProvider');
+
+/** Read view over configured providers: FQN plus explicit provider identity for clients. */
 export const ModelSchema = z
   .object({
     name: z
       .string()
       .describe('Fully qualified name `provider_name/model_name`, e.g. "openai/gpt-5-6-sol". Unique within a tenant.'),
     model_id: z.string().describe('Upstream, provider-specific identifier sent to the provider API.'),
+    provider: ModelListProviderSchema.describe('Owning configured provider.'),
     properties: ModelPropertiesSchema.describe('Optional model capability metadata.'),
   })
   .strict()
@@ -202,4 +217,5 @@ export const ListModelsResponseSchema = z
   .openapi('ListModelsResponse');
 
 export type ModelProvider = z.infer<typeof ModelProviderSchema>;
+export type ModelListProvider = z.infer<typeof ModelListProviderSchema>;
 export type Model = z.infer<typeof ModelSchema>;

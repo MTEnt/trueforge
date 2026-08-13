@@ -1,30 +1,21 @@
-import { createTrueFoundryServer, getErrorMessage, TrueforgeUI, type SlotOverrides } from '@truefoundry/trueforge-ui';
+import { getErrorMessage, ThemeProvider, TrueforgeUI, type SlotOverrides } from '@truefoundry/trueforge-ui';
+import {
+  createTrueForgeClient,
+  getCapabilities,
+  listModels,
+  type HarnessAgentSpec,
+} from '@truefoundry/trueforge-ui/plugins/trueforge-agent-server-adapter';
 import { useEffect, useMemo, useState } from 'react';
 import { AuthErrorScreen } from './AuthErrorScreen';
+import { createAuthAwareFetch } from './authFetch';
 import { probeSession, type SessionState } from './authSession';
 import { parseAuthErrorReason } from './authStatusSearch';
-import { getCapabilities, listModels } from './composerLists';
-import { createConnectorCatalog } from './connectorCatalog';
 import { GetStartedScreen } from './GetStartedScreen';
-import { createHarnessBuilderServer } from './harnessBuilderServer';
-import { createHarnessChatServer, type HarnessAgentSpec } from './harnessServer';
 import { LogoutButton } from './LogoutButton';
-import { createModelProviderCatalog } from './modelProviderCatalog';
-import { createSandboxProviderCatalog } from './sandboxProviderCatalog';
-import { createSkillCatalog } from './skillCatalog';
 
-const chatServer = createHarnessChatServer();
-
-const server = createTrueFoundryServer<HarnessAgentSpec>({
-  chatServer,
-  ...createHarnessBuilderServer(),
-  catalog: {
-    modelCatalog: createModelProviderCatalog(),
-    connectorCatalog: createConnectorCatalog(),
-    skillCatalog: createSkillCatalog(),
-    sandboxCatalog: createSandboxProviderCatalog(),
-  },
-});
+/** Shared cookie/OIDC fetch for boot helpers and `<TrueforgeUI server />`. */
+const authAwareFetch = createAuthAwareFetch();
+const bootClient = createTrueForgeClient({ fetch: authAwareFetch });
 
 type BootState =
   | { status: 'loading' }
@@ -60,7 +51,7 @@ export function App() {
     const state = { cancelled: false };
     void (async () => {
       try {
-        const [models, capabilities] = await Promise.all([listModels(), getCapabilities()]);
+        const [models, capabilities] = await Promise.all([listModels(bootClient), getCapabilities(bootClient)]);
         if (state.cancelled) {
           return;
         }
@@ -77,7 +68,9 @@ export function App() {
           });
           return;
         }
-        const defaultReasoningEffort = first.properties.reasoningEfforts?.[0];
+        const reasoningEfforts = first.properties.reasoningEfforts;
+        // Default to the lowest real effort, not "none" — catalog lists are ordered ascending.
+        const defaultReasoningEffort = reasoningEfforts?.find(effort => effort !== 'none') ?? reasoningEfforts?.[0];
         setBoot({
           status: 'ready',
           openSettings: false,
@@ -110,7 +103,11 @@ export function App() {
   }
 
   if (session === 'checking') {
-    return <div className="boot-screen">Loading application…</div>;
+    return (
+      <ThemeProvider>
+        <div className="boot-screen">Loading application…</div>
+      </ThemeProvider>
+    );
   }
 
   if (session === 'unauthenticated') {
@@ -119,20 +116,26 @@ export function App() {
 
   if (boot.status === 'error') {
     return (
-      <div className="boot-screen" data-error="true">
-        Failed to load application configuration: {boot.message}
-      </div>
+      <ThemeProvider>
+        <div className="boot-screen" data-error="true">
+          Failed to load application configuration: {boot.message}
+        </div>
+      </ThemeProvider>
     );
   }
 
   if (boot.status === 'loading') {
-    return <div className="boot-screen">Loading application…</div>;
+    return (
+      <ThemeProvider>
+        <div className="boot-screen">Loading application…</div>
+      </ThemeProvider>
+    );
   }
 
   return (
     <div className="app-root">
       <TrueforgeUI
-        server={server}
+        server={{ type: 'trueforge', baseUrl: '/', fetch: authAwareFetch }}
         theme={{
           brand: {
             name: 'TrueForge',

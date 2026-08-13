@@ -1,4 +1,8 @@
+import { createCatalogRouter } from '../../../src/apis/catalog';
 import { createAvailableSkillsRouter, createSkillsRouter } from '../../../src/apis/skills';
+import { McpCatalog } from '../../../src/catalog/McpCatalog';
+import { ModelCatalog } from '../../../src/catalog/ModelCatalog';
+import { SandboxCatalog } from '../../../src/catalog/SandboxCatalog';
 import { SkillCatalog } from '../../../src/catalog/SkillCatalog';
 import { migrateSqliteToLatest } from '../../../src/db/migrateSqlite';
 import { createSqliteDb } from '../../../src/db/sqlite/client';
@@ -21,8 +25,17 @@ function putInit(body: unknown): RequestInit {
   };
 }
 
+function postInit(body: unknown): RequestInit {
+  return {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
 describe('skills routers', () => {
   let settingsRouter: ReturnType<typeof createSkillsRouter>;
+  let catalogRouter: ReturnType<typeof createCatalogRouter>;
   let availableRouter: ReturnType<typeof createAvailableSkillsRouter>;
 
   beforeAll(async () => {
@@ -30,9 +43,14 @@ describe('skills routers', () => {
     await migrateSqliteToLatest(db);
     const skillStore = new SqliteSkillStore(db);
     settingsRouter = createSkillsRouter({
-      skillCatalog: SkillCatalog.load(),
       skillStore,
       withTransaction: callback => db.transaction().execute(callback),
+    });
+    catalogRouter = createCatalogRouter({
+      modelCatalog: ModelCatalog.load(),
+      mcpCatalog: McpCatalog.load(),
+      skillCatalog: SkillCatalog.load(),
+      sandboxCatalog: SandboxCatalog.load(),
     });
     availableRouter = createAvailableSkillsRouter({
       skillStore,
@@ -40,8 +58,8 @@ describe('skills routers', () => {
     });
   });
 
-  it('GET /catalog returns the shipped catalog verbatim', async () => {
-    const response = await settingsRouter.request('/catalog');
+  it('GET /catalog/skills returns the shipped catalog verbatim', async () => {
+    const response = await catalogRouter.request('/skills');
     expect(response.status).toBe(200);
     const body = (await response.json()) as { data: { name: string }[] };
     expect(body.data.map(skill => skill.name)).toEqual(
@@ -61,11 +79,31 @@ describe('skills routers', () => {
     expect(await list.json()).toEqual({ data: [putBody] });
   });
 
+  it('POST creates a skill and returns 409 on name clash', async () => {
+    const createBody = {
+      ...putBody,
+      name: 'create-only-skill',
+      path: 'skills/create-only-skill',
+    };
+    const created = await settingsRouter.request('/', postInit(createBody));
+    expect(created.status).toBe(200);
+    expect(await created.json()).toEqual({ data: createBody });
+
+    const clash = await settingsRouter.request('/', postInit(createBody));
+    expect(clash.status).toBe(409);
+    expect(await clash.json()).toEqual({
+      error: { message: 'Skill name already exists: create-only-skill' },
+    });
+  });
+
   it('GET / on the chat router returns the slim name/description projection', async () => {
     const response = await availableRouter.request('/');
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      data: [{ name: putBody.name, description: putBody.description }],
+      data: [
+        { name: putBody.name, description: putBody.description },
+        { name: 'create-only-skill', description: putBody.description },
+      ],
     });
   });
 

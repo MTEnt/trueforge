@@ -48,7 +48,8 @@
                   "create-agent/overview",
                   "create-agent/tool-approval",
                   "create-agent/ask-user-questions",
-                  "create-agent/generative-ui"
+                  "create-agent/generative-ui",
+                  "create-agent/agent-spec"
                 ]
               },
               "agent-library",
@@ -63,15 +64,12 @@
                 ]
               },
               "benchmarking",
-              {
-                "group": "Setup Login",
-                "pages": ["authentication/overview", "authentication/okta"]
-              }
+              "authentication/overview"
             ]
           },
           {
             "group": "SDK",
-            "pages": ["api/overview", "api/use-agent", "api/agent-spec", "api/turn-events"]
+            "pages": ["api/overview", "api/use-agent", "api/turn-events"]
           },
           {
             "group": "Chat UI",
@@ -96,21 +94,13 @@
               "ui-sdk/guides/layouts",
               "ui-sdk/guides/layouts-and-theme",
               "ui-sdk/guides/agent-modes",
-              {
-                "group": "Setup Custom UI",
-                "pages": [
-                  "ui-sdk/setup-custom-ui/custom-theme",
-                  "ui-sdk/setup-custom-ui/custom-layout",
-                  "ui-sdk/setup-custom-ui/slot-overrides",
-                  "ui-sdk/setup-custom-ui/mcp-oauth"
-                ]
-              },
+              "ui-sdk/setup-custom-ui/custom-theme",
               {
                 "group": "Setup Custom Server",
                 "pages": [
-                  "ui-sdk/setup-custom-servers/server-contract",
+                  "ui-sdk/setup-custom-servers/connect-with-truefoundry",
                   "ui-sdk/setup-custom-servers/custom-server",
-                  "ui-sdk/setup-custom-servers/connect-with-truefoundry"
+                  "ui-sdk/setup-custom-servers/server-contract"
                 ]
               },
               "ui-sdk/guides/troubleshooting"

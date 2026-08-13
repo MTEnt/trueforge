@@ -1,3 +1,4 @@
+import type { SaveAgentResult } from '@/index.js';
 import type { CatalogServer } from '@/server/types.js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -22,11 +23,18 @@ describe('createTrueFoundryServer', () => {
       data: { sandbox: { enabled: true }, skill: { enabled: true } },
     };
     const getCapabilities = vi.fn(async () => capabilities);
-    const getModels = vi.fn(async () => [{ name: 'm', provider: 'p', apiModel: 'p/m', modelId: 'm' }]);
+    const getModels = vi.fn(async () => [
+      {
+        id: 'm',
+        name: 'p/m',
+        provider: { name: 'p' },
+        properties: {},
+      },
+    ]);
     const getSkills = vi.fn(async () => []);
     const getMcp = vi.fn(async () => []);
     const searchAgents = vi.fn(async () => [{ name: 'ask-ai-agent', agentId: 'ask-ai-agent' }]);
-    const saveAgent = vi.fn(async () => ({ ok: true }));
+    const saveAgent = vi.fn(async (): Promise<SaveAgentResult> => ({ agentId: 'agent-1' }));
 
     const server = createTrueFoundryServer({
       chatServer,
@@ -52,6 +60,7 @@ describe('createTrueFoundryServer', () => {
     await server.saveAgent({
       agentName: 'my-agent',
       agentSpec: { model: { name: 'p/m' } },
+      intent: 'create',
     });
     expect(saveAgent).toHaveBeenCalled();
   });
@@ -157,7 +166,7 @@ describe('createTrueFoundryServer', () => {
       getSkills: async () => [],
       getMcp: async () => [],
       searchAgents: async () => [],
-      saveAgent: async () => ({ ok: true }),
+      saveAgent: async () => ({ agentId: 'agent-1' }),
       catalog,
     });
 

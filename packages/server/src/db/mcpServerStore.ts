@@ -40,15 +40,39 @@ export interface ListMcpServersInput {
   names: readonly string[] | undefined;
 }
 
-export interface UpsertMcpServerInput {
+export interface CreateMcpServerInput {
   tenant_id: string;
   name: ResourceName;
   manifest: McpServerManifest;
 }
 
+/** Same shape as create for now; kept as a distinct name for the upsert path. */
+export type UpsertMcpServerInput = CreateMcpServerInput;
+
+/** Unique `(tenant_id, name)` violation on create. */
+export class McpServerNameConflictError extends Error {
+  readonly tenant_id: string;
+  readonly server_name: string;
+
+  constructor({ tenant_id, name }: { tenant_id: string; name: string }, options?: ErrorOptions) {
+    super(`MCP server name already exists: ${name}`, options);
+    this.name = 'McpServerNameConflictError';
+    this.tenant_id = tenant_id;
+    this.server_name = name;
+  }
+}
+
 export interface IMcpServerStore<TTransaction = never> extends IOAuthClientStore<TTransaction> {
   listServers(input: ListMcpServersInput, transaction?: TTransaction): Promise<McpServerRecord[]>;
   getServer(input: GetMcpServerInput, transaction?: TTransaction): Promise<McpServerRecord | undefined>;
+  /**
+   * Load one server while holding a row lock for the lifetime of `transaction`.
+   * Postgres: `SELECT … FOR UPDATE`. SQLite: plain read under a write txn (BEGIN IMMEDIATE).
+   * Required before read-modify-write of header secrets so concurrent keep/rotate cannot interleave.
+   */
+  getServerForUpdate(input: GetMcpServerInput, transaction: TTransaction): Promise<McpServerRecord | undefined>;
+  /** Inserts a new server with a generated ULID. Throws McpServerNameConflictError on name clash. */
+  createServer(input: CreateMcpServerInput, transaction?: TTransaction): Promise<McpServerRecord>;
   /**
    * Creates the server or replaces `manifest` (+ `updated_at`) only.
    * Never overwrites `id`, `oauth_server`, or `oauth_client`.

@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useOptionalServer } from '../../server/ServerContext.js';
-import type { AgentSkill, ConnectorState, ModelSelection } from '../../server/types.js';
+import type { AgentSkill, AgentUIServer, ConnectorState, ModelSelection } from '../../server/types.js';
 import { getErrorMessage } from '../../utils/getErrorMessage.js';
 
 type DraftCatalogValue = {
@@ -14,14 +14,29 @@ type DraftCatalogValue = {
   error: string | null;
   /** Kick off catalog fetch (idempotent). Call when a picker opens. */
   ensureLoaded: () => void;
+  /** Refresh connector auth state without reloading unrelated catalogs. */
+  refreshConnectors: () => Promise<void>;
 };
 
-const DraftCatalogContext = createContext<DraftCatalogValue | null>(null);
+type DraftCatalogContextValue = DraftCatalogValue & {
+  server: AgentUIServer | null;
+};
+
+const DraftCatalogContext = createContext<DraftCatalogContextValue | null>(null);
 
 const IDLE_ENSURE = () => undefined;
+const IDLE_REFRESH = async () => undefined;
 
 export function DraftCatalogProvider({ children }: { children: ReactNode }) {
   const server = useOptionalServer();
+  const existing = useContext(DraftCatalogContext);
+  if (existing?.server === server) {
+    return children;
+  }
+  return <DraftCatalogStore server={server}>{children}</DraftCatalogStore>;
+}
+
+function DraftCatalogStore({ server, children }: { server: AgentUIServer | null; children: ReactNode }) {
   const [requested, setRequested] = useState(false);
   const [models, setModels] = useState<ModelSelection[]>([]);
   const [skills, setSkills] = useState<AgentSkill[]>([]);
@@ -32,6 +47,20 @@ export function DraftCatalogProvider({ children }: { children: ReactNode }) {
   const ensureLoaded = useCallback(() => {
     setRequested(true);
   }, []);
+
+  const refreshConnectors = useCallback(async () => {
+    if (!server) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const nextConnectors = await server.getMcp();
+      setConnectors(nextConnectors);
+    } catch (reason: unknown) {
+      setError(getErrorMessage(reason, 'Failed to load connectors.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [server]);
 
   useEffect(() => {
     if (!requested || !server) return;
@@ -69,8 +98,8 @@ export function DraftCatalogProvider({ children }: { children: ReactNode }) {
   }, [requested, server]);
 
   const value = useMemo(
-    () => ({ models, skills, connectors, loading, error, ensureLoaded }),
-    [models, skills, connectors, loading, error, ensureLoaded],
+    () => ({ server, models, skills, connectors, loading, error, ensureLoaded, refreshConnectors }),
+    [server, models, skills, connectors, loading, error, ensureLoaded, refreshConnectors],
   );
 
   return <DraftCatalogContext.Provider value={value}>{children}</DraftCatalogContext.Provider>;
@@ -86,6 +115,7 @@ export function useDraftCatalog(): DraftCatalogValue {
       loading: false,
       error: null,
       ensureLoaded: IDLE_ENSURE,
+      refreshConnectors: IDLE_REFRESH,
     };
   }
   return ctx;

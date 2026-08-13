@@ -42,7 +42,7 @@ over hacking third-party CSS:
 />
 ```
 
-Presets: `truefoundry` (default), `claude`, `chatgpt`, `gemini` — stylistic
+Presets: `trueforge` (default), `claude`, `chatgpt`, `gemini` — stylistic
 homages, not product replicas. Host CSS still works on `.aui-root` /
 `.aui-markdown` / `.aui-syntax-highlighter` / `.aui-openui` / `.aui-monaco`.
 
@@ -70,7 +70,8 @@ Public override surface (primitives stay theme/CSS — not slots):
   `AttachmentPickerButton`, `Toast`, `ToastStack`
 - **Tools / prompts:** `ToolCallCard`, `ToolCallContentBlock`,
   `ToolApprovalBar`, `ToolGroupCard`, `SubAgentCard`, `SandboxToolCallCard`,
-  `AgentStepsCard`, `ReasoningCard`, `AskUserPrompt`, `McpAuthPrompt`
+  `AgentStepsCard`, `ReasoningCard`, `AskUserPrompt`, `McpAuthPrompt`,
+  `ResumeUnavailable`
 
 ## Custom layout
 

@@ -1,8 +1,9 @@
 'use client';
 
 import { useTrueFoundryAgentSpec, useTrueFoundryUpdateAgentSpec } from '@truefoundry/assistant-ui-runtime';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { useMCPAuth } from '../../hooks/useMcpAuth.js';
 import { Icon } from '../../icons/Icon.js';
 import { useServerCapabilities } from '../../server/ServerContext.js';
 import type { AgentSkill, ConnectorState } from '../../server/types.js';
@@ -11,17 +12,20 @@ import { cn } from '../lib/cn.js';
 import { useCompactLayout } from '../lib/CompactLayoutContext.js';
 import { useIsMobile } from '../lib/useIsMobile.js';
 import { BottomSheet } from '../primitives/BottomSheet.js';
+import { Tooltip } from '../primitives/Tooltip.js';
+import { readAgentCapabilities, withAgentCapabilities } from './agentCapabilities.js';
+import { DraftCapabilitiesPanel } from './DraftCapabilitiesPanel.js';
 import { useDraftCatalog } from './DraftCatalogProvider.js';
 
 /** Catalog-backed mount shape used by the draft picker (runtime mounts stay opaque). */
-type DraftMount = { id: string; name: string };
+export type DraftMount = { id: string; name: string };
 
 /**
  * Harness wire mounts are name-keyed (`{ name }` only). Catalog rows use
  * `id === name`, so missing ids hydrate from name — otherwise save/load drops
  * mounts from the picker and the next flush can wipe them from the spec.
  */
-function draftMountsFromSpec(value: unknown): DraftMount[] {
+export function draftMountsFromSpec(value: unknown): DraftMount[] {
   if (!Array.isArray(value)) return [];
   const mounts: DraftMount[] = [];
   for (const item of value) {
@@ -33,12 +37,12 @@ function draftMountsFromSpec(value: unknown): DraftMount[] {
   }
   return mounts;
 }
-type AttachTab = 'connectors' | 'skills' | 'files';
+type AttachTab = 'connectors' | 'skills' | 'capabilities';
 
 const TABS: { id: AttachTab; label: string; icon: string }[] = [
   { id: 'connectors', label: 'Connectors', icon: 'plug' },
-  { id: 'skills', label: 'Skills', icon: 'list-check' },
-  { id: 'files', label: 'Attachment', icon: 'paperclip' },
+  { id: 'skills', label: 'Skills', icon: 'lightbulb' },
+  { id: 'capabilities', label: 'Capabilities', icon: 'wrench' },
 ];
 
 const SPEC_FLUSH_MS = 300;
@@ -48,7 +52,9 @@ function Checkbox({ checked }: { checked: boolean }) {
     <span
       className={cn(
         'flex size-4 shrink-0 items-center justify-center rounded border',
-        checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-background',
+        checked
+          ? 'border-primary-button-bg bg-primary-button-bg text-primary-button-text'
+          : 'border-input-border bg-input-box-bg',
       )}
       aria-hidden
     >
@@ -57,36 +63,105 @@ function Checkbox({ checked }: { checked: boolean }) {
   );
 }
 
-function CatalogRow({
+export function CatalogRow({
   title,
   description,
   checked,
   disabled = false,
   onToggle,
+  action,
 }: {
   title: string;
   description?: string;
   checked: boolean;
   disabled?: boolean;
   onToggle: () => void;
+  action?: ReactNode;
 }) {
+  const content = (
+    <>
+      <span className="bg-secondary-bg text-text-secondary mt-0.5 flex size-7 shrink-0 items-center justify-center rounded text-xs font-semibold">
+        {title.charAt(0).toUpperCase()}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="text-text-primary block truncate text-sm font-medium">{title}</span>
+        {description ? <span className="text-text-secondary line-clamp-1 text-xs">{description}</span> : null}
+      </span>
+    </>
+  );
+
+  if (action) {
+    return (
+      <div
+        role="menuitemcheckbox"
+        aria-checked={checked}
+        tabIndex={0}
+        className="hover:bg-ghost-button-hover flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left"
+        onClick={onToggle}
+        onKeyDown={event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          onToggle();
+        }}
+      >
+        {content}
+        <span className="shrink-0">{action}</span>
+        <Checkbox checked={checked} />
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
       role="menuitemcheckbox"
       aria-checked={checked}
       disabled={disabled}
-      className="hover:bg-accent flex w-full items-start gap-2 rounded-md px-2 py-2 text-left disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+      className="hover:bg-ghost-button-hover flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
       onClick={onToggle}
     >
-      <span className="bg-muted text-muted-foreground mt-0.5 flex size-7 shrink-0 items-center justify-center rounded text-xs font-semibold">
-        {title.charAt(0).toUpperCase()}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="text-foreground block truncate text-sm font-medium">{title}</span>
-        {description ? <span className="text-muted-foreground line-clamp-1 text-xs">{description}</span> : null}
-      </span>
-      {disabled ? <Icon name="lock" className="text-muted-foreground mt-1 size-3" /> : <Checkbox checked={checked} />}
+      {content}
+      {disabled ? <Icon name="lock" className="text-text-secondary size-3" /> : <Checkbox checked={checked} />}
+    </button>
+  );
+}
+
+export function isUnauthenticatedDcrConnector(connector: ConnectorState): boolean {
+  const auth = Reflect.get(connector, 'auth');
+  return (
+    connector.authenticated === false &&
+    typeof auth === 'object' &&
+    auth !== null &&
+    Reflect.get(auth, 'type') === 'dcr'
+  );
+}
+
+export function ConnectorConnectButton({
+  connector,
+  onConnected,
+}: {
+  connector: ConnectorState;
+  onConnected: () => Promise<void>;
+}) {
+  const { handleAuthorize, isOAuthLoading } = useMCPAuth();
+
+  return (
+    <button
+      type="button"
+      aria-label={`Connect ${connector.name}`}
+      disabled={isOAuthLoading}
+      className={auiButtonClass({ variant: 'secondary', size: 'sm' })}
+      onKeyDown={event => {
+        event.stopPropagation();
+      }}
+      onClick={event => {
+        event.stopPropagation();
+        void handleAuthorize(connector.id, isSuccess => {
+          if (isSuccess) void onConnected();
+        });
+      }}
+    >
+      {isOAuthLoading ? 'Connecting...' : 'Connect'}
     </button>
   );
 }
@@ -104,14 +179,14 @@ function SearchField({
     <label className="relative mx-3 my-2 block">
       <Icon
         name="search"
-        className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2"
+        className="text-text-secondary pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2"
       />
       <input
         type="search"
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="border-input bg-muted/50 placeholder:text-muted-foreground h-8 w-full rounded-md border-0 py-1 pr-2 pl-7 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="border-input-border bg-secondary-bg/40 text-text-primary placeholder:text-text-secondary h-8 w-full rounded-md border-0 py-1 pr-2 pl-7 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus-ring/40"
       />
     </label>
   );
@@ -125,14 +200,14 @@ export type DraftCompositeSelectorProps = {
 
 function SectionHeading({ label, count }: { label: string; count: number }) {
   return (
-    <div className="text-muted-foreground px-3 pt-2 pb-1 text-[11px] font-medium tracking-wide uppercase">
+    <div className="text-text-secondary px-3 pt-2 pb-1 text-[11px] font-medium tracking-wide uppercase">
       {label} ({count})
     </div>
   );
 }
 
 export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftCompositeSelectorProps) {
-  const { skills, connectors, ensureLoaded } = useDraftCatalog();
+  const { skills, connectors, ensureLoaded, refreshConnectors } = useDraftCatalog();
   const capabilities = useServerCapabilities();
   const { agentSpec } = useTrueFoundryAgentSpec();
   const updateAgentSpec = useTrueFoundryUpdateAgentSpec();
@@ -166,6 +241,8 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
   const selectedSkills = open ? localSkills : specSkills;
   const selectedMcpIds = useMemo(() => new Set(selectedMcp.map(m => m.id)), [selectedMcp]);
   const selectedSkillIds = useMemo(() => new Set(selectedSkills.map(s => s.id)), [selectedSkills]);
+  const hasValidModel = Boolean(agentSpec?.model?.name.trim());
+  const toolsCount = selectedMcp.length + selectedSkills.length;
 
   const clearFlushTimer = useCallback(() => {
     if (flushTimerRef.current != null) {
@@ -205,32 +282,41 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
   }, [open, ensureLoaded]);
 
   useEffect(() => {
+    if (open && !hasValidModel) {
+      setOpenAndFlush(false);
+    }
+  }, [hasValidModel, open, setOpenAndFlush]);
+
+  useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
+    // Flush on pointer or keyboard focus leaving the picker so Save Agent (and
+    // other outside actions) see the latest local connector/skill toggles.
+    const handler = (e: Event) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpenAndFlush(false);
       }
     };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('focusin', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('focusin', handler);
+    };
   }, [open, setOpenAndFlush]);
 
   useEffect(() => () => clearFlushTimer(), [clearFlushTimer]);
 
-  // Keep unavailable selections visible so users can remove them.
-  // Hosts that omit auth info keep their connectors selectable.
-  const selectableConnectors = useMemo(
-    () => connectors.filter(c => selectedMcpIds.has(c.id) || c.authenticated || !c.requiresAuth),
-    [connectors, selectedMcpIds],
-  );
-
   const filteredConnectors = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return selectableConnectors;
-    return selectableConnectors.filter(
-      c => c.name.toLowerCase().includes(needle) || (c.description?.toLowerCase().includes(needle) ?? false),
+    const matches = needle
+      ? connectors.filter(
+          c => c.name.toLowerCase().includes(needle) || (c.description?.toLowerCase().includes(needle) ?? false),
+        )
+      : connectors;
+    return [...matches].sort(
+      (left, right) => Number(isUnauthenticatedDcrConnector(left)) - Number(isUnauthenticatedDcrConnector(right)),
     );
-  }, [selectableConnectors, query]);
+  }, [connectors, query]);
 
   const filteredSkills = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -277,7 +363,12 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
     scheduleFlush();
   };
 
-  const openPicker = () => {
+  const openPicker = (nextTab?: AttachTab) => {
+    if (nextTab != null) {
+      setTab(nextTab);
+      setQuery('');
+    }
+    if (open) return;
     setLocalMcp(specMcp);
     setLocalSkills(specSkills);
     dirtyRef.current = false;
@@ -298,8 +389,8 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
               key={t.id}
               type="button"
               className={cn(
-                'text-muted-foreground flex flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-xs font-medium',
-                active && 'text-foreground border-b-2 border-foreground',
+                'text-text-secondary flex flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-xs font-medium',
+                active && 'text-text-primary border-b-2 border-text-primary',
               )}
               onClick={() => {
                 setTab(t.id);
@@ -308,30 +399,35 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
             >
               <Icon name={t.icon} className="size-3.5" />
               {t.label}
-              {count != null && count > 0 ? <span className="bg-muted rounded px-1 text-[10px]">{count}</span> : null}
+              {count != null && count > 0 ? (
+                <span className="bg-secondary-bg rounded px-1 text-[10px]">{count}</span>
+              ) : null}
             </button>
           );
         })}
       </div>
 
-      {tab === 'files' ? (
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => {
-            onAttach?.();
-            setOpenAndFlush(false);
-          }}
-          className={cn(
-            'm-3 flex min-h-48 flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border px-4 py-8',
-            'text-center outline-none transition-colors hover:bg-accent/40',
-            'disabled:cursor-not-allowed disabled:opacity-50',
-          )}
-        >
-          <Icon name="paperclip" className="text-primary size-6" />
-          <span className="text-sm font-medium">Add files or photos</span>
-          <span className="text-muted-foreground text-xs">Upto 5 attachments | 10 MB each</span>
-        </button>
+      {tab === 'capabilities' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <DraftCapabilitiesPanel
+            value={readAgentCapabilities(agentSpec?.config)}
+            disabled={disabled || isRunning}
+            onChange={values => {
+              // Capability writes bypass the mount debounce. Fold in any dirty
+              // local mounts in the same update so a pending connector/skill
+              // toggle is not overwritten by a config-only sync.
+              clearFlushTimer();
+              const includeLocalMounts = dirtyRef.current;
+              if (includeLocalMounts) {
+                dirtyRef.current = false;
+              }
+              updateAgentSpec?.({
+                ...(includeLocalMounts ? { mcpServers: localMcpRef.current, skills: localSkillsRef.current } : {}),
+                config: withAgentCapabilities({ config: agentSpec?.config, values }),
+              });
+            }}
+          />
+        </div>
       ) : (
         <>
           <SearchField
@@ -342,9 +438,9 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
           {tab === 'skills' && skillsDisabled && skillsDisabledReason ? (
             <div
               role="status"
-              className="border-primary/30 bg-primary/5 text-foreground mx-3 mb-2 flex items-center gap-2 rounded-lg border p-3"
+              className="border-primary-button-bg/30 bg-primary-button-bg/5 text-text-primary mx-3 mb-2 flex items-center gap-2 rounded-lg border p-3"
             >
-              <Icon name="lock" className="text-primary size-3 shrink-0" />
+              <Icon name="lock" className="text-primary-button-bg size-3 shrink-0" />
               <span className="text-xs leading-none">{skillsDisabledReason}</span>
             </div>
           ) : null}
@@ -360,6 +456,11 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
                         title={c.name}
                         description={c.description}
                         checked={selectedMcpIds.has(c.id)}
+                        action={
+                          isUnauthenticatedDcrConnector(c) ? (
+                            <ConnectorConnectButton connector={c} onConnected={refreshConnectors} />
+                          ) : undefined
+                        }
                         onToggle={() => toggleConnector(c)}
                       />
                     ))}
@@ -374,6 +475,11 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
                         title={c.name}
                         description={c.description}
                         checked={selectedMcpIds.has(c.id)}
+                        action={
+                          isUnauthenticatedDcrConnector(c) ? (
+                            <ConnectorConnectButton connector={c} onConnected={refreshConnectors} />
+                          ) : undefined
+                        }
                         onToggle={() => toggleConnector(c)}
                       />
                     ))}
@@ -421,27 +527,51 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
   );
 
   return (
-    <div ref={containerRef} className="relative">
-      <button
-        type="button"
-        disabled={disabled || isRunning}
-        aria-label="Add connectors, skills, or attachments"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        className={auiButtonClass({ variant: 'ghost', size: 'icon' })}
-        onClick={() => {
-          if (open) {
-            setOpenAndFlush(false);
-            return;
-          }
-          openPicker();
-        }}
-      >
-        <Icon name="plus" className="text-primary" />
-      </button>
+    <div ref={containerRef} className="relative flex flex-wrap items-center gap-1.5">
+      {hasValidModel ? (
+        <button
+          type="button"
+          disabled={disabled || isRunning}
+          aria-label={`Tools (${toolsCount})`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          className={auiButtonClass({
+            variant: 'ghost',
+            size: 'sm',
+            className: 'h-8 gap-1.5 rounded-md px-2 text-xs',
+          })}
+          onClick={() => {
+            if (open) {
+              setOpenAndFlush(false);
+              return;
+            }
+            openPicker();
+          }}
+        >
+          <Icon name="wrench" className="size-3.5" />
+          <span>Tools</span>
+          <span className="bg-primary-button-bg/10 text-primary-button-bg rounded px-1.5 py-0.5 text-[10px] font-semibold">
+            {toolsCount}
+          </span>
+        </button>
+      ) : null}
 
-      {open ? (
+      {onAttach ? (
+        <Tooltip content="Attach a file">
+          <button
+            type="button"
+            disabled={disabled || isRunning}
+            aria-label="Attach a file"
+            className={auiButtonClass({ variant: 'ghost', size: 'icon' })}
+            onClick={onAttach}
+          >
+            <Icon name="paperclip" />
+          </button>
+        </Tooltip>
+      ) : null}
+
+      {open && hasValidModel ? (
         isMobile || compactLayout ? (
           <BottomSheet id={menuId} open onOpenChange={setOpenAndFlush} aria-label="Add to composer">
             {content}
@@ -451,36 +581,11 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
             id={menuId}
             role="dialog"
             aria-label="Add to composer"
-            className="bg-popover text-popover-foreground absolute bottom-full left-0 z-50 mb-2 flex h-[22rem] w-[28rem] max-w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border shadow-lg"
+            className="bg-card-bg text-text-primary absolute bottom-full left-0 z-50 mb-2 flex h-[22rem] w-[28rem] max-w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border shadow-lg"
           >
             {content}
           </div>
         )
-      ) : null}
-    </div>
-  );
-}
-
-export function DraftSelectionChips() {
-  const { agentSpec } = useTrueFoundryAgentSpec();
-  const mcpCount = agentSpec?.mcpServers?.length ?? 0;
-  const skillCount = agentSpec?.skills?.length ?? 0;
-
-  if (mcpCount === 0 && skillCount === 0) return null;
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {mcpCount > 0 ? (
-        <span className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs">
-          <Icon name="plug" className="size-3" />
-          {mcpCount} Connector{mcpCount === 1 ? '' : 's'}
-        </span>
-      ) : null}
-      {skillCount > 0 ? (
-        <span className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs">
-          <Icon name="list-check" className="size-3" />
-          {skillCount} Skill{skillCount === 1 ? '' : 's'}
-        </span>
       ) : null}
     </div>
   );

@@ -3,7 +3,7 @@
 Hard-cut `tfy-web-components`. Own primitives (shadcn-style, in-repo),
 Markdown/OpenUI/syntax-highlighter/Monaco, Lucide icons (swappable map +
 SVG transform), and a **theme object** with presets
-(`truefoundry` | `claude` | `chatgpt` | `gemini`) plus full token / className /
+(`trueforge` | `claude` | `chatgpt` | `gemini`) plus full token / className /
 icon / **brand** / **content classNames** customization. Shell also accepts a
 **custom layout** React component built from `Thread`, thread list, etc.
 
@@ -43,7 +43,7 @@ track (orthogonal to [`docs/server.md`](./server.md)).
 | Icons           | Lucide defaults; host can replace map + supply SVG transforms                            |
 | Brand           | Logo URL (per-mode) via `theme.brand`; component marks via the `BrandLogo` slot          |
 | Theme API       | Object (not string-only); every look aspect customizable                                 |
-| Presets         | Inspired-by packs: `truefoundry` (default), `claude`, `chatgpt`, `gemini`                |
+| Presets         | Inspired-by packs: `trueforge` (default), `claude`, `chatgpt`, `gemini`                  |
 | Custom styles   | CSS tokens + `className`; host may also import CSS (documented). No “load CSS file” prop |
 | Light / dark    | Controlled `mode` on the theme object **or** omit → uncontrolled `useTheme().setTheme`   |
 | React overrides | Structural pieces via **`overrides` / slots**; full chrome via **`layout` component**    |
@@ -78,7 +78,7 @@ props):
 - Tools: `ToolCallCard`, `ToolCallContentBlock`, `ToolApprovalBar`,
   `ToolGroupCard`, `SubAgentCard`, `SandboxToolCallCard`, `AgentStepsCard`,
   `ReasoningCard`
-- Prompts: `AskUserPrompt`, `McpAuthPrompt`
+- Prompts: `AskUserPrompt`, `McpAuthPrompt`, `ResumeUnavailable`
 - `Markdown` (OpenUI + highlighter)
 - Layout helpers using `IconProvider` → local icon resolver
 
@@ -112,39 +112,53 @@ New direct dependencies this implies: `monaco-editor`, `react-syntax-highlighter
 ```ts
 type ThemeMode = "light" | "dark" | "system";
 
-type ThemePreset = "truefoundry" | "claude" | "chatgpt" | "gemini";
+type ThemePreset = "trueforge" | "claude" | "chatgpt" | "gemini";
 
 type SemanticTokens = {
-  background: string;
-  foreground: string;
-  card: string;
-  cardForeground: string;
-  popover: string;
-  popoverForeground: string;
-  primary: string;
-  primaryForeground: string;
-  secondary: string;
-  secondaryForeground: string;
-  muted: string;
-  mutedForeground: string;
-  accent: string;
-  accentForeground: string;
-  destructive: string;
-  destructiveForeground: string;
-  success: string;
-  successForeground: string;
-  warning: string;
-  warningForeground: string;
+  // Across product
+  sidebarBg: string;
+  topbarBg: string;
+  primaryBg: string;
+  secondaryBg: string;
   border: string;
-  input: string;
-  ring: string;
-  radius: string;
   fontFamily: string; // maps to --font-agent-ui
-  // optional chat-specific:
-  userBubble?: string;
-  userBubbleForeground?: string;
-  assistantBubble?: string;
-  assistantBubbleForeground?: string;
+  // Building blocks
+  inputBoxBg: string;
+  inputBorder: string;
+  textPrimary: string;
+  textSecondary: string;
+  cardBg: string;
+  dropdownSelectedItemBg: string;
+  dropdownSelectedItemText: string;
+  // Chat
+  userMessageBg: string;
+  userMessageText: string;
+  assistantMessageBg: string;
+  assistantMessageText: string;
+  // Buttons
+  primaryButtonBg: string;
+  primaryButtonHover: string;
+  primaryButtonText: string;
+  secondaryButtonBg: string;
+  secondaryButtonHover: string;
+  secondaryButtonText: string;
+  ghostButtonBg: string;
+  ghostButtonHover: string;
+  ghostButtonText: string;
+  // Status
+  successBg: string;
+  successText: string;
+  failureBg: string;
+  failureText: string;
+  warningBg: string;
+  warningText: string;
+  // Kept internals
+  focusRing: string;
+  radius: string;
+  composerRadius: string;
+  overlay: string;
+  shadowColor: string;
+  scrollbarThumb: string;
 };
 
 /** UI action icons (send, attach, copy, …) — Lucide, React nodes, or SVG wrappers */
@@ -187,7 +201,7 @@ type BrandConfig = {
 };
 
 type ThemeConfig = {
-  preset?: ThemePreset; // default: "truefoundry"
+  preset?: ThemePreset; // default: "trueforge"
   mode?: ThemeMode; // omit = uncontrolled (useTheme().setTheme)
   tokens?: Partial<SemanticTokens>;
   brand?: BrandConfig; // logo image + display name
@@ -253,7 +267,7 @@ function MyLayout({ className }: { className?: string }) {
   theme={{
     preset: 'claude',
     mode: 'dark',
-    tokens: { primary: '#…', fontFamily: '"My Font", system-ui' },
+    tokens: { primaryButtonBg: '#…', fontFamily: '"My Font", system-ui' },
     brand: {
       name: 'Acme Agent',
       logo: { light: '/acme-wordmark.svg', dark: '/acme-wordmark-dark.svg' },
@@ -287,8 +301,8 @@ as `children`.
 **Custom styles without the object:** host CSS still works:
 
 ```css
-.aui-root {
-  --primary: #e11d48;
+.aui-theme-root {
+  --primary-button-bg: #e11d48;
   --font-agent-ui: 'My Font', system-ui, sans-serif;
 }
 
@@ -390,12 +404,12 @@ function CenteredLayout() {
 
 Ship as CSS variable maps under e.g. `src/theme/presets/`:
 
-| Preset        | Intent (not a clone)                                    |
-| ------------- | ------------------------------------------------------- |
-| `truefoundry` | Current indigo semantic look                            |
-| `claude`      | Warm paper bg, soft borders, restrained accent          |
-| `chatgpt`     | Cool gray chrome, green/teal send accent, flat bubbles  |
-| `gemini`      | Light airy surface, blue accent, slightly larger radius |
+| Preset      | Intent (not a clone)                                    |
+| ----------- | ------------------------------------------------------- |
+| `trueforge` | Current indigo semantic look                            |
+| `claude`    | Warm paper bg, soft borders, restrained accent          |
+| `chatgpt`   | Cool gray chrome, green/teal send accent, flat bubbles  |
+| `gemini`    | Light airy surface, blue accent, slightly larger radius |
 
 Each preset defines **light + dark** token sets. Document that these are
 stylistic homages, not product replicas.
@@ -457,7 +471,7 @@ TrueforgeUI({ layout, theme, overrides, … })
    `<BrandLogo />`) even if defaults still point at TFY assets.
 
 **Done when:** app runs with owned tokens (tfy components may still be present);
-host can override `--primary` and swap `theme.brand.logo`.
+host can override `--primary-button-bg` and swap `theme.brand.logo`.
 
 ### Phase 2 — shadcn primitives + icon + brand registry
 
@@ -501,7 +515,7 @@ overrides apply in the example app.
 
 ### Phase 5 — Presets + polish
 
-1. Ship `claude` / `chatgpt` / `gemini` / `truefoundry` packs.
+1. Ship `claude` / `chatgpt` / `gemini` / `trueforge` packs.
 2. Example app: theme switcher + custom layout demo + content classNames demo.
 3. Drop `tfy-web-components` from `dependencies` / `peerDependencies`.
 4. CHANGELOG + migration guide (slot props, styles, brand, layout, classNames).

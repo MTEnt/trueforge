@@ -1,9 +1,10 @@
 /** The API: resource routers, the OpenAPI document and Swagger UI, all under /api/v1. */
 import { swaggerUI } from '@hono/swagger-ui';
 import { OpenAPIHono, z } from '@hono/zod-openapi';
-import type { ISessionStore, Sessions, TurnStreamingEvent } from '@truefoundry/utils-core/agent-session';
-import type { RequestReplyRouter } from '@truefoundry/utils-core/request-reply';
-import type { Context } from 'hono';
+import type { ISessionStore, Sessions, TurnStreamingEvent } from '@truefoundry/trueforge-core/agent-session';
+import { extractErrorLogFields } from '@truefoundry/trueforge-core/core';
+import type { RequestReplyRouter } from '@truefoundry/trueforge-core/request-reply';
+import type { Context, ErrorHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { Configuration } from 'openid-client';
 import type { RedisClientType } from 'redis';
@@ -11,6 +12,7 @@ import type { Logger } from 'winston';
 import { createAgentsRouter } from './apis/agents';
 import { createAuthRouter } from './apis/auth';
 import { createCapabilitiesRouter } from './apis/capabilities';
+import { createCatalogRouter } from './apis/catalog';
 import { createMcpOAuthRouter } from './apis/mcpOAuth';
 import { createMcpServersRouter } from './apis/mcpServers';
 import { createModelsRouter } from './apis/models';
@@ -36,6 +38,25 @@ import type { EventSubscriptionRegistry } from './runtime/event-subscription';
 import { zodErrorResponse, zodValidationHook } from './zodErrorResponse';
 
 const BEARER_AUTH_SCHEME = 'BearerAuth';
+
+export function createAppErrorHandler(params: { logger: Logger }): ErrorHandler {
+  return (error, c) => {
+    if (error instanceof z.ZodError) {
+      return zodErrorResponse(c, error);
+    }
+    if (error instanceof HTTPException) {
+      if (error.status >= 500) {
+        params.logger.error('Server API error', {
+          status: error.status,
+          ...extractErrorLogFields(error),
+        });
+      }
+      return c.json({ error: { message: error.message } }, error.status);
+    }
+    params.logger.error('Unhandled error', extractErrorLogFields(error));
+    return c.json({ error: { message: 'Internal server error' } }, 500);
+  };
+}
 
 const openApiDocConfig = {
   openapi: '3.1.0',
@@ -151,6 +172,17 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
       }),
     ),
   );
+  app.route(
+    '/api/v1/catalog',
+    withAuth(
+      createCatalogRouter({
+        modelCatalog: deps.modelCatalog,
+        mcpCatalog: deps.mcpCatalog,
+        skillCatalog: deps.skillCatalog,
+        sandboxCatalog: deps.sandboxCatalog,
+      }),
+    ),
+  );
   // Public MCP OAuth callback must be registered before the gated `/mcp-servers` mount so
   // `withAuth` cannot intercept IdP redirects to `/api/v1/mcp-servers/oauth/*`.
   app.route(
@@ -200,14 +232,10 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
     '/api/v1/settings',
     withAdminAuth(
       createSettingsRouter({
-        modelCatalog: deps.modelCatalog,
         modelProviderStore: deps.modelProviderStore,
-        mcpCatalog: deps.mcpCatalog,
         mcpServerStore: deps.mcpServerStore,
         tokenStore: deps.tokenStore,
-        skillCatalog: deps.skillCatalog,
         skillStore: deps.skillStore,
-        sandboxCatalog: deps.sandboxCatalog,
         sandboxProviderStore: deps.sandboxProviderStore,
         withTransaction: deps.withTransaction,
         logger: deps.logger,
@@ -258,16 +286,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
 
   app.notFound(routeNotFound);
 
-  app.onError((error, c) => {
-    if (error instanceof z.ZodError) {
-      return zodErrorResponse(c, error);
-    }
-    if (error instanceof HTTPException) {
-      return c.json({ error: { message: error.message } }, error.status);
-    }
-    deps.logger.error('Unhandled error', { message: error.message, stack: error.stack });
-    return c.json({ error: { message: 'Internal server error' } }, 500);
-  });
+  app.onError(createAppErrorHandler({ logger: deps.logger }));
 
   return app;
 }

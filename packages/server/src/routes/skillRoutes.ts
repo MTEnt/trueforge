@@ -2,44 +2,18 @@
  * DB-backed skill route definitions.
  * Admin routes mount at /api/v1/settings/skills; the chat list mounts at
  * /api/v1/skills.
+ * Discovery catalog lives at GET /api/v1/catalog/skills.
  */
 import { createRoute } from '@hono/zod-openapi';
 import { RequestErrorResponseSchema } from '../schemas/errors';
 import {
   ListAvailableSkillsResponseSchema,
   ListConfiguredSkillsResponseSchema,
-  PutSkillRequestSchema,
   PutSkillResponseSchema,
+  SkillManifestSchema,
 } from '../schemas/skill';
-import { GetSkillCatalogResponseSchema } from '../schemas/skillCatalog';
 
 const SKILLS_TAG = 'Skills';
-
-export const getSkillCatalogRoute = createRoute({
-  method: 'get',
-  path: '/catalog',
-  tags: [SKILLS_TAG],
-  summary: 'Get the skill catalog',
-  description:
-    'Skill presets shipped with the server (skill-catalog.yaml). Discovery-only: copy an entry ' +
-    'into PUT /settings/skills to configure it.',
-  'x-fern-sdk-group-name': ['settings', 'skills'],
-  'x-fern-sdk-method-name': 'catalog',
-  responses: {
-    200: {
-      content: { 'application/json': { schema: GetSkillCatalogResponseSchema } },
-      description: 'The shipped catalog, verbatim.',
-    },
-    401: {
-      content: { 'application/json': { schema: RequestErrorResponseSchema } },
-      description: 'OIDC is configured and the request has no valid session cookie.',
-    },
-    403: {
-      content: { 'application/json': { schema: RequestErrorResponseSchema } },
-      description: 'OIDC is configured and the caller is authenticated but not an admin.',
-    },
-  },
-});
 
 /** Chat/composer read view — mounted at /api/v1/skills (not under settings). */
 export const listAvailableSkillsRoute = createRoute({
@@ -86,6 +60,36 @@ export const listConfiguredSkillsRoute = createRoute({
   },
 });
 
+export const createSkillRoute = createRoute({
+  method: 'post',
+  path: '/',
+  tags: [SKILLS_TAG],
+  summary: 'Create a skill',
+  description: 'Creates a skill keyed by `name`. Fails if `name` is already taken.',
+  'x-fern-sdk-group-name': ['settings', 'skills'],
+  'x-fern-sdk-method-name': 'create',
+  request: {
+    body: {
+      content: { 'application/json': { schema: SkillManifestSchema } },
+      required: true,
+    },
+  },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: PutSkillResponseSchema } },
+      description: 'The created skill.',
+    },
+    400: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description: 'Invalid request body.',
+    },
+    409: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description: 'A skill with this name already exists.',
+    },
+  },
+});
+
 export const putSkillRoute = createRoute({
   method: 'put',
   path: '/',
@@ -96,7 +100,7 @@ export const putSkillRoute = createRoute({
   'x-fern-sdk-method-name': 'upsert',
   request: {
     body: {
-      content: { 'application/json': { schema: PutSkillRequestSchema } },
+      content: { 'application/json': { schema: SkillManifestSchema } },
       required: true,
     },
   },

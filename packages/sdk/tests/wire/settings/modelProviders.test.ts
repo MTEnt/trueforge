@@ -87,6 +87,151 @@ describe("ModelProvidersClient", () => {
         }).rejects.toThrow(TrueForgeTypes.ForbiddenError);
     });
 
+    test("create (1)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
+        const rawRequestBody = {
+            auth: { api_key: "api_key" },
+            models: [{ model_id: "model_id", name: "name", properties: {} }],
+            type: "alibaba",
+        };
+        const rawResponseBody = {
+            data: {
+                auth: { api_key: "api_key" },
+                base_url: "base_url",
+                models: [{ model_id: "model_id", name: "name", properties: {} }],
+                type: "alibaba",
+            },
+        };
+
+        server
+            .mockEndpoint()
+            .post("/api/v1/settings/model-providers")
+            .jsonBody(rawRequestBody)
+            .respondWith()
+            .statusCode(200)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        const response = await client.settings.modelProviders.create({
+            auth: {
+                apiKey: "api_key",
+            },
+            models: [
+                {
+                    modelId: "model_id",
+                    name: "name",
+                    properties: {},
+                },
+            ],
+            type: "alibaba",
+        });
+        expect(response).toEqual({
+            data: {
+                auth: {
+                    apiKey: "api_key",
+                },
+                baseUrl: "base_url",
+                models: [
+                    {
+                        modelId: "model_id",
+                        name: "name",
+                        properties: {},
+                    },
+                ],
+                type: "alibaba",
+            },
+        });
+    });
+
+    test("create (2)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
+        const rawRequestBody = {
+            auth: { api_key: "x" },
+            models: [
+                { model_id: "x", name: "xy", properties: {} },
+                { model_id: "x", name: "xy", properties: {} },
+            ],
+            type: "alibaba",
+        };
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .post("/api/v1/settings/model-providers")
+            .jsonBody(rawRequestBody)
+            .respondWith()
+            .statusCode(400)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.settings.modelProviders.create({
+                auth: {
+                    apiKey: "x",
+                },
+                models: [
+                    {
+                        modelId: "x",
+                        name: "xy",
+                        properties: {},
+                    },
+                    {
+                        modelId: "x",
+                        name: "xy",
+                        properties: {},
+                    },
+                ],
+                type: "alibaba",
+            });
+        }).rejects.toThrow(TrueForgeTypes.BadRequestError);
+    });
+
+    test("create (3)", async () => {
+        const server = mockServerPool.createServer();
+        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
+        const rawRequestBody = {
+            auth: { api_key: "x" },
+            models: [
+                { model_id: "x", name: "xy", properties: {} },
+                { model_id: "x", name: "xy", properties: {} },
+            ],
+            type: "alibaba",
+        };
+        const rawResponseBody = { error: { message: "message" } };
+
+        server
+            .mockEndpoint()
+            .post("/api/v1/settings/model-providers")
+            .jsonBody(rawRequestBody)
+            .respondWith()
+            .statusCode(409)
+            .jsonBody(rawResponseBody)
+            .build();
+
+        await expect(async () => {
+            return await client.settings.modelProviders.create({
+                auth: {
+                    apiKey: "x",
+                },
+                models: [
+                    {
+                        modelId: "x",
+                        name: "xy",
+                        properties: {},
+                    },
+                    {
+                        modelId: "x",
+                        name: "xy",
+                        properties: {},
+                    },
+                ],
+                type: "alibaba",
+            });
+        }).rejects.toThrow(TrueForgeTypes.ConflictError);
+    });
+
     test("upsert (1)", async () => {
         const server = mockServerPool.createServer();
         const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
@@ -186,77 +331,5 @@ describe("ModelProvidersClient", () => {
                 type: "alibaba",
             });
         }).rejects.toThrow(TrueForgeTypes.BadRequestError);
-    });
-
-    test("catalog (1)", async () => {
-        const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
-
-        const rawResponseBody = {
-            data: [{ logo: "logo", models: [{ model_id: "model_id", name: "name", properties: {} }], type: "openai" }],
-        };
-
-        server
-            .mockEndpoint()
-            .get("/api/v1/settings/model-providers/catalog")
-            .respondWith()
-            .statusCode(200)
-            .jsonBody(rawResponseBody)
-            .build();
-
-        const response = await client.settings.modelProviders.catalog();
-        expect(response).toEqual({
-            data: [
-                {
-                    logo: "logo",
-                    models: [
-                        {
-                            modelId: "model_id",
-                            name: "name",
-                            properties: {},
-                        },
-                    ],
-                    type: "openai",
-                },
-            ],
-        });
-    });
-
-    test("catalog (2)", async () => {
-        const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
-
-        const rawResponseBody = { error: { message: "message" } };
-
-        server
-            .mockEndpoint()
-            .get("/api/v1/settings/model-providers/catalog")
-            .respondWith()
-            .statusCode(401)
-            .jsonBody(rawResponseBody)
-            .build();
-
-        await expect(async () => {
-            return await client.settings.modelProviders.catalog();
-        }).rejects.toThrow(TrueForgeTypes.UnauthorizedError);
-    });
-
-    test("catalog (3)", async () => {
-        const server = mockServerPool.createServer();
-        const client = new TrueForge({ maxRetries: 0, token: "test", baseUrl: server.baseUrl });
-
-        const rawResponseBody = { error: { message: "message" } };
-
-        server
-            .mockEndpoint()
-            .get("/api/v1/settings/model-providers/catalog")
-            .respondWith()
-            .statusCode(403)
-            .jsonBody(rawResponseBody)
-            .build();
-
-        await expect(async () => {
-            return await client.settings.modelProviders.catalog();
-        }).rejects.toThrow(TrueForgeTypes.ForbiddenError);
     });
 });

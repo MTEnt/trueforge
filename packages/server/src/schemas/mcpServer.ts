@@ -21,7 +21,9 @@ const McpServerHeaderAuthSchema = z
       .refine(headers => Object.keys(headers).length > 0, {
         message: 'must include at least one header',
       })
-      .describe('HTTP headers sent on each request to this MCP server.'),
+      .describe(
+        'Request headers for this MCP server. Responses are redacted; on PUT, a real value sets/rotates and a redacted value keeps the stored secret for that header name.',
+      ),
   })
   .strict()
   .openapi('McpServerHeaderAuth');
@@ -70,8 +72,12 @@ export const ConfiguredMcpServerSchema = McpServerManifestObjectSchema.extend({
   auth_status: McpAuthStatusSchema,
 }).openapi('ConfiguredMcpServer');
 
+/** PUT body — same Zod shape as `McpServerManifest` (OpenAPI name stays `McpServerManifest`). */
 export const PutMcpServerRequestSchema = McpServerManifestSchema;
+/** Shared create/upsert/disconnect response envelope (`{ data: ConfiguredMcpServer }`). */
 export const PutMcpServerResponseSchema = z.object({ data: ConfiguredMcpServerSchema }).openapi('PutMcpServerResponse');
+/** POST create body — separate OpenAPI name so Fern keeps the main-branch upsert request + `type` inject. */
+export const CreateMcpServerRequestSchema = McpServerManifestObjectSchema.openapi('CreateMcpServerRequest');
 export const GetMcpServerResponseSchema = z.object({ data: ConfiguredMcpServerSchema }).openapi('GetMcpServerResponse');
 export const ListMcpServersResponseSchema = z
   .object({ data: z.array(ConfiguredMcpServerSchema) })
