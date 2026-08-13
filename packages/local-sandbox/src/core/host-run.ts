@@ -5,6 +5,7 @@
 import { getDefaultWritePaths, SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { copyFile, mkdir, rm, unlink } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createServer, type Server, type Socket } from 'node:net';
@@ -13,8 +14,21 @@ import { fileURLToPath } from 'node:url';
 import { encodeFrame, FrameParser } from './frame.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** local-sandbox package root (`dist/src/core` → `../../..`). */
-const ROOT = join(HERE, '..', '..', '..');
+/** Package root from src/ or dist/src/ (Jest runs TypeScript source). */
+function packageRoot(startDir: string): string {
+  let dir = startDir;
+  for (;;) {
+    if (existsSync(join(dir, 'package.json')) && existsSync(join(dir, 'fixtures'))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      throw new Error(`local-sandbox package root not found from ${startDir}`);
+    }
+    dir = parent;
+  }
+}
+const ROOT = packageRoot(HERE);
 const FIXTURES = join(ROOT, 'fixtures');
 /** SRT ships Linux helpers (e.g. apply-seccomp) under vendor/; the wrapped command must read them. */
 // Package-root resolve (not app-module loading): Jest's CJS transform breaks import.meta.resolve.
@@ -333,8 +347,8 @@ export async function runSupervisorSession(params: {
     throw new Error('wrapWithSandboxArgv returned empty argv');
   }
 
+  // Curated env only — do not spread wrap.env (it can carry ambient host secrets).
   const childEnv: NodeJS.ProcessEnv = {
-    ...wrap.env,
     ...commandEnv(workspace, env),
     TFY_MCP_SOCK: sockForClient,
   };

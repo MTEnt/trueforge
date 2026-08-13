@@ -1,12 +1,13 @@
 /**
  * LocalSandboxProvider smoke (macOS host or Linux via Lima)
- * plus Code Mode pipe and security probes.
+ * plus Code Mode UDS and security probes. Run via `pnpm smoke`.
  */
 import { getDefaultWritePaths, SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +22,7 @@ import {
 } from '../src/core/host-run.js';
 import { LocalSandboxProvider } from '../src/provider/LocalSandboxProvider.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const WORKSPACES = join(ROOT, 'workspaces');
 const DENY_READ_SECRET = join(WORKSPACES, '.poc-deny-read-secret');
 const DEFAULT_TMP_CLAUDE = '/tmp/claude';
@@ -34,12 +35,14 @@ const ENV_INHERIT_MARKER = 'TFY_SMOKE_INHERIT';
 const ENV_INHERIT_VALUE = `inherit-${randomUUID()}`;
 const ENV_PEER_MARKER = 'TFY_SMOKE_PEER_ENV';
 const ENV_PEER_VALUE = `peer-secret-${randomUUID()}`;
+// Package-root resolve: Jest's CJS transform breaks import.meta.resolve.
 const SRT_VENDOR = join(
-  dirname(fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime/package.json'))),
+  dirname(createRequire(import.meta.url).resolve('@anthropic-ai/sandbox-runtime/package.json')),
   'vendor',
 );
 async function prepareHostProbeFiles(): Promise<void> {
   await mkdir(DEFAULT_TMP_CLAUDE, { recursive: true, mode: 0o700 });
+  await mkdir(WORKSPACES, { recursive: true, mode: 0o700 });
   await writeFile(DELETE_TARGET, 'delete-me\n', { mode: 0o600 });
   await writeFile(DENY_READ_SECRET, SECRET_CONTENTS, { mode: 0o600 });
 }
@@ -1575,7 +1578,6 @@ async function main(): Promise<void> {
   console.log('all smokes passed');
 }
 
-main().catch((error: unknown) => {
-  console.error(error);
-  process.exit(1);
-});
+test('local-sandbox smoke', async () => {
+  await main();
+}, 600_000);
