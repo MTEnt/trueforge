@@ -139,11 +139,27 @@ export { PromiseTimeoutError, withTimeout } from './util/promiseUtils';
 // Sandbox (concrete implementation; provider details exported for composition)
 export { DaytonaSandboxProvider } from './sandbox/provider/DaytonaProvider';
 export type { DaytonaSandboxProviderOptions } from './sandbox/provider/DaytonaProvider';
-export type { SandboxExecParams, SandboxInit, SandboxProvider } from './sandbox/provider/Provider';
+export { ensureExecSuccess, shellEscape } from './sandbox/provider/Provider';
+export type {
+  ExecErrorResult,
+  ExecResult,
+  ExecSuccessResult,
+  SandboxExecParams,
+  SandboxInit,
+  SandboxProvider,
+} from './sandbox/provider/Provider';
 export { TFYSandboxProvider } from './sandbox/provider/TFYSandboxProvider';
 export { SKILL_DOWNLOAD_TIMEOUT_SECONDS, Sandbox, buildWriteAndRunScriptCommand } from './sandbox/Sandbox';
 export type { SandboxInfo } from './sandbox/Sandbox';
-export { SandboxError, validateNoPathTraversal, validateSandboxOwnedByTenant } from './sandbox/SandboxErrors';
+export {
+  SandboxError,
+  SandboxFileNotFoundError,
+  SandboxFileTooLargeError,
+  SandboxNotAvailableError,
+  SandboxPathIsDirectoryError,
+  validateNoPathTraversal,
+  validateSandboxOwnedByTenant,
+} from './sandbox/SandboxErrors';
 
 // Skills: the ISkillMounter seam lets hosts plug in their own skill sources
 export { InstructionBuilder } from './InstructionBuilder';

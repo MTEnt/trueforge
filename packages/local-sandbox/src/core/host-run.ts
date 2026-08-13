@@ -6,6 +6,7 @@ import { getDefaultWritePaths, SandboxManager } from '@anthropic-ai/sandbox-runt
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { copyFile, mkdir, rm, unlink } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { createServer, type Server, type Socket } from 'node:net';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,8 +17,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
 const FIXTURES = join(ROOT, 'fixtures');
 /** SRT ships Linux helpers (e.g. apply-seccomp) under vendor/; the wrapped command must read them. */
+// Package-root resolve (not app-module loading): Jest's CJS transform breaks import.meta.resolve.
 const SRT_VENDOR = join(
-  dirname(fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime/package.json'))),
+  dirname(createRequire(import.meta.url).resolve('@anthropic-ai/sandbox-runtime/package.json')),
   'vendor',
 );
 
@@ -332,6 +334,7 @@ export async function runSupervisorSession(params: {
   }
 
   const childEnv: NodeJS.ProcessEnv = {
+    ...wrap.env,
     ...commandEnv(workspace, env),
     TFY_MCP_SOCK: sockForClient,
   };
@@ -340,7 +343,8 @@ export async function runSupervisorSession(params: {
     cwd,
     env: childEnv,
     shell: false,
-    detached: process.platform !== 'win32',
+    // Detached process groups break stdin forwarding for upload (`cat` via pipe) under Jest.
+    detached: stdin === undefined && process.platform !== 'win32',
     stdio: [stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
   });
   if (child.pid !== undefined) {
@@ -355,7 +359,12 @@ export async function runSupervisorSession(params: {
       throw new Error('stdin unavailable for sandboxed command');
     }
     stdinStream.on('error', () => undefined);
-    stdinStream.end(stdin);
+    await new Promise<void>((resolve, reject) => {
+      stdinStream.end(stdin, (error?: Error | null) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
   }
 
   const inflight = new Set<string>();

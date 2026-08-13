@@ -2,18 +2,19 @@
  * Local SRT SandboxProvider (no Code Mode on provider.exec yet).
  * createSandbox → host workspace; exec / upload / download → SRT-wrapped command.
  */
-import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
-import { dirname, join, resolve, sep } from 'node:path';
+import type { ExecResult, SandboxExecParams, SandboxProvider } from '@truefoundry/trueforge-core/core';
 import {
   SandboxFileNotFoundError,
   SandboxFileTooLargeError,
   SandboxNotAvailableError,
   SandboxPathIsDirectoryError,
+  shellEscape,
   validateNoPathTraversal,
-} from '../core/errors.js';
+} from '@truefoundry/trueforge-core/core';
+import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
 import { createWorkspace, initSrt, removeWorkspace, resetSrt, runSupervisorSession } from '../core/host-run.js';
-import type { ExecResult, SandboxExecParams, SandboxProvider } from './types.js';
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 60;
 const DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -22,37 +23,38 @@ export type LocalSandboxProviderOptions = {
   tenantName: string;
   fileMaxBytesForDownload?: number | undefined;
   defaultExecTimeoutSeconds?: number | undefined;
-  /** Root for per-sandbox workspaces; defaults to local-sandbox/workspaces. */
+  /** Root for per-sandbox workspaces; defaults to packages/local-sandbox/workspaces. */
   workspacesRoot?: string | undefined;
 };
 
 type XferFileInfo = { size: number; isDir: boolean };
 
-function shellEscape(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
+/** Workspace-relative path for sandboxed commands (avoids /var vs /private/var seatbelt mismatches). */
+function sandboxRelativePath(userPath: string): string {
+  return userPath.replace(/^\.\/+/, '');
 }
 
-function pythonC(code: string, absPath: string): string {
-  return `python3 -c ${shellEscape(code)} ${shellEscape(absPath)}`;
+function pythonC(code: string, relPath: string): string {
+  return `python3 -c ${shellEscape(code)} ${shellEscape(relPath)}`;
 }
 
-function statCommand(absPath: string): string {
+function statCommand(relPath: string): string {
   const code = [
     'import json, os, sys',
     'p = sys.argv[1]',
     'st = os.stat(p)',
     'print(json.dumps({"size": st.st_size, "isDir": os.path.isdir(p)}))',
   ].join('\n');
-  return pythonC(code, absPath);
+  return pythonC(code, relPath);
 }
 
-function base64EncodeCommand(absPath: string): string {
+function base64EncodeCommand(relPath: string): string {
   const code = [
     'import base64, sys',
     'p = sys.argv[1]',
     'sys.stdout.write(base64.b64encode(open(p, "rb").read()).decode("ascii"))',
   ].join('\n');
-  return pythonC(code, absPath);
+  return pythonC(code, relPath);
 }
 
 export class LocalSandboxProvider implements SandboxProvider {
@@ -118,10 +120,10 @@ export class LocalSandboxProvider implements SandboxProvider {
     };
   }
 
-  private async getFileInfo(params: { workspace: string; abs: string; userPath: string }): Promise<XferFileInfo> {
+  private async getFileInfo(params: { workspace: string; relPath: string; userPath: string }): Promise<XferFileInfo> {
     const result = await this.runSandboxCommand({
       workspace: params.workspace,
-      command: statCommand(params.abs),
+      command: statCommand(params.relPath),
     });
     if (result.exitCode !== 0) {
       throw new SandboxFileNotFoundError(params.userPath);
@@ -203,8 +205,9 @@ export class LocalSandboxProvider implements SandboxProvider {
   async downloadFile(params: { sandboxId: string; path: string }): Promise<Buffer> {
     await this.ensureSrt();
     const workspace = this.workspaceFor(params.sandboxId);
-    const abs = this.resolveInWorkspace(workspace, params.path);
-    const info = await this.getFileInfo({ workspace, abs, userPath: params.path });
+    this.resolveInWorkspace(workspace, params.path);
+    const relPath = sandboxRelativePath(params.path);
+    const info = await this.getFileInfo({ workspace, relPath, userPath: params.path });
     if (info.isDir) {
       throw new SandboxPathIsDirectoryError(params.path);
     }
@@ -213,7 +216,7 @@ export class LocalSandboxProvider implements SandboxProvider {
     }
     const result = await this.runSandboxCommand({
       workspace,
-      command: base64EncodeCommand(abs),
+      command: base64EncodeCommand(relPath),
     });
     if (result.exitCode !== 0) {
       throw new SandboxFileNotFoundError(params.path);
@@ -232,12 +235,15 @@ export class LocalSandboxProvider implements SandboxProvider {
       throw new SandboxFileTooLargeError(params.remotePath, params.content.length, this.fileMaxBytesForDownload);
     }
     const workspace = this.workspaceFor(params.sandboxId);
-    const abs = this.resolveInWorkspace(workspace, params.remotePath);
-    const parent = dirname(abs);
-    const dest = shellEscape(abs);
+    // Resolve for traversal checks, but pass workspace-relative paths to the shell.
+    // Absolute /var/folders/... paths lose quoting under SRT and become mkdir /var.
+    this.resolveInWorkspace(workspace, params.remotePath);
+    const remotePath = sandboxRelativePath(params.remotePath);
+    const parent = dirname(remotePath);
+    const mkdirPart = parent === '.' ? '' : `mkdir -p ${shellEscape(parent)} && `;
     const result = await this.runSandboxCommand({
       workspace,
-      command: `mkdir -p ${shellEscape(parent)} && cat > ${dest}`,
+      command: `${mkdirPart}cat > ${shellEscape(remotePath)}`,
       stdin: params.content,
     });
     if (result.exitCode !== 0) {

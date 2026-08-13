@@ -1,15 +1,15 @@
 ---
 name: srt standalone sandbox
-overview: Add Anthropic Sandbox Runtime as the standalone local sandbox. A standalone TypeScript PoC in local-sandbox/ has proven workspace isolation and parent-owned path-UDS Code Mode on macOS and Linux (Lima); remaining work is harness/server contracts, shared dispatcher, and packaging.
+overview: Add Anthropic Sandbox Runtime as the standalone local sandbox. A standalone TypeScript PoC in packages/local-sandbox/ has proven workspace isolation and parent-owned path-UDS Code Mode on macOS and Linux (Lima); remaining work is harness/server contracts, shared dispatcher, and packaging.
 todos:
   - id: poc-srt-provider
-    content: 'DONE in local-sandbox/: LocalSandboxProvider + host-run (workspace, SRT init, exec, upload/download, isolation smokes).'
+    content: 'DONE in packages/local-sandbox/: LocalSandboxProvider + host-run (workspace, SRT init, exec, upload/download, isolation smokes).'
     status: completed
   - id: poc-uds-code-mode
-    content: 'DONE in local-sandbox/: path-UDS Code Mode (host listen/accept, TFY_MCP_SOCK, simplified mcp client, multiplex via parallel connects).'
+    content: 'DONE in packages/local-sandbox/: path-UDS Code Mode (host listen/accept, TFY_MCP_SOCK, simplified mcp client, multiplex via parallel connects).'
     status: completed
   - id: poc-uds-policy-smokes
-    content: 'DONE in local-sandbox/: AF_UNIX policy smokes (Linux FS gate + emulated docker.sock; macOS allowUnixSockets; Linux netns abstract probe).'
+    content: 'DONE in packages/local-sandbox/: AF_UNIX policy smokes (Linux FS gate + emulated docker.sock; macOS allowUnixSockets; Linux netns abstract probe).'
     status: completed
   - id: interface-contracts
     content: Land transport-neutral Code Mode, provider capability, and SRT policy contracts in packages/harness (based on PoC shapes).
@@ -18,7 +18,7 @@ todos:
     content: Extract one host-side Code Mode dispatcher enforcing tool, approval, timeout, cancellation, and size policies.
     status: pending
   - id: harness-srt-provider
-    content: Port local-sandbox/ into SrtSandboxProvider + process-scoped runtime; wire standalone server selection.
+    content: Port packages/local-sandbox/ into SrtSandboxProvider + process-scoped runtime; wire standalone server selection.
     status: pending
   - id: client-bindings
     content: Adapt production mcp_client.py to UDS transport (retain NATS for Daytona); regenerate sandbox-script bundle via package script.
@@ -34,7 +34,7 @@ isProject: false
 
 # SRT Standalone Sandbox and Code Mode
 
-## PoC status (`local-sandbox/`) — current ground truth
+## PoC status (`packages/local-sandbox/`) — current ground truth
 
 Standalone TypeScript PoC (not in the pnpm workspace). Scripts: `pnpm smoke`, `pnpm smoke:lima`, `pnpm probe:loopback`.
 
@@ -510,11 +510,11 @@ End-to-end turn cancellation for every `IToolSet` remains a separate broad inter
 
 ### Done in PoC (reference implementation)
 
-- `local-sandbox/src/core/host-run.ts`: workspace lifecycle, SRT init/reset, AF_UNIX session policy, Code Mode UDS listen/accept, process-group kill, curated env
-- `local-sandbox/src/provider/LocalSandboxProvider.ts`: provider surface + upload/download via sandboxed I/O
-- `local-sandbox/fixtures/mcp_pipe_client.py`: UDS client
-- `local-sandbox/scripts/smoke.ts` + `smoke:lima`: isolation, Code Mode, UDS FS/seatbelt gate, emulated docker.sock, Linux abstract netns probe
-- `local-sandbox/lima/local-sandbox.yaml`: Lima guest for Linux smoke
+- `packages/local-sandbox/src/core/host-run.ts`: workspace lifecycle, SRT init/reset, AF_UNIX session policy, Code Mode UDS listen/accept, process-group kill, curated env
+- `packages/local-sandbox/src/provider/LocalSandboxProvider.ts`: provider surface + upload/download via sandboxed I/O
+- `packages/local-sandbox/fixtures/mcp_pipe_client.py`: UDS client
+- `packages/local-sandbox/scripts/smoke.ts` + `smoke:lima`: isolation, Code Mode, UDS FS/seatbelt gate, emulated docker.sock, Linux abstract netns probe
+- `packages/local-sandbox/lima/local-sandbox.yaml`: Lima guest for Linux smoke
 
 ### Contract-first harness change
 
@@ -631,11 +631,11 @@ SRT remains language-agnostic for ordinary `exec`. Code Mode remains Python-only
 - Enable SRT backend only for standalone topology; distributed Daytona + sandbox-local NATS unchanged.
 - Fail closed with actionable reasons when SRT/helpers unavailable; no unsandboxed fallback.
 - Add SRT + Python client assets as production dependencies; preserve static imports and packed CJS/ESM.
-- Use package scripts for dependency checks and smokes (port patterns from `local-sandbox/package.json`).
+- Use package scripts for dependency checks and smokes (port patterns from `packages/local-sandbox/package.json`).
 
 ## Recommended rollout
 
-1. **Done (PoC):** macOS + Linux (Lima) workspace isolation, process/output limits, path-UDS Code Mode, AF_UNIX policy smokes (`local-sandbox/`).
+1. **Done (PoC):** macOS + Linux (Lima) workspace isolation, process/output limits, path-UDS Code Mode, AF_UNIX policy smokes (`packages/local-sandbox/`).
 2. Decide UDS lifecycle (per-exec vs per-sandbox) and concurrent macOS `allowUnixSockets` sync rules; keep PoC smokes green.
 3. Extract shared host `CodeModeDispatcher`; retain NATS as Daytona transport.
 4. Land harness provider/policy contracts + port PoC into `SrtSandboxProvider` / `SrtSandboxRuntime`.
