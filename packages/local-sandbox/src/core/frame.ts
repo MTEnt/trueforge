@@ -1,4 +1,5 @@
 /** Length-prefixed framing: 4-byte little-endian length + UTF-8 JSON. */
+import { JsonFrameValueSchema } from './schemas.js';
 
 export const MAX_FRAME_BYTES = 64 * 1024 * 1024;
 
@@ -35,7 +36,7 @@ export class FrameParser {
       this.#buffer = this.#buffer.subarray(4 + length);
       let value: unknown;
       try {
-        value = JSON.parse(payload.toString('utf8'));
+        value = JsonFrameValueSchema.parse(JSON.parse(payload.toString('utf8')));
       } catch (error) {
         throw new Error('invalid JSON frame', { cause: error });
       }

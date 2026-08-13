@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { createWorkspace, initSrt, removeWorkspace, resetSrt, runSupervisorSession } from '../core/host-run.js';
+import { XferFileInfoSchema, type XferFileInfo } from '../core/schemas.js';
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 60;
 const DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -26,8 +27,6 @@ export type LocalSandboxProviderOptions = {
   /** Root for per-sandbox workspaces; defaults to packages/local-sandbox/workspaces. */
   workspacesRoot?: string | undefined;
 };
-
-type XferFileInfo = { size: number; isDir: boolean };
 
 /** Workspace-relative path for sandboxed commands (avoids /var vs /private/var seatbelt mismatches). */
 function sandboxRelativePath(userPath: string): string {
@@ -128,19 +127,7 @@ export class LocalSandboxProvider implements SandboxProvider {
     if (result.exitCode !== 0) {
       throw new SandboxFileNotFoundError(params.userPath);
     }
-    const line = result.stdoutText.trim();
-    const parsed: unknown = JSON.parse(line);
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      !('size' in parsed) ||
-      !('isDir' in parsed) ||
-      typeof parsed.size !== 'number' ||
-      typeof parsed.isDir !== 'boolean'
-    ) {
-      throw new Error(`invalid stat output: ${line}`);
-    }
-    return { size: parsed.size, isDir: parsed.isDir };
+    return XferFileInfoSchema.parse(JSON.parse(result.stdoutText.trim()));
   }
 
   async createSandbox(): Promise<{ sandboxId: string }> {

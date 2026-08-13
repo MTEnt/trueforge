@@ -20,6 +20,7 @@ import {
   removeWorkspace,
   runSupervisorSession,
 } from '../src/core/host-run.js';
+import { ToolRequestViewSchema } from '../src/core/schemas.js';
 import { LocalSandboxProvider } from '../src/provider/LocalSandboxProvider.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -67,37 +68,22 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-function toolOp(request: unknown): string | undefined {
-  if (typeof request !== 'object' || request === null) return undefined;
-  const op = Reflect.get(request, 'op');
-  return typeof op === 'string' ? op : undefined;
-}
-
-function toolArguments(request: unknown): Record<string, unknown> {
-  if (typeof request !== 'object' || request === null) return {};
-  const args = Reflect.get(request, 'arguments');
-  if (typeof args !== 'object' || args === null || Array.isArray(args)) return {};
-  const out: Record<string, unknown> = {};
-  for (const key of Reflect.ownKeys(args)) {
-    if (typeof key !== 'string') continue;
-    out[key] = Reflect.get(args, key);
-  }
-  return out;
-}
-
 async function onToolRequest(request: unknown): Promise<unknown> {
-  const op = toolOp(request);
+  const parsed = ToolRequestViewSchema.safeParse(request);
+  if (!parsed.success) {
+    throw new Error(`unsupported tool op: undefined`);
+  }
+  const { op, arguments: args = {} } = parsed.data;
   if (op === 'list_tools') {
     return [{ name: 'ping' }];
   }
   if (op === 'call_tool') {
-    const args = toolArguments(request);
     const delayRaw = args['delay_ms'];
     const delayMs = typeof delayRaw === 'number' && Number.isFinite(delayRaw) ? delayRaw : 0;
     if (delayMs > 0) await sleep(delayMs);
     return { echo: args };
   }
-  throw new Error(`unsupported tool op: ${String(op)}`);
+  throw new Error(`unsupported tool op: ${op}`);
 }
 
 async function smokeCodeMode(workspace: string): Promise<void> {

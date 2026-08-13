@@ -12,6 +12,7 @@ import { createServer, type Server, type Socket } from 'node:net';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { encodeFrame, FrameParser } from './frame.js';
+import { CodeModeToolRequestSchema, CodeModeToolResponseBodySchema } from './schemas.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** Package root from src/ or dist/src/ (Jest runs TypeScript source). */
@@ -228,21 +229,12 @@ export async function resetSrt(): Promise<void> {
   await SandboxManager.reset();
 }
 
-function toolRequestId(request: object): string | undefined {
-  if (!('request_id' in request)) return undefined;
-  const value = Reflect.get(request, 'request_id');
-  if (typeof value !== 'string' || value.length === 0) return undefined;
-  return value;
-}
-
 function childToolResponseFrame(requestId: string, response: unknown): Record<string, unknown> {
-  if (typeof response !== 'object' || response === null || Array.isArray(response)) {
-    throw new Error('tool response must be an object');
-  }
+  const body = CodeModeToolResponseBodySchema.parse(response);
   const frame: Record<string, unknown> = { request_id: requestId };
-  for (const key of Reflect.ownKeys(response)) {
-    if (typeof key !== 'string' || key === 'request_id') continue;
-    frame[key] = Reflect.get(response, key);
+  for (const [key, value] of Object.entries(body)) {
+    if (key === 'request_id') continue;
+    frame[key] = value;
   }
   return frame;
 }
@@ -424,20 +416,17 @@ export async function runSupervisorSession(params: {
           socket.destroy();
           return;
         }
-        const request = frames[0];
-        if (typeof request !== 'object' || request === null || !('op' in request)) {
-          protocolError = 'invalid inner tool request';
+        const parsed = CodeModeToolRequestSchema.safeParse(frames[0]);
+        if (!parsed.success) {
+          const onlyRequestId =
+            parsed.error.issues.length > 0 && parsed.error.issues.every(issue => issue.path[0] === 'request_id');
+          protocolError = onlyRequestId ? 'tool request missing request_id' : 'invalid inner tool request';
           killExecTree(child);
           socket.destroy();
           return;
         }
-        const requestId = toolRequestId(request);
-        if (requestId === undefined) {
-          protocolError = 'tool request missing request_id';
-          killExecTree(child);
-          socket.destroy();
-          return;
-        }
+        const request = parsed.data;
+        const requestId = request.request_id;
         if (inflight.has(requestId)) {
           protocolError = `duplicate request_id ${requestId}`;
           killExecTree(child);
