@@ -13,17 +13,19 @@ import { useCompactLayout } from '../lib/CompactLayoutContext.js';
 import { useIsMobile } from '../lib/useIsMobile.js';
 import { BottomSheet } from '../primitives/BottomSheet.js';
 import { Tooltip } from '../primitives/Tooltip.js';
+import { readAgentCapabilities, withAgentCapabilities } from './agentCapabilities.js';
+import { DraftCapabilitiesPanel } from './DraftCapabilitiesPanel.js';
 import { useDraftCatalog } from './DraftCatalogProvider.js';
 
 /** Catalog-backed mount shape used by the draft picker (runtime mounts stay opaque). */
-type DraftMount = { id: string; name: string };
+export type DraftMount = { id: string; name: string };
 
 /**
  * Harness wire mounts are name-keyed (`{ name }` only). Catalog rows use
  * `id === name`, so missing ids hydrate from name — otherwise save/load drops
  * mounts from the picker and the next flush can wipe them from the spec.
  */
-function draftMountsFromSpec(value: unknown): DraftMount[] {
+export function draftMountsFromSpec(value: unknown): DraftMount[] {
   if (!Array.isArray(value)) return [];
   const mounts: DraftMount[] = [];
   for (const item of value) {
@@ -35,12 +37,12 @@ function draftMountsFromSpec(value: unknown): DraftMount[] {
   }
   return mounts;
 }
-type AttachTab = 'connectors' | 'skills' | 'files';
+type AttachTab = 'connectors' | 'skills' | 'capabilities';
 
 const TABS: { id: AttachTab; label: string; icon: string }[] = [
   { id: 'connectors', label: 'Connectors', icon: 'plug' },
   { id: 'skills', label: 'Skills', icon: 'lightbulb' },
-  { id: 'files', label: 'Attachment', icon: 'paperclip' },
+  { id: 'capabilities', label: 'Capabilities', icon: 'wrench' },
 ];
 
 const SPEC_FLUSH_MS = 300;
@@ -50,7 +52,9 @@ function Checkbox({ checked }: { checked: boolean }) {
     <span
       className={cn(
         'flex size-4 shrink-0 items-center justify-center rounded border',
-        checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-background',
+        checked
+          ? 'border-primary-button-bg bg-primary-button-bg text-primary-button-text'
+          : 'border-input-border bg-input-box-bg',
       )}
       aria-hidden
     >
@@ -59,7 +63,7 @@ function Checkbox({ checked }: { checked: boolean }) {
   );
 }
 
-function CatalogRow({
+export function CatalogRow({
   title,
   description,
   checked,
@@ -76,12 +80,12 @@ function CatalogRow({
 }) {
   const content = (
     <>
-      <span className="bg-muted text-muted-foreground mt-0.5 flex size-7 shrink-0 items-center justify-center rounded text-xs font-semibold">
+      <span className="bg-secondary-bg text-text-secondary mt-0.5 flex size-7 shrink-0 items-center justify-center rounded text-xs font-semibold">
         {title.charAt(0).toUpperCase()}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="text-foreground block truncate text-sm font-medium">{title}</span>
-        {description ? <span className="text-muted-foreground line-clamp-1 text-xs">{description}</span> : null}
+        <span className="text-text-primary block truncate text-sm font-medium">{title}</span>
+        {description ? <span className="text-text-secondary line-clamp-1 text-xs">{description}</span> : null}
       </span>
     </>
   );
@@ -92,7 +96,7 @@ function CatalogRow({
         role="menuitemcheckbox"
         aria-checked={checked}
         tabIndex={0}
-        className="hover:bg-accent flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left"
+        className="hover:bg-ghost-button-hover flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left"
         onClick={onToggle}
         onKeyDown={event => {
           if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -113,16 +117,16 @@ function CatalogRow({
       role="menuitemcheckbox"
       aria-checked={checked}
       disabled={disabled}
-      className="hover:bg-accent flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+      className="hover:bg-ghost-button-hover flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
       onClick={onToggle}
     >
       {content}
-      {disabled ? <Icon name="lock" className="text-muted-foreground size-3" /> : <Checkbox checked={checked} />}
+      {disabled ? <Icon name="lock" className="text-text-secondary size-3" /> : <Checkbox checked={checked} />}
     </button>
   );
 }
 
-function isUnauthenticatedDcrConnector(connector: ConnectorState): boolean {
+export function isUnauthenticatedDcrConnector(connector: ConnectorState): boolean {
   const auth = Reflect.get(connector, 'auth');
   return (
     connector.authenticated === false &&
@@ -132,7 +136,7 @@ function isUnauthenticatedDcrConnector(connector: ConnectorState): boolean {
   );
 }
 
-function ConnectorConnectButton({
+export function ConnectorConnectButton({
   connector,
   onConnected,
 }: {
@@ -175,14 +179,14 @@ function SearchField({
     <label className="relative mx-3 my-2 block">
       <Icon
         name="search"
-        className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2"
+        className="text-text-secondary pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2"
       />
       <input
         type="search"
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="border-input bg-muted/50 placeholder:text-muted-foreground h-8 w-full rounded-md border-0 py-1 pr-2 pl-7 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="border-input-border bg-secondary-bg/40 text-text-primary placeholder:text-text-secondary h-8 w-full rounded-md border-0 py-1 pr-2 pl-7 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus-ring/40"
       />
     </label>
   );
@@ -196,7 +200,7 @@ export type DraftCompositeSelectorProps = {
 
 function SectionHeading({ label, count }: { label: string; count: number }) {
   return (
-    <div className="text-muted-foreground px-3 pt-2 pb-1 text-[11px] font-medium tracking-wide uppercase">
+    <div className="text-text-secondary px-3 pt-2 pb-1 text-[11px] font-medium tracking-wide uppercase">
       {label} ({count})
     </div>
   );
@@ -237,6 +241,8 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
   const selectedSkills = open ? localSkills : specSkills;
   const selectedMcpIds = useMemo(() => new Set(selectedMcp.map(m => m.id)), [selectedMcp]);
   const selectedSkillIds = useMemo(() => new Set(selectedSkills.map(s => s.id)), [selectedSkills]);
+  const hasValidModel = Boolean(agentSpec?.model?.name.trim());
+  const toolsCount = selectedMcp.length + selectedSkills.length;
 
   const clearFlushTimer = useCallback(() => {
     if (flushTimerRef.current != null) {
@@ -276,14 +282,26 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
   }, [open, ensureLoaded]);
 
   useEffect(() => {
+    if (open && !hasValidModel) {
+      setOpenAndFlush(false);
+    }
+  }, [hasValidModel, open, setOpenAndFlush]);
+
+  useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
+    // Flush on pointer or keyboard focus leaving the picker so Save Agent (and
+    // other outside actions) see the latest local connector/skill toggles.
+    const handler = (e: Event) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpenAndFlush(false);
       }
     };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('focusin', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('focusin', handler);
+    };
   }, [open, setOpenAndFlush]);
 
   useEffect(() => () => clearFlushTimer(), [clearFlushTimer]);
@@ -371,8 +389,8 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
               key={t.id}
               type="button"
               className={cn(
-                'text-muted-foreground flex flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-xs font-medium',
-                active && 'text-foreground border-b-2 border-foreground',
+                'text-text-secondary flex flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-xs font-medium',
+                active && 'text-text-primary border-b-2 border-text-primary',
               )}
               onClick={() => {
                 setTab(t.id);
@@ -381,30 +399,35 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
             >
               <Icon name={t.icon} className="size-3.5" />
               {t.label}
-              {count != null && count > 0 ? <span className="bg-muted rounded px-1 text-[10px]">{count}</span> : null}
+              {count != null && count > 0 ? (
+                <span className="bg-secondary-bg rounded px-1 text-[10px]">{count}</span>
+              ) : null}
             </button>
           );
         })}
       </div>
 
-      {tab === 'files' ? (
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => {
-            onAttach?.();
-            setOpenAndFlush(false);
-          }}
-          className={cn(
-            'm-3 flex min-h-48 flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border px-4 py-8',
-            'text-center outline-none transition-colors hover:bg-accent/40',
-            'disabled:cursor-not-allowed disabled:opacity-50',
-          )}
-        >
-          <Icon name="paperclip" className="text-primary size-6" />
-          <span className="text-sm font-medium">Add files or photos</span>
-          <span className="text-muted-foreground text-xs">Upto 5 attachments | 10 MB each</span>
-        </button>
+      {tab === 'capabilities' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <DraftCapabilitiesPanel
+            value={readAgentCapabilities(agentSpec?.config)}
+            disabled={disabled || isRunning}
+            onChange={values => {
+              // Capability writes bypass the mount debounce. Fold in any dirty
+              // local mounts in the same update so a pending connector/skill
+              // toggle is not overwritten by a config-only sync.
+              clearFlushTimer();
+              const includeLocalMounts = dirtyRef.current;
+              if (includeLocalMounts) {
+                dirtyRef.current = false;
+              }
+              updateAgentSpec?.({
+                ...(includeLocalMounts ? { mcpServers: localMcpRef.current, skills: localSkillsRef.current } : {}),
+                config: withAgentCapabilities({ config: agentSpec?.config, values }),
+              });
+            }}
+          />
+        </div>
       ) : (
         <>
           <SearchField
@@ -415,9 +438,9 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
           {tab === 'skills' && skillsDisabled && skillsDisabledReason ? (
             <div
               role="status"
-              className="border-primary/30 bg-primary/5 text-foreground mx-3 mb-2 flex items-center gap-2 rounded-lg border p-3"
+              className="border-primary-button-bg/30 bg-primary-button-bg/5 text-text-primary mx-3 mb-2 flex items-center gap-2 rounded-lg border p-3"
             >
-              <Icon name="lock" className="text-primary size-3 shrink-0" />
+              <Icon name="lock" className="text-primary-button-bg size-3 shrink-0" />
               <span className="text-xs leading-none">{skillsDisabledReason}</span>
             </div>
           ) : null}
@@ -505,33 +528,50 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
 
   return (
     <div ref={containerRef} className="relative flex flex-wrap items-center gap-1.5">
-      <button
-        type="button"
-        disabled={disabled || isRunning}
-        aria-label="Add connectors, skills, or attachments"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        className={auiButtonClass({ variant: 'ghost', size: 'icon' })}
-        onClick={() => {
-          if (open) {
-            setOpenAndFlush(false);
-            return;
-          }
-          openPicker();
-        }}
-      >
-        <Icon name="plus" className="text-primary" />
-      </button>
+      {hasValidModel ? (
+        <button
+          type="button"
+          disabled={disabled || isRunning}
+          aria-label={`Tools (${toolsCount})`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          className={auiButtonClass({
+            variant: 'ghost',
+            size: 'sm',
+            className: 'h-8 gap-1.5 rounded-md px-2 text-xs',
+          })}
+          onClick={() => {
+            if (open) {
+              setOpenAndFlush(false);
+              return;
+            }
+            openPicker();
+          }}
+        >
+          <Icon name="wrench" className="size-3.5" />
+          <span>Tools</span>
+          <span className="bg-primary-button-bg/10 text-primary-button-bg rounded px-1.5 py-0.5 text-[10px] font-semibold">
+            {toolsCount}
+          </span>
+        </button>
+      ) : null}
 
-      <DraftSelectionChips
-        disabled={disabled || isRunning}
-        onOpenTab={tabId => {
-          openPicker(tabId);
-        }}
-      />
+      {onAttach ? (
+        <Tooltip content="Attach a file">
+          <button
+            type="button"
+            disabled={disabled || isRunning}
+            aria-label="Attach a file"
+            className={auiButtonClass({ variant: 'ghost', size: 'icon' })}
+            onClick={onAttach}
+          >
+            <Icon name="paperclip" />
+          </button>
+        </Tooltip>
+      ) : null}
 
-      {open ? (
+      {open && hasValidModel ? (
         isMobile || compactLayout ? (
           <BottomSheet id={menuId} open onOpenChange={setOpenAndFlush} aria-label="Add to composer">
             {content}
@@ -541,75 +581,11 @@ export function DraftCompositeSelector({ disabled, isRunning, onAttach }: DraftC
             id={menuId}
             role="dialog"
             aria-label="Add to composer"
-            className="bg-popover text-popover-foreground absolute bottom-full left-0 z-50 mb-2 flex h-[22rem] w-[28rem] max-w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border shadow-lg"
+            className="bg-card-bg text-text-primary absolute bottom-full left-0 z-50 mb-2 flex h-[22rem] w-[28rem] max-w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border shadow-lg"
           >
             {content}
           </div>
         )
-      ) : null}
-    </div>
-  );
-}
-
-export type DraftSelectionChipsProps = {
-  disabled?: boolean;
-  onOpenTab?: (tab: 'connectors' | 'skills') => void;
-};
-
-function SelectionChipTooltipList({ mounts }: { mounts: DraftMount[] }) {
-  return (
-    <ul className="m-0 flex max-w-48 list-none flex-col gap-0.5 p-0 text-left">
-      {mounts.map(mount => (
-        <li key={mount.id} className="truncate" title={mount.name}>
-          {mount.name}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-export function DraftSelectionChips({ disabled, onOpenTab }: DraftSelectionChipsProps = {}) {
-  const { agentSpec } = useTrueFoundryAgentSpec();
-  const mcpMounts = useMemo(() => draftMountsFromSpec(agentSpec?.mcpServers), [agentSpec?.mcpServers]);
-  const skillMounts = useMemo(() => draftMountsFromSpec(agentSpec?.skills), [agentSpec?.skills]);
-
-  if (mcpMounts.length === 0 && skillMounts.length === 0) return null;
-
-  const chipClassName = cn(
-    'bg-muted text-muted-foreground inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs outline-none',
-    'focus-visible:ring-1 focus-visible:ring-ring',
-    disabled ? 'cursor-not-allowed opacity-50' : 'hover:bg-accent cursor-pointer',
-  );
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {mcpMounts.length > 0 ? (
-        <Tooltip content={<SelectionChipTooltipList mounts={mcpMounts} />} className="max-w-48 whitespace-normal">
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={`View ${mcpMounts.length} selected connector${mcpMounts.length === 1 ? '' : 's'}`}
-            className={chipClassName}
-            onClick={() => onOpenTab?.('connectors')}
-          >
-            <Icon name="plug" className="size-3" />
-            {mcpMounts.length} Connector{mcpMounts.length === 1 ? '' : 's'}
-          </button>
-        </Tooltip>
-      ) : null}
-      {skillMounts.length > 0 ? (
-        <Tooltip content={<SelectionChipTooltipList mounts={skillMounts} />} className="max-w-48 whitespace-normal">
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={`View ${skillMounts.length} selected skill${skillMounts.length === 1 ? '' : 's'}`}
-            className={chipClassName}
-            onClick={() => onOpenTab?.('skills')}
-          >
-            <Icon name="lightbulb" className="size-3" />
-            {skillMounts.length} Skill{skillMounts.length === 1 ? '' : 's'}
-          </button>
-        </Tooltip>
       ) : null}
     </div>
   );

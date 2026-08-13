@@ -92,16 +92,21 @@ export function createHarnessBuilderServer(
       return filtered.slice(offset, offset + limit).map(toLibraryEntry);
     },
 
-    async saveAgent({ agentName, agentSpec }) {
+    async saveAgent({ agentName, agentSpec, intent, sessionId }) {
       const manifest = toHarnessAgentSpec(agentSpec);
-      const { data } = await client.agents.list();
-      const existing = data.find(agent => agent.name === agentName);
-      if (existing !== undefined) {
-        await client.agents.update(agentName, manifest);
-        return { ok: true as const, updated: true as const, agentId: existing.id };
+      const request = sessionId === undefined ? manifest : { ...manifest, sessionId };
+      if (intent === 'update') {
+        const updated = await client.agents.update(agentName, request);
+        return {
+          agentId: updated.data.id,
+          ...(updated.sessionUpdatedAt === undefined ? {} : { sessionUpdatedAt: updated.sessionUpdatedAt }),
+        };
       }
-      const created = await client.agents.create({ name: agentName, ...manifest });
-      return { ok: true as const, updated: false as const, agentId: created.data.id };
+      const created = await client.agents.create({ name: agentName, ...request });
+      return {
+        agentId: created.data.id,
+        ...(created.sessionUpdatedAt === undefined ? {} : { sessionUpdatedAt: created.sessionUpdatedAt }),
+      };
     },
   };
 }

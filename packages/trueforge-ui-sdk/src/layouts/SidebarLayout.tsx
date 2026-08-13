@@ -10,6 +10,7 @@ import { Spinner } from '../atoms/primitives/Spinner.js';
 import { ShellActions } from '../atoms/ShellActions.js';
 import { Thread } from '../containers/Thread.js';
 import { ThreadListContainer } from '../containers/ThreadListContainer.js';
+import { useChatHeaderContentVisible } from '../hooks/useChatChromeActionsVisible.js';
 import { Icon } from '../icons/Icon.js';
 import { useOptionalShellMode } from '../server/ShellModeContext.js';
 import { useBrandName } from '../theme/brand.js';
@@ -44,6 +45,7 @@ export function SidebarLayout({ className }: { className?: string }) {
   const wasOpen = useRef(false);
   const isIdle = shell?.mode.status === 'idle';
   const settingsOpen = shell?.settingsOpen === true;
+  const hasChatHeaderContent = useChatHeaderContentVisible();
 
   useEffect(() => {
     if (!mobileNavOpen) return;
@@ -83,15 +85,15 @@ export function SidebarLayout({ className }: { className?: string }) {
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          'hidden min-h-0 shrink-0 flex-col border-r border-border bg-background transition-[width] duration-300 ease-in-out md:flex',
+          'hidden min-h-0 shrink-0 flex-col border-r border-border bg-sidebar-bg transition-[width] duration-300 ease-in-out md:flex',
           collapsed ? 'w-16' : 'w-64',
         )}
       >
         <div
           className={cn('flex shrink-0 items-center px-3 py-3', collapsed ? 'flex-col gap-3' : 'justify-between gap-2')}
         >
-          <div className={cn('flex min-w-0 items-center text-foreground', collapsed ? 'justify-center' : 'gap-2')}>
-            <BrandLogo className="size-6 shrink-0 object-contain" />
+          <div className={cn('flex min-w-0 items-center text-text-primary', collapsed ? 'justify-center' : 'gap-2')}>
+            <BrandLogo className="size-5 shrink-0 object-contain" />
             {!collapsed ? <span className="truncate text-lg font-semibold tracking-tight">{brandName}</span> : null}
           </div>
           <button
@@ -135,14 +137,15 @@ export function SidebarLayout({ className }: { className?: string }) {
         </footer>
       </aside>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-primary-bg">
         {/* Mobile ShellActions stay mounted while Settings is open so host overrides (e.g. logout) do not remount.
             Desktop keeps shell chrome in the aside footer (always mounted). */}
         <header
           className={cn(
-            'flex shrink-0 items-center gap-1 border-b border-border bg-background px-2 py-1.5',
-            // Settings / idle: desktop uses aside chrome; mobile still needs ShellActions.
-            (settingsOpen || isIdle) && 'md:hidden',
+            'flex shrink-0 items-center gap-1 border-b border-border bg-topbar-bg px-2 py-1.5',
+            // Desktop: hide when settings/idle or the thread header has nothing to show
+            // (empty untitled draft). Mobile still needs Sessions + ShellActions.
+            (settingsOpen || isIdle || !hasChatHeaderContent) && 'md:hidden',
           )}
         >
           {!settingsOpen ? (
@@ -180,7 +183,7 @@ export function SidebarLayout({ className }: { className?: string }) {
                   aria-live="polite"
                   aria-busy="true"
                 >
-                  <Spinner size={28} className="text-foreground" />
+                  <Spinner size={28} className="text-text-primary" />
                   <span className="sr-only">Loading</span>
                 </div>
               }
@@ -201,18 +204,18 @@ export function SidebarLayout({ className }: { className?: string }) {
           <button
             type="button"
             aria-label="Close sessions"
-            className="absolute inset-0 z-[9] cursor-pointer bg-black/20 md:hidden"
+            className="absolute inset-0 z-[9] cursor-pointer bg-[var(--overlay)] md:hidden"
             onClick={() => setMobileNavOpen(false)}
           />
           <div
             ref={dialogRef}
-            className="absolute inset-y-0 left-0 z-10 flex w-full max-w-80 flex-col border-r border-border bg-background shadow-lg outline-none md:hidden"
+            className="absolute inset-y-0 left-0 z-10 flex w-full max-w-80 flex-col border-r border-border bg-sidebar-bg shadow-lg outline-none md:hidden"
             role="dialog"
             aria-label="Sessions"
             tabIndex={-1}
           >
-            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-3 text-foreground">
-              <BrandLogo className="size-6 shrink-0 object-contain" />
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-3 text-text-primary">
+              <BrandLogo className="size-5 shrink-0 object-contain" />
               <span className="truncate text-lg font-semibold tracking-tight">{brandName}</span>
             </div>
             <ThreadListContainer onThreadOpen={() => setMobileNavOpen(false)} />
