@@ -11,8 +11,8 @@ import { createRequire } from 'node:module';
 import { createServer, type Server, type Socket } from 'node:net';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CodeModeToolRequestSchema, CodeModeToolResponseBodySchema } from '../schemas/codeMode.js';
 import { encodeFrame, FrameParser } from './frame.js';
-import { CodeModeToolRequestSchema, CodeModeToolResponseBodySchema } from './schemas.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** Package root from src/ or dist/src/ (Jest runs TypeScript source). */

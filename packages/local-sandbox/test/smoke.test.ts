@@ -19,9 +19,9 @@ import {
   MAX_OUTPUT_BYTES,
   removeWorkspace,
   runSupervisorSession,
-} from '../src/core/host-run.js';
-import { ToolRequestViewSchema } from '../src/core/schemas.js';
+} from '../src/core/hostRun.js';
 import { LocalSandboxProvider } from '../src/provider/LocalSandboxProvider.js';
+import { ToolRequestViewSchema } from '../src/schemas/codeMode.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const WORKSPACES = join(ROOT, 'workspaces');
@@ -966,7 +966,7 @@ async function smokeUnixSocketFsGate(): Promise<void> {
   const outside = await listenUds(outsideSock);
   const emulatedDocker = await listenUds(emulatedDockerSock);
 
-  // Match host-run: Linux allowAll + FS gate; macOS allowUnixSockets=[workspace] (FS does not gate UDS).
+  // Match hostRun: Linux allowAll + FS gate; macOS allowUnixSockets=[workspace] (FS does not gate UDS).
   const network =
     process.platform === 'darwin'
       ? {

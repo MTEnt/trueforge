@@ -1,5 +1,5 @@
 /** Length-prefixed framing: 4-byte little-endian length + UTF-8 JSON. */
-import { JsonFrameValueSchema } from './schemas.js';
+import { JsonFrameValueSchema } from '../schemas/jsonFrame.js';
 
 export const MAX_FRAME_BYTES = 64 * 1024 * 1024;
 

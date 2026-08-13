@@ -1,18 +1,7 @@
 /**
- * Wire / host JSON shapes for local-sandbox. One owner for Zod schemas used by
- * the provider, Code Mode bridge, and frame decode.
+ * Code Mode UDS wire shapes: host request/response framing and handler view.
  */
 import { z } from 'zod';
-
-/** `stat` / xfer probe output from sandboxed python. */
-export const XferFileInfoSchema = z.object({
-  size: z.number(),
-  isDir: z.boolean(),
-});
-export type XferFileInfo = z.infer<typeof XferFileInfoSchema>;
-
-/** Length-prefixed frame payload after JSON.parse (any JSON value). */
-export const JsonFrameValueSchema = z.json();
 
 /**
  * Code Mode UDS request: host requires `op` + non-empty `request_id`;

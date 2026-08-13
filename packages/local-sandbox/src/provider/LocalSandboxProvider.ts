@@ -14,8 +14,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
-import { createWorkspace, initSrt, removeWorkspace, resetSrt, runSupervisorSession } from '../core/host-run.js';
-import { XferFileInfoSchema, type XferFileInfo } from '../core/schemas.js';
+import { createWorkspace, initSrt, removeWorkspace, resetSrt, runSupervisorSession } from '../core/hostRun.js';
+import { XferFileInfoSchema, type XferFileInfo } from '../schemas/xferFileInfo.js';
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 60;
 const DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024;
