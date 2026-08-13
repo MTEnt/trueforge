@@ -18,7 +18,9 @@ const RELEASE_IMAGE_URI =
 export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`ALTER TABLE sandbox_provider ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`.execute(db);
   await sql`ALTER TABLE sandbox_provider ADD COLUMN status_reason TEXT`.execute(db);
-  await sql`ALTER TABLE sandbox_provider ADD COLUMN build_metadata BLOB NOT NULL DEFAULT (jsonb('{}'))`.execute(db);
+  // SQLite forbids non-constant DEFAULTs on ADD COLUMN when rows exist, so add nullable then fill.
+  await sql`ALTER TABLE sandbox_provider ADD COLUMN build_metadata BLOB`.execute(db);
+  await sql`UPDATE sandbox_provider SET build_metadata = jsonb('{}') WHERE build_metadata IS NULL`.execute(db);
 
   await sql`
     UPDATE sandbox_provider
