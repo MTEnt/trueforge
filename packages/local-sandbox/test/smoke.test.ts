@@ -11,7 +11,6 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MAX_FRAME_BYTES } from '../src/core/frame.js';
 import {
   COMMAND_PATH,
   createWorkspace,
@@ -104,42 +103,46 @@ async function smokeCodeMode(workspace: string): Promise<void> {
   assert.match(list.stdoutText, /list-tools-ok/);
   console.log('ok: Code Mode list-tools (UDS)');
 
-  // Oversized declared frame length over UDS must set protocolError.
+  // Oversized inbound JSON (read-side byte cap) must set protocolError.
+  const oversizeCap = 1024;
   const oversize = await runSupervisorSession({
     workspace,
     command: [
       "python3 - <<'PY'",
-      'import os, socket, struct, time',
+      'import os, socket, time',
       'path = os.environ["TFY_MCP_SOCK"]',
       's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
       's.connect(path)',
-      `s.sendall(struct.pack("<I", ${String(MAX_FRAME_BYTES + 1)}))`,
+      `s.sendall(b"x" * ${String(oversizeCap + 1)})`,
+      's.shutdown(socket.SHUT_WR)',
       'time.sleep(2)',
       'PY',
     ].join('\n'),
     onToolRequest: countingHandler,
+    maxMessageBytes: oversizeCap,
     timeoutMs: 10_000,
   });
   assert.match(String(oversize.protocolError), /exceeds max/);
-  console.log('ok: Code Mode oversized frame length is terminal');
+  console.log('ok: Code Mode oversized message is terminal');
 
   const badJson = await runSupervisorSession({
     workspace,
     command: [
       "python3 - <<'PY'",
-      'import os, socket, struct, time',
+      'import os, socket, time',
       'path = os.environ["TFY_MCP_SOCK"]',
       's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
       's.connect(path)',
-      's.sendall(struct.pack("<I", 3) + b"not")',
+      's.sendall(b"not")',
+      's.shutdown(socket.SHUT_WR)',
       'time.sleep(2)',
       'PY',
     ].join('\n'),
     onToolRequest: countingHandler,
     timeoutMs: 10_000,
   });
-  assert.match(String(badJson.protocolError), /invalid JSON frame/);
-  console.log('ok: Code Mode malformed JSON frame is terminal');
+  assert.match(String(badJson.protocolError), /invalid JSON message/);
+  console.log('ok: Code Mode malformed JSON message is terminal');
 
   const multiplex = await runSupervisorSession({
     workspace,
@@ -216,7 +219,7 @@ async function smokeCodeMode(workspace: string): Promise<void> {
       [
         '-c',
         [
-          'import os, socket, struct, sys, json',
+          'import os, socket, sys, json',
           'path = sys.argv[1]',
           'req = {"request_id":"host-1","op":"list_tools","server":"demo"}',
           'body = json.dumps(req).encode()',
@@ -226,10 +229,14 @@ async function smokeCodeMode(workspace: string): Promise<void> {
           '  os.chdir(os.path.dirname(path))',
           '  path = os.path.basename(path)',
           's.connect(path)',
-          's.sendall(struct.pack("<I", len(body)) + body)',
-          'hdr = s.recv(4)',
-          'n = struct.unpack("<I", hdr)[0]',
-          'print(s.recv(n).decode())',
+          's.sendall(body)',
+          's.shutdown(socket.SHUT_WR)',
+          'chunks = []',
+          'while True:',
+          '  c = s.recv(65536)',
+          '  if not c: break',
+          '  chunks.append(c)',
+          'print(b"".join(chunks).decode())',
         ].join('\n'),
         hostSockPath,
       ],

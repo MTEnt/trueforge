@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PoC Code Mode client: connect to host UDS, one request/response per call."""
+"""PoC Code Mode client: connect to host UDS, one JSON request/response per call."""
 
 from __future__ import annotations
 
@@ -8,13 +8,12 @@ import asyncio
 import json
 import os
 import socket
-import struct
 import sys
 import time
 import uuid
 from typing import Any
 
-MAX_FRAME_BYTES = 64 * 1024 * 1024
+MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 
 
 def _sock_path() -> str:
@@ -24,40 +23,32 @@ def _sock_path() -> str:
     return path
 
 
-def _read_exact(sock: socket.socket, size: int) -> bytes:
+def _read_message(sock: socket.socket) -> Any:
     body = b""
-    while len(body) < size:
-        chunk = sock.recv(size - len(body))
+    while True:
+        chunk = sock.recv(65536)
         if not chunk:
-            raise RuntimeError("short read on Code Mode UDS")
+            break
         body += chunk
-    return body
+        if len(body) > MAX_MESSAGE_BYTES:
+            raise RuntimeError(f"message exceeds max {MAX_MESSAGE_BYTES} bytes")
+    return json.loads(body.decode("utf-8"))
 
 
-def _read_frame(sock: socket.socket) -> Any:
-    header = _read_exact(sock, 4)
-    (length,) = struct.unpack("<I", header)
-    if length > MAX_FRAME_BYTES:
-        raise RuntimeError(f"frame length {length} exceeds max {MAX_FRAME_BYTES}")
-    return json.loads(_read_exact(sock, length).decode("utf-8"))
-
-
-def _write_frame(sock: socket.socket, value: Any) -> None:
-    payload = json.dumps(value).encode("utf-8")
-    if len(payload) > MAX_FRAME_BYTES:
-        raise RuntimeError(f"frame exceeds {MAX_FRAME_BYTES} bytes")
-    sock.sendall(struct.pack("<I", len(payload)) + payload)
+def _write_message(sock: socket.socket, value: Any) -> None:
+    sock.sendall(json.dumps(value).encode("utf-8"))
 
 
 def _request_sync(payload: dict[str, Any]) -> Any:
-    """Connect → one framed request → one framed reply → close."""
+    """Connect → JSON request → write-close → JSON reply → close."""
     request_id = str(uuid.uuid4())
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         sock.settimeout(60)
         sock.connect(_sock_path())
-        _write_frame(sock, {**payload, "request_id": request_id})
-        reply = _read_frame(sock)
+        _write_message(sock, {**payload, "request_id": request_id})
+        sock.shutdown(socket.SHUT_WR)
+        reply = _read_message(sock)
     finally:
         sock.close()
     if not isinstance(reply, dict):

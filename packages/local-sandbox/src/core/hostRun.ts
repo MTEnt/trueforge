@@ -12,7 +12,7 @@ import { createServer, type Server, type Socket } from 'node:net';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodeModeToolRequestSchema, CodeModeToolResponseBodySchema } from '../schemas/codeMode.js';
-import { encodeFrame, FrameParser } from './frame.js';
+import { encodeJsonMessage, JsonMessageReader, MAX_MESSAGE_BYTES } from './frame.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** Package root from src/ or dist/src/ (Jest runs TypeScript source). */
@@ -308,8 +308,20 @@ export async function runSupervisorSession(params: {
   /** Host-visible pid of the sandboxed process-group leader (after spawn). */
   onChildSpawn?: (pid: number) => void;
   timeoutMs?: number;
+  /** Max bytes read for one inbound UDS JSON message (default {@link MAX_MESSAGE_BYTES}). */
+  maxMessageBytes?: number;
 }): Promise<SessionResult> {
-  const { workspace, command, cwd = workspace, env, stdin, onToolRequest, onChildSpawn, timeoutMs = 15_000 } = params;
+  const {
+    workspace,
+    command,
+    cwd = workspace,
+    env,
+    stdin,
+    onToolRequest,
+    onChildSpawn,
+    timeoutMs = 15_000,
+    maxMessageBytes = MAX_MESSAGE_BYTES,
+  } = params;
 
   // Workspace top-level sock. macOS sun_path is ~104 bytes — absolute workspace paths
   // often overflow, so TFY_MCP_SOCK may be the basename (clients connect with cwd=workspace).
@@ -394,7 +406,7 @@ export async function runSupervisorSession(params: {
 
   const finishConn = (socket: Socket, requestId: string, response: unknown): void => {
     try {
-      socket.write(encodeFrame(childToolResponseFrame(requestId, response)));
+      socket.write(encodeJsonMessage(childToolResponseFrame(requestId, response)));
     } catch (error) {
       protocolError = error instanceof Error ? error.message : String(error);
       killExecTree(child);
@@ -404,35 +416,43 @@ export async function runSupervisorSession(params: {
   };
 
   const handleConnection = (socket: Socket): void => {
-    const parser = new FrameParser();
+    const reader = new JsonMessageReader({ maxBytes: maxMessageBytes });
+    let settled = false;
     ignoreStreamError(socket);
+
+    const failConn = (message: string): void => {
+      if (settled) return;
+      settled = true;
+      protocolError = message;
+      killExecTree(child);
+      socket.destroy();
+    };
+
     socket.on('data', (chunk: Buffer) => {
       try {
-        const frames = parser.push(chunk);
-        if (frames.length === 0) return;
-        if (frames.length !== 1) {
-          protocolError = 'Code Mode UDS expects one request frame per connection';
-          killExecTree(child);
-          socket.destroy();
-          return;
-        }
-        const parsed = CodeModeToolRequestSchema.safeParse(frames[0]);
+        reader.push(chunk);
+      } catch (error) {
+        failConn(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    socket.on('end', () => {
+      if (settled) return;
+      try {
+        const parsed = CodeModeToolRequestSchema.safeParse(reader.finish());
         if (!parsed.success) {
           const onlyRequestId =
             parsed.error.issues.length > 0 && parsed.error.issues.every(issue => issue.path[0] === 'request_id');
-          protocolError = onlyRequestId ? 'tool request missing request_id' : 'invalid inner tool request';
-          killExecTree(child);
-          socket.destroy();
+          failConn(onlyRequestId ? 'tool request missing request_id' : 'invalid inner tool request');
           return;
         }
         const request = parsed.data;
         const requestId = request.request_id;
         if (inflight.has(requestId)) {
-          protocolError = `duplicate request_id ${requestId}`;
-          killExecTree(child);
-          socket.destroy();
+          failConn(`duplicate request_id ${requestId}`);
           return;
         }
+        settled = true;
         inflight.add(requestId);
         void (async () => {
           if (!onToolRequest) {
@@ -458,9 +478,7 @@ export async function runSupervisorSession(params: {
           }
         })();
       } catch (error) {
-        protocolError = error instanceof Error ? error.message : String(error);
-        killExecTree(child);
-        socket.destroy();
+        failConn(error instanceof Error ? error.message : String(error));
       }
     });
   };
