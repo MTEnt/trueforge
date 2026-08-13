@@ -26,10 +26,10 @@
     "@assistant-ui/store": "0.2.21",
     "@truefoundry/assistant-ui-runtime": "0.1.14",
     "@truefoundry/trueforge-ui": "workspace:*",
+    "@truefoundry/trueforge-sdk": "workspace:*",
     "monaco-editor": "^0.52.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "trueforge-sdk": "workspace:*"
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

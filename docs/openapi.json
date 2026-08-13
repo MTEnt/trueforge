@@ -198,11 +198,6 @@
                     "description": "Fully qualified name. Unique within a tenant."
                   }
                 ]
-              },
-              "session_id": {
-                "description": "Mutable inline session updated atomically with this agent.",
-                "minLength": 1,
-                "type": "string"
               }
             },
             "required": [

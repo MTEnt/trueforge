@@ -6831,6 +6831,5 @@
     {
       "BearerAuth": []
     }
-  ],
-  "webhooks": {}
+  ]
 }
