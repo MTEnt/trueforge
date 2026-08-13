@@ -1,0 +1,96 @@
+---
+title: "Connect with TrueForge"
+description: "Point TrueforgeUI at a TrueForge server"
+---
+
+Point `TrueforgeUI` at a TrueForge server. The SDK builds the HTTP client, and composes chat + builder + default settings catalogs into an `AgentUIServer`.
+
+
+## Render against TrueForge
+
+Omit `baseUrl` to talk same-origin (or through a reverse proxy). Pass an absolute URL when the UI and harness are on different origins.
+
+```tsx App.tsx
+import { TrueforgeUI } from "@truefoundry/trueforge-ui";
+
+export default function App() {
+  return (
+    <div style={{ height: "100dvh" }}>
+      <TrueforgeUI
+        server={{
+          type: "trueforge",
+          baseUrl: "http://localhost:8790", // optional; default '/'
+        }}
+      />
+    </div>
+  );
+}
+```
+
+Because this config is resolved asynchronously, the SDK shows a brief loading indicator before the chat appears.
+
+
+## Auth
+
+How the UI authenticates to TrueForge is separate from whether the **server** itself requires login.
+
+| Approach | When to use |
+| --- | --- |
+| Omit `token` and `fetch` | Same-origin or a proxy that already attaches credentials |
+| `token` | Bearer auth for embeds and remote APIs |
+| Custom `fetch` | Cookie sessions, OIDC-aware hosts, or other request interceptors |
+
+**Bearer token:**
+
+```tsx
+<TrueforgeUI
+  server={{
+    type: "trueforge",
+    baseUrl: process.env.TRUEFORGE_BASE_URL,
+    token: process.env.TRUEFORGE_TOKEN,
+  }}
+/>
+```
+
+**Cookie / same-origin hosts** — omit `token` and inject `fetch` (for example an auth-aware wrapper that follows OIDC cookies):
+
+```tsx
+<TrueforgeUI
+  server={{
+    type: "trueforge",
+    baseUrl: "/",
+    fetch: authAwareFetch,
+  }}
+/>
+```
+
+To leave login off on the TrueForge server, or to turn on OIDC for a shared deployment, see [Setup Login](/authentication/overview). That page covers server-side configuration; this page only covers how the UI SDK sends credentials.
+
+## Custom catalog
+
+Pass `catalog` to override the adapter's default settings catalogs. Without it, those Settings surfaces use the built-in catalogs from the TrueForge adapter (when the server exposes them). Supplying your own `CatalogServer` replaces that default.
+
+```tsx
+import type { CatalogServer } from "@truefoundry/trueforge-ui";
+
+const catalog: CatalogServer = {
+  modelCatalog: {
+    /* ... */
+  },
+  connectorCatalog: {
+    /* ... */
+  },
+  // skillCatalog and sandboxCatalog are optional
+};
+
+<TrueforgeUI
+  server={{
+    type: "trueforge",
+    baseUrl: "http://localhost:8790",
+    token: process.env.TRUEFORGE_TOKEN,
+    catalog,
+  }}
+/>
+```
+
+The full port — model providers, connectors, skills, and sandboxes — is on [Settings catalog](/ui-sdk/reference/catalog). For a hand-written server that attaches catalog the same way, see [Catalog](/ui-sdk/setup-custom-servers/catalog) under Bring your own server.

@@ -101,8 +101,20 @@
           {
             "group": "Server Customisations",
             "pages": [
+              "ui-sdk/setup-custom-servers/overview",
+              "ui-sdk/setup-custom-servers/connect-with-trueforge",
               "ui-sdk/setup-custom-servers/connect-with-truefoundry",
-              "ui-sdk/setup-custom-servers/custom-server",
+              {
+                "group": "Bring your own server",
+                "pages": [
+                  "ui-sdk/setup-custom-servers/custom-server",
+                  "ui-sdk/setup-custom-servers/core-concepts",
+                  "ui-sdk/setup-custom-servers/chat",
+                  "ui-sdk/setup-custom-servers/catalog",
+                  "ui-sdk/setup-custom-servers/agents",
+                  "ui-sdk/setup-custom-servers/putting-it-together"
+                ]
+              },
               "ui-sdk/setup-custom-servers/server-contract"
             ]
           },

@@ -1,0 +1,82 @@
+---
+title: "Core concepts"
+description: "Sessions, turns, and the event families a custom AgentUIServer must speak."
+---
+
+The UI only speaks [`AgentUIServer`](/ui-sdk/setup-custom-servers/server-contract). Your backend can be TrueForge HTTP, a BFF, or something else — as long as it implements the port and emits event shapes the UI folds into a transcript.
+
+Interaction follows **Agent → Session → Turn → Event → Delta**. The product [SDK Overview](/api/overview) walks that hierarchy with a running example; this page maps each layer to the methods `TrueforgeUI` calls.
+
+| Layer | What it is | UI methods |
+| --- | --- | --- |
+| **Agent** | A saved definition (model, tools, config) — not a running process | Builder: `searchAgents`, `saveAgent`; sessions may carry `agentName` / `agentSpec` |
+| **Session** | One conversation / issue | `createSession`, `listSessions`, `getSession`, `updateSession` |
+| **Turn** | One request boundary (message, approval, or tool response) | `createTurn`, `listTurns`, `getTurn`, `cancelSession` |
+| **Event** | What the stream (and history) record | Yielded from `createTurn` / `subscribeToTurn`; hydrated via `listEvents` |
+| **Delta** | Incremental chunks that merge into a parent event by `id` | e.g. `model.message.delta` → `model.message` |
+
+Full signatures are on [Server contract](/ui-sdk/setup-custom-servers/server-contract). The stream protocol is on [Streaming events](/ui-sdk/reference/events).
+
+## Sessions
+
+A session is one conversation context. Persist its `id` so the user can return later. Only one turn runs inside a session at a time.
+
+`Session` requires `id`, `isMutable`, `createdAt`, and `updatedAt` (ISO strings). Set `isMutable: true` while the agent spec may still be edited — that is what permits `updateSession`.
+
+## Turns
+
+A turn is one back-and-forth boundary. Each user message, approval, or tool response is a new `createTurn` call. Turns chain via `previousTurnId` (often `"auto"` on TrueForge); the agent sees earlier turns without you resending history.
+
+Input arrives as [`TurnInputItem`](/ui-sdk/setup-custom-servers/server-contract#turn-input): `user.message`, `user.tool_approval`, or `user.tool_response`. Branch on `type`.
+
+A turn ends in `done`, `cancelled`, or `error`. A `done` turn may still carry `requiredActions` — that means it is waiting on the user, not finished outright.
+
+## Events
+
+`createTurn` yields `{ sequenceNumber, event }` envelopes. `sequenceNumber` must increase monotonically within the turn so [`subscribeToTurn`](/ui-sdk/setup-custom-servers/server-contract#agentchatserver) can resume from `afterSequenceNumber`.
+
+### Lifecycle
+
+Every turn is bracketed by `turn.created` and exactly one `turn.done`. A stream that ends without `turn.done` leaves the UI showing the turn as still running.
+
+### Content
+
+| Event | Role |
+| --- | --- |
+| `model.message` | A complete assistant message |
+| `model.message.delta` | Incremental text — the _increment_, not the running total; reuse one `id` across deltas for the same message |
+
+### Pausing for the user
+
+| Event | User reply on the next `createTurn` |
+| --- | --- |
+| `tool.approval_required` | `user.tool_approval` |
+| `tool.response_required` | `user.tool_response` (ask-user questions) |
+| `mcp.auth_required` | Complete OAuth, then start the next turn — see [MCP OAuth](/ui-sdk/setup-custom-ui/mcp-oauth) |
+
+These pause events also appear in `requiredActions` on a `done` turn state.
+
+### MCP, sandbox, and sub-agents
+
+| Event | Role |
+| --- | --- |
+| `mcp.initialize` | MCP servers connected for the thread |
+| `tool.response` | Result of a tool call |
+| `sandbox.created` | Sandbox provisioned — use `sandboxId` with optional `downloadSandboxFile` |
+| `thread.created` / `thread.done` | Sub-agent threads; the UI groups events by `threadId` |
+
+### Generative UI
+
+Generative UI is enabled on the agent via `config` (for example `generativeUi.enabled` on [`AgentSpec`](/ui-sdk/setup-custom-servers/server-contract#agentspec)) and rendered from message content. For how TrueForge authors it, see [Generative UI](/create-agent/generative-ui) — do not reinvent a parallel protocol in the UI SDK.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Chat" icon="comments" href="/ui-sdk/setup-custom-servers/chat">
+    Implement session and turn operations.
+  </Card>
+
+  <Card title="Streaming events" icon="bolt" href="/ui-sdk/reference/events">
+    Full event shapes and unions.
+  </Card>
+</CardGroup>

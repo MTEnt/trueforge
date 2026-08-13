@@ -1,0 +1,85 @@
+---
+title: "Catalog"
+description: "Attach a CatalogServer so Settings can manage models, connectors, skills, and sandboxes."
+---
+
+`catalog` is the optional fourth part of an [`AgentUIServer`](/ui-sdk/setup-custom-servers/server-contract). Attach it and the settings UI appears; omit it and those surfaces stay hidden.
+
+```ts
+interface CatalogServer {
+  modelCatalog: ModelCatalogServer;
+  connectorCatalog: ConnectorCatalogServer;
+  skillCatalog?: SkillCatalogServer;
+  sandboxCatalog?: SandboxCatalogServer;
+}
+```
+
+Models and connectors are required; skills and sandboxes are optional — omit either when your product has no such settings page.
+
+Two conventions recur across all four. Every catalog exposes a **discovery** list of things the user could add (`get*Catalog`) alongside a list of what they have already configured (`list*`). And public read shapes never carry secrets — `apiKey` is accepted on writes and never returned.
+
+Full method and DTO shapes are on [Settings catalog](/ui-sdk/reference/catalog).
+
+| Sub-port | Settings surface |
+| --- | --- |
+| `modelCatalog` | Model providers and models |
+| `connectorCatalog` | MCP connectors (including auth / disconnect) |
+| `skillCatalog?` | Skills registry |
+| `sandboxCatalog?` | Sandbox providers |
+
+`getCapabilities().data.settings.enabled` can hide the settings control even when a `catalog` is attached — see [Capabilities](/ui-sdk/setup-custom-servers/server-contract#capabilities).
+
+## Attach catalog to your server
+
+```ts
+import type { AgentUIServer, CatalogServer } from "@truefoundry/trueforge-ui";
+
+const catalog: CatalogServer = {
+  modelCatalog: {
+    getModelProviderCatalog: async () => [],
+    listModelProviders: async () => [],
+    createModelProvider: async (req) => {
+      /* persist and return public shape */
+      throw new Error("unimplemented");
+    },
+    updateModelProvider: async (req) => {
+      throw new Error("unimplemented");
+    },
+  },
+  connectorCatalog: {
+    getConnectorCatalog: async () => [],
+    listConnectors: async () => [],
+    createConnector: async (req) => {
+      throw new Error("unimplemented");
+    },
+    updateConnector: async (req) => {
+      throw new Error("unimplemented");
+    },
+    authenticateConnector: async (req) => {
+      throw new Error("unimplemented");
+    },
+    disconnectConnector: async (req) => {
+      throw new Error("unimplemented");
+    },
+  },
+};
+
+const server: AgentUIServer = {
+  ...chatAndBuilder,
+  catalog,
+};
+```
+
+The stubs above are enough to show the Settings shell; fill in persistence as you add each surface. On `type: "trueforge"`, the same `catalog` field overrides the adapter defaults — see [Connect with TrueForge](/ui-sdk/setup-custom-servers/connect-with-trueforge#custom-catalog).
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/ui-sdk/setup-custom-servers/agents">
+    Builder pickers are separate from catalog CRUD.
+  </Card>
+
+  <Card title="Settings catalog" icon="book" href="/ui-sdk/reference/catalog">
+    Full `CatalogServer` reference.
+  </Card>
+</CardGroup>

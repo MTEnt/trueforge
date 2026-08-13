@@ -3,13 +3,9 @@ title: "Bring your own server"
 description: "Implement AgentUIServer and pass the object straight to the component."
 ---
 
-Use this when your backend owns the whole contract — sessions, chat streaming, and the agent builder. You implement `AgentUIServer` and pass the object straight to the component, with no `type` wrapper: every call the UI makes, including the `createTurn` event stream, hits your endpoints. Nothing here depends on TrueFoundry.
+Use this when your backend owns the whole contract — sessions, chat streaming, and the agent builder. You implement `AgentUIServer` and pass the object straight to the component, every call the UI makes, including the `createTurn` event stream, hits your endpoints.
 
 Because `server` accepts an `AgentUIServer` directly, you can front any backend — including your own proxy that keeps API keys server-side. The object is used immediately, so there is no loading indicator on mount.
-
-<Note>
-  To keep TrueFoundry's hosted chat and supply only your own builder callbacks, use the composition helpers on [Connect with TrueFoundry](/ui-sdk/setup-custom-servers/connect-with-truefoundry#truefoundry-chat-your-own-builder) instead. This page assumes your backend serves everything.
-</Note>
 
 ## Minimal implementation
 
@@ -92,7 +88,7 @@ export const server: AgentUIServer = {
 Declaring `sandbox` and `skill` as disabled is the honest starting point — the UI then hides those affordances instead of offering controls your backend cannot serve. Flip them on as you implement each.
 
 ```tsx title="App.tsx"
-<TrueforgeUI server={server} layout="sidebar" agentConfig={{ mode: "AgentLibrary" }} />
+<TrueforgeUI server={server} agentConfig={{ mode: "AgentLibrary" }} />
 ```
 
 ## Streaming
@@ -141,7 +137,7 @@ async *createTurn({ sessionId, input }) {
 
 Two things are easy to get wrong. Deltas carry the _increment_ rather than the accumulated text, and every delta for one message shares a single `id`. And a stream that ends without a `turn.done` leaves the UI showing the turn as still running.
 
-[Streaming events](/ui-sdk/reference/events) documents the full protocol — tool calls, approval prompts, sub-agent threads, and sandbox artifacts.
+[Streaming events](/ui-sdk/reference/events) documents the full protocol — tool calls, approval prompts, sub-agent threads, and sandbox artifacts. For how sessions, turns, and events fit together, see [Core concepts](/ui-sdk/setup-custom-servers/core-concepts).
 
 ## Pagination
 
@@ -179,33 +175,42 @@ Spreading `nextPageToken` in only when present keeps the result valid under `exa
   </Accordion>
 
   <Accordion title="catalog">
-    Attach a [`CatalogServer`](/ui-sdk/reference/catalog) to enable the settings UI — models, connectors, skills, and sandboxes. Without it those surfaces do not render.
+    Attach a [`CatalogServer`](/ui-sdk/reference/catalog) to enable the settings UI — models, connectors, skills, and sandboxes. Without it those surfaces do not render. See [Catalog](/ui-sdk/setup-custom-servers/catalog).
   </Accordion>
 </AccordionGroup>
-
-## Widening the types
-
-The interfaces are generic so you can carry backend-specific fields through the UI without casting. `AgentUIServer` itself is a plain alias, so compose the widened chat and builder ports directly:
-
-```ts
-interface MyModel extends ModelSelection {
-  modelId: string;
-}
-
-type MySkillMount = { fqn: string; preload: boolean };
-type MySpec = AgentSpec<Model, MySkillMount>;
-
-const server: AgentChatServer<MySpec> & AgentBuilderServer<MySpec, MyModel> = {
-  /* ... */
-};
-```
-
-See [Widening the types](/ui-sdk/setup-custom-servers/server-contract#widening-the-types) for the full set of parameters.
 
 ## Attachments
 
 Attachment handling defaults to `trueFoundryAttachmentAdapter`. Override it through the `adapters` prop on `TrueforgeUI` if your backend stores uploads differently.
 
 ```tsx
-<TrueforgeUI server={server} layout="sidebar" adapters={{ attachments: myAdapter }} />
+<TrueforgeUI server={server} adapters={{ attachments: myAdapter }} />
 ```
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Core concepts" icon="sitemap" href="/ui-sdk/setup-custom-servers/core-concepts">
+    Sessions, turns, and the event families the UI understands.
+  </Card>
+
+  <Card title="Chat" icon="comments" href="/ui-sdk/setup-custom-servers/chat">
+    Session and turn operations on `AgentChatServer`.
+  </Card>
+
+  <Card title="Catalog" icon="sliders" href="/ui-sdk/setup-custom-servers/catalog">
+    Attach settings catalogs for models, connectors, skills, and sandboxes.
+  </Card>
+
+  <Card title="Agents" icon="robot" href="/ui-sdk/setup-custom-servers/agents">
+    Builder pickers, capabilities, and the agent library.
+  </Card>
+
+  <Card title="Putting it together" icon="layer-group" href="/ui-sdk/setup-custom-servers/putting-it-together">
+    Compose chat, builder, and catalog into one server.
+  </Card>
+
+  <Card title="Server contract" icon="file-code" href="/ui-sdk/setup-custom-servers/server-contract">
+    Full method signatures and type widening.
+  </Card>
+</CardGroup>

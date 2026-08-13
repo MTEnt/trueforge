@@ -1,0 +1,94 @@
+---
+title: "Chat"
+description: "Implement AgentChatServer — sessions, turns, history, cancel, and resume."
+---
+
+`AgentChatServer` is the runtime the chat UI calls. All operations are keyed by a flat `sessionId`. Method signatures live on [Server contract](/ui-sdk/setup-custom-servers/server-contract#agentchatserver); this page is the cookbook.
+
+## Sessions
+
+| Method | Role |
+| --- | --- |
+| `createSession` | Open a conversation (`agentName?`, `agentSpec?`, `title?`) |
+| `listSessions` | Paginated session list for the thread sidebar |
+| `getSession` | Load one session by id |
+| `updateSession` | Update title or mutable agent spec |
+| `deleteSession?` | Optional — omit to hide delete in the session list |
+
+```ts
+async createSession({ agentName, agentSpec, title } = {}) {
+  return {
+    id: crypto.randomUUID(),
+    agentName: agentName ?? null,
+    agentSpec,
+    title: title ?? null,
+    isMutable: agentSpec != null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+```
+
+List methods return `{ data, nextPageToken? }` — see [Pagination](/ui-sdk/setup-custom-servers/custom-server#pagination) on the landing page.
+
+## Turns
+
+| Method | Role |
+| --- | --- |
+| `createTurn` | Start a turn and stream `{ sequenceNumber, event }` envelopes |
+| `listTurns` | Paginated turns in a session |
+| `getTurn` | Load one turn (state, input, timestamps) |
+| `cancelSession` | Cancel the in-flight turn for a session |
+
+`createTurn` accepts `input?: TurnInputItem[]` — a plain chat message, a tool approval, or a tool response. Branch on `type` as described in [Turn input](/ui-sdk/setup-custom-servers/server-contract#turn-input).
+
+The minimum stream is covered on [Bring your own server](/ui-sdk/setup-custom-servers/custom-server#streaming). For tool calls, approvals, threads, and sandboxes, implement the shapes in [Streaming events](/ui-sdk/reference/events).
+
+```ts
+async *createTurn({ sessionId, input, abortSignal }) {
+  let seq = 0;
+  for await (const event of myBackendStream({ sessionId, input, abortSignal })) {
+    yield { sequenceNumber: seq++, event };
+  }
+}
+```
+
+## Resume a live turn
+
+`subscribeToTurn` is optional. When present, a reconnecting client passes the last `sequenceNumber` it saw as `afterSequenceNumber`, and you replay only what follows — not the whole turn.
+
+```ts
+async *subscribeToTurn({ sessionId, turnId, afterSequenceNumber, abortSignal }) {
+  let seq = (afterSequenceNumber ?? -1) + 1;
+  for await (const event of myResumeStream({ sessionId, turnId, afterSequenceNumber, abortSignal })) {
+    yield { sequenceNumber: seq++, event };
+  }
+}
+```
+
+Pass the same `abortSignal` you use on `createTurn` to tear the subscription down.
+
+## History
+
+| Method | Role |
+| --- | --- |
+| `listEvents` | Hydrate session history (`pageToken?`, `lastTurnId?`, `limit?`) |
+| `listTurnEvents?` | Optional — events for a single in-flight turn when your backend can serve them per turn |
+
+`listEvents` returns session-level wrappers that identify the turn; see [Streaming events](/ui-sdk/reference/events#the-unions) for how history differs from the live stream (no deltas — the assembled `model.message` is stored instead).
+
+## Sandbox downloads
+
+`downloadSandboxFile` is optional. Return a `Blob` when agents produce artifacts users should download. It receives both `turnId` and `sandboxId` because backends address sandboxes differently — see the note on [Server contract](/ui-sdk/setup-custom-servers/server-contract#agentchatserver).
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Catalog" icon="sliders" href="/ui-sdk/setup-custom-servers/catalog">
+    Attach settings catalogs.
+  </Card>
+
+  <Card title="Agents" icon="robot" href="/ui-sdk/setup-custom-servers/agents">
+    Builder pickers and the agent library.
+  </Card>
+</CardGroup>

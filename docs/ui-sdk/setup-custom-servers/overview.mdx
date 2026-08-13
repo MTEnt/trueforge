@@ -1,0 +1,90 @@
+---
+title: "Overview"
+description: "Choose how TrueforgeUI talks to a backend: TrueForge, TrueFoundry, or your own AgentUIServer."
+---
+
+The `server` prop accepts a built-in config object or an object implementing `AgentUIServer`. TrueForge is the default path for a self-hosted harness; TrueFoundry wires Control Plane + Gateway; a hand-written `AgentUIServer` is used when your backend owns the whole contract.
+
+```ts
+type TrueforgeServerConfig =
+  | {
+      type: "trueforge";
+      baseUrl?: string;
+      token?: string;
+      fetch?: typeof fetch;
+      catalog?: CatalogServer;
+    }
+  | {
+      type: "truefoundry";
+      apiKey: string;
+      controlPlaneURL: string;
+      gatewayPlaneURL?: string;
+      catalog?: CatalogServer;
+    }
+  | AgentUIServer;
+```
+
+There is no `type: "custom"` — pass the `AgentUIServer` object directly.
+
+<Note>
+  Built-in configs (`trueforge` / `truefoundry`) resolve asynchronously, so the SDK renders a brief loading indicator first. An `AgentUIServer` object is used immediately and mounts without that delay.
+</Note>
+
+## TrueForge (default)
+
+Point `TrueforgeUI` at a TrueForge server. Omit `baseUrl` to talk same-origin; pass `token` or a custom `fetch` when the host owns auth.
+
+```tsx
+<TrueforgeUI
+  server={{
+    type: "trueforge",
+    baseUrl: "http://localhost:8790", // optional; default '/'
+  }}
+/>
+```
+
+See [Connect with TrueForge](/ui-sdk/setup-custom-servers/connect-with-trueforge).
+
+## TrueFoundry
+
+The SDK builds the agent UI server from your API key and control plane URL.
+
+```tsx
+<TrueforgeUI
+  server={{
+    type: "truefoundry",
+    apiKey: process.env.TFY_API_KEY,
+    controlPlaneURL: process.env.TFY_CONTROL_PLANE_URL,
+  }}
+/>
+```
+
+See [Connect with TrueFoundry](/ui-sdk/setup-custom-servers/connect-with-truefoundry).
+
+## Bring your own server
+
+Implement `AgentUIServer` and pass the object straight to the component — every call the UI makes, including the `createTurn` event stream, hits your endpoints.
+
+```tsx
+<TrueforgeUI server={myAgentUIServer} />
+```
+
+Start with [Bring your own server](/ui-sdk/setup-custom-servers/custom-server). The typed contract lives on [Server contract](/ui-sdk/setup-custom-servers/server-contract).
+
+<CardGroup cols={2}>
+  <Card title="Connect with TrueForge" icon="server" href="/ui-sdk/setup-custom-servers/connect-with-trueforge">
+    Default harness path — auth and optional catalog overrides.
+  </Card>
+
+  <Card title="Connect with TrueFoundry" icon="cloud" href="/ui-sdk/setup-custom-servers/connect-with-truefoundry">
+    Control Plane + Gateway, or chat from TrueFoundry with your own builder.
+  </Card>
+
+  <Card title="Bring your own server" icon="code" href="/ui-sdk/setup-custom-servers/custom-server">
+    Implement `AgentUIServer` and pass it straight to `TrueforgeUI`.
+  </Card>
+
+  <Card title="Server contract" icon="file-code" href="/ui-sdk/setup-custom-servers/server-contract">
+    Chat, builder, and catalog method signatures.
+  </Card>
+</CardGroup>

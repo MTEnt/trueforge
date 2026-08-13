@@ -315,13 +315,21 @@ const server: AgentChatServer<MySpec> & AgentBuilderServer<MySpec, MyModel> = {
 };
 ```
 
-The UI keeps reading only the fields it knows about; your own components — supplied through [slot overrides](/ui-sdk/guides/slot-overrides) — can read the rest.
+The UI keeps reading only the fields it knows about; your own components — supplied through [slot overrides](/ui-sdk/setup-custom-ui/slot-overrides) — can read the rest.
 
 ## Next
 
 <CardGroup cols={2}>
-  <Card title="Worked implementation" icon="server" href="/ui-sdk/setup-custom-servers/custom-server">
+  <Card title="Overview" icon="map" href="/ui-sdk/setup-custom-servers/overview">
+    TrueForge, TrueFoundry, or bring your own.
+  </Card>
+
+  <Card title="Bring your own server" icon="server" href="/ui-sdk/setup-custom-servers/custom-server">
     A minimal `AgentUIServer` you can copy.
+  </Card>
+
+  <Card title="Putting it together" icon="layer-group" href="/ui-sdk/setup-custom-servers/putting-it-together">
+    Compose chat, builder, and catalog.
   </Card>
 
   <Card title="Streaming events" icon="bolt" href="/ui-sdk/reference/events">

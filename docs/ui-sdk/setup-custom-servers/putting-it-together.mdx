@@ -1,0 +1,89 @@
+---
+title: "Putting it together"
+description: "Compose chat, builder, and catalog into a complete AgentUIServer."
+---
+
+An `AgentUIServer` is chat and builder, plus an optional settings catalog:
+
+```ts
+type AgentUIServer = AgentChatServer & AgentBuilderServer & { catalog?: CatalogServer };
+```
+
+Build it in layers. Each step mounts; add the next when your backend can serve it.
+
+## 1. Chat-only stub
+
+Implement the [minimal chat + builder surface](/ui-sdk/setup-custom-servers/custom-server#minimal-implementation) so `TrueforgeUI` mounts. Disable sandbox and skills in `getCapabilities` until those paths exist. Empty `searchAgents` / `getSkills` / `getMcp` is fine for a first chat.
+
+## 2. Add builder callbacks
+
+Fill `getModels`, `getSkills`, `getMcp`, `searchAgents`, and `saveAgent` so the composer and library work. See [Agents](/ui-sdk/setup-custom-servers/agents).
+
+## 3. Attach catalog
+
+Add a [`CatalogServer`](/ui-sdk/setup-custom-servers/catalog) when Settings should manage providers and connectors:
+
+```ts
+const server: AgentUIServer = {
+  ...chatServerMethods,
+  ...builderMethods,
+  catalog,
+};
+```
+
+```tsx
+<TrueforgeUI server={server} agentConfig={{ mode: "AgentLibraryWithComposer" }} />
+```
+
+## End-to-end sketch
+
+```ts
+import type {
+  AgentBuilderServer,
+  AgentChatServer,
+  AgentUIServer,
+  CatalogServer,
+} from "@truefoundry/trueforge-ui";
+
+const chat: AgentChatServer = {
+  /* createSession, listSessions, getSession, updateSession,
+     createTurn, cancelSession, listTurns, getTurn, listEvents */
+};
+
+const builder: AgentBuilderServer = {
+  /* getCapabilities, getModels, getSkills, getMcp, searchAgents, saveAgent */
+};
+
+const catalog: CatalogServer = {
+  modelCatalog: {
+    /* ... */
+  },
+  connectorCatalog: {
+    /* ... */
+  },
+};
+
+export const server: AgentUIServer = {
+  ...chat,
+  ...builder,
+  catalog,
+};
+```
+
+Widen types when your backend returns richer rows — see [Widening the types](/ui-sdk/setup-custom-servers/server-contract#widening-the-types).
+
+<Note>
+  To keep TrueFoundry's hosted chat streaming but serve builder surfaces from your own backend, compose with `createTrueFoundryServer` instead of hand-writing chat — [TrueFoundry chat, your own builder](/ui-sdk/setup-custom-servers/connect-with-truefoundry#truefoundry-chat-your-own-builder).
+</Note>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Server contract" icon="file-code" href="/ui-sdk/setup-custom-servers/server-contract">
+    Every method signature.
+  </Card>
+
+  <Card title="Overview" icon="map" href="/ui-sdk/setup-custom-servers/overview">
+    TrueForge, TrueFoundry, or bring your own.
+  </Card>
+</CardGroup>

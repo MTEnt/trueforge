@@ -1,0 +1,81 @@
+---
+title: "Agents"
+description: "Implement AgentBuilderServer — capabilities, pickers, and the agent library."
+---
+
+`AgentBuilderServer` powers the agent library and the draft composer. It is required on every `AgentUIServer`, even when you only expose a fixed agent — return honest empty lists and disable capabilities you do not support.
+
+Full signatures are on [Server contract](/ui-sdk/setup-custom-servers/server-contract#agentbuilderserver).
+
+## Capabilities
+
+`getCapabilities` tells the UI which optional features your backend supports, so it can hide what you do not offer rather than surfacing controls that fail.
+
+```ts
+async getCapabilities() {
+  return {
+    data: {
+      sandbox: { enabled: false },
+      skill: { enabled: true },
+      // settings: { enabled: false }, // hides Settings even when catalog is attached
+    },
+  };
+}
+```
+
+It is fetched once when the server resolves. `skill.reason` is shown when skills are disabled. Read the resolved value in your own components with [`useServerCapabilities()`](/ui-sdk/reference/hooks).
+
+## Pickers
+
+These methods feed the composer selectors. They are **not** the same as [catalog](/ui-sdk/setup-custom-servers/catalog) CRUD — catalog manages Settings; pickers list what an agent can attach right now.
+
+| Method | Returns |
+| --- | --- |
+| `getModels` | `ModelSelection[]` — `id`, `name`, `provider`, `properties` |
+| `getSkills` | `AgentSkill[]` — `id`, `name`, optional `description` |
+| `getMcp` | `ConnectorState[]` — `id`, `name`, optional auth flags |
+
+Return a non-empty `properties.reasoningEfforts` on a `ModelSelection` and the UI shows a reasoning-effort picker beside the model selector.
+
+## Agent library
+
+| Method | Role |
+| --- | --- |
+| `searchAgents` | Search / list library entries (`query?`, `limit?`, `offset?`) |
+| `saveAgent` | Create or update (`intent: "create" \| "update"`) |
+| `deleteAgent?` | Optional — omit to hide delete |
+
+```ts
+async searchAgents({ query, limit, offset } = {}) {
+  return [
+    {
+      agentId: "support-agent",
+      name: "Support agent",
+      // agentSpec: { ... } // supply to enable Edit; omit for try-only
+    },
+  ];
+}
+
+async saveAgent({ agentName, agentSpec, intent, sessionId }) {
+  // persist; return { agentId?, sessionUpdatedAt? }
+  return { agentId: agentName };
+}
+```
+
+On `AgentLibraryEntry`, `agentId` is the stable identifier used for selection, history filtering, and session binding; omit it and the row falls back to `name`.
+
+## Chat with a library agent
+
+How the shell exposes library vs composer is controlled by `agentConfig` on `TrueforgeUI` — see [Agent modes](/ui-sdk/guides/agent-modes). Creating a session with `agentName` (or binding a mutable `agentSpec`) is what ties chat to a library entry; the builder methods above only populate the pickers and save flow.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Putting it together" icon="layer-group" href="/ui-sdk/setup-custom-servers/putting-it-together">
+    Compose chat, builder, and catalog.
+  </Card>
+
+  <Card title="Server contract" icon="file-code" href="/ui-sdk/setup-custom-servers/server-contract">
+    `AgentSpec`, save request, and picker row types.
+  </Card>
+</CardGroup>
