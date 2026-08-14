@@ -4,7 +4,6 @@
  */
 import type { ExecResult, SandboxBuild, SandboxExecParams, SandboxProvider } from '@truefoundry/trueforge-core/core';
 import {
-  SANDBOX_IMAGE_URI,
   SandboxFileNotFoundError,
   SandboxFileTooLargeError,
   SandboxNotAvailableError,
@@ -69,7 +68,7 @@ export class LocalSandboxProvider implements SandboxProvider {
   private static readonly readyBuild: SandboxBuild = {
     status: 'ready',
     reason: null,
-    metadata: { buildRef: 'local-srt', imageUri: SANDBOX_IMAGE_URI },
+    metadata: null,
   };
 
   constructor(options: LocalSandboxProviderOptions) {
