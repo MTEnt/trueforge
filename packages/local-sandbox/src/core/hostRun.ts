@@ -197,9 +197,15 @@ function commandEnv(params: {
 }
 
 /** Session filesystem floor (per-exec customConfig still tightens allowWrite/allowRead). */
-function sessionFilesystem(platform: LocalSandboxPlatform) {
+function sessionFilesystem(platform: LocalSandboxPlatform): {
+  allowWrite: string[];
+  denyWrite: string[];
+  denyRead: string[];
+  allowRead: string[];
+} {
+  const allowWrite: string[] = [];
   return {
-    allowWrite: [] as string[],
+    allowWrite,
     denyWrite: denySharedDefaultWritePaths(),
     denyRead: ['/'],
     allowRead: platformAllowRead(platform),
@@ -212,20 +218,31 @@ function sessionFilesystem(platform: LocalSandboxPlatform) {
  * - macOS: allowAllUnixSockets does NOT consult allowRead for connect — use
  *   allowUnixSockets subpath, synced at sandbox create/remove.
  */
-function sessionNetwork(params: { platform: LocalSandboxPlatform; unixSockets?: string[] }) {
-  const emptyDomains = {
-    allowedDomains: [] as string[],
-    deniedDomains: [] as string[],
-  };
+function sessionNetwork(params: { platform: LocalSandboxPlatform; unixSockets?: string[] }):
+  | {
+      allowedDomains: string[];
+      deniedDomains: string[];
+      allowAllUnixSockets: true;
+    }
+  | {
+      allowedDomains: string[];
+      deniedDomains: string[];
+      allowAllUnixSockets: false;
+      allowUnixSockets: string[];
+    } {
+  const allowedDomains: string[] = [];
+  const deniedDomains: string[] = [];
   if (params.platform === 'linux') {
     return {
-      ...emptyDomains,
-      allowAllUnixSockets: true as const,
+      allowedDomains,
+      deniedDomains,
+      allowAllUnixSockets: true,
     };
   }
   return {
-    ...emptyDomains,
-    allowAllUnixSockets: false as const,
+    allowedDomains,
+    deniedDomains,
+    allowAllUnixSockets: false,
     allowUnixSockets: params.unixSockets ?? [],
   };
 }
