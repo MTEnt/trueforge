@@ -15,15 +15,39 @@ import {
   shellEscape,
   validateNoPathTraversal,
 } from '@truefoundry/trueforge-core/core';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { ulid } from 'ulid';
 import { CodeModeUdsTransport, assertCodeModeSocketParentPath } from '../core/CodeModeUdsTransport.js';
-import { createSandbox, initSrt, resetSrt, runSupervisorSession } from '../core/hostRun.js';
+import {
+  createSandbox,
+  initSrt,
+  isSrtInitialized,
+  removeSandbox,
+  resetSrt,
+  resolveCommandOnHost,
+  runSupervisorSession,
+  type LocalSandboxPlatform,
+} from '../core/hostRun.js';
 import { XferFileInfoSchema, type XferFileInfo } from '../schemas/xferFileInfo.js';
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 60;
 const DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024;
+/** Cap for isSupported shell/Python probes (not general exec). */
+const SUPPORT_PROBE_TIMEOUT_MS = 5_000;
+
+/** Command names resolved via `command -v` (PATH from sandbox policy). */
+const SHELL_CANDIDATES = ['bash', 'sh'] as const;
+const PYTHON_CANDIDATES = ['python3', 'python'] as const;
+
+export type { LocalSandboxPlatform };
+
+export type LocalSandboxSupportResult =
+  | { supported: true; platform: LocalSandboxPlatform; shell: string; python: string }
+  | { supported: false; reason: string };
+
+type LocalSandboxSupported = Extract<LocalSandboxSupportResult, { supported: true }>;
 
 export interface LocalSandboxProviderOptions {
   /** Absolute parent directory under which each createSandbox makes a ULID child root. */
@@ -33,6 +57,8 @@ export interface LocalSandboxProviderOptions {
    * Validated when constructing {@link CodeModeUdsTransport}.
    */
   codeModeSocketParentPath: string;
+  /** Result of {@link LocalSandboxProvider.isSupported}; must be `{ supported: true }`. */
+  support: LocalSandboxSupportResult;
   fileMaxBytesForDownload?: number | undefined;
   defaultExecTimeoutSeconds?: number | undefined;
 }
@@ -42,32 +68,10 @@ function sandboxRelativePath(userPath: string): string {
   return userPath.replace(/^\.\/+/, '');
 }
 
-function pythonC(code: string, relPath: string): string {
-  return `python3 -c ${shellEscape(code)} ${shellEscape(relPath)}`;
-}
-
-function statCommand(relPath: string): string {
-  const code = [
-    'import json, os, sys',
-    'p = sys.argv[1]',
-    'st = os.stat(p)',
-    'print(json.dumps({"size": st.st_size, "isDir": os.path.isdir(p)}))',
-  ].join('\n');
-  return pythonC(code, relPath);
-}
-
-function base64EncodeCommand(relPath: string): string {
-  const code = [
-    'import base64, sys',
-    'p = sys.argv[1]',
-    'sys.stdout.write(base64.b64encode(open(p, "rb").read()).decode("ascii"))',
-  ].join('\n');
-  return pythonC(code, relPath);
-}
-
 export class LocalSandboxProvider implements SandboxProvider {
   private readonly sandboxRootPathParent: string;
   private readonly codeModeSocketParentPath: string;
+  private readonly support: LocalSandboxSupported;
   private readonly fileMaxBytesForDownload: number;
   private readonly defaultExecTimeoutSeconds: number;
   private srtInitialized = false;
@@ -79,7 +83,95 @@ export class LocalSandboxProvider implements SandboxProvider {
     metadata: null,
   };
 
+  /**
+   * Probe whether this host can run LocalSandboxProvider (OS + in-sandbox shell + Python 3).
+   * On success, returns platform/shell/python to pass into the constructor as `support`.
+   */
+  static async isSupported(): Promise<LocalSandboxSupportResult> {
+    if (process.platform !== 'darwin' && process.platform !== 'linux') {
+      return {
+        supported: false,
+        reason: `LocalSandboxProvider supports macOS and Linux only (got ${process.platform})`,
+      };
+    }
+    const platform: LocalSandboxPlatform = process.platform;
+
+    const alreadyInitialized = isSrtInitialized();
+    let probeRoot: string | undefined;
+
+    try {
+      if (!alreadyInitialized) {
+        await initSrt({ platform });
+      }
+
+      probeRoot = await createSandbox(await mkdtemp(join(tmpdir(), 'tfy-local-sandbox-support-')));
+
+      let shell: string | undefined;
+      for (const name of SHELL_CANDIDATES) {
+        const resolved = await resolveCommandOnHost({ platform, name });
+        if (resolved === undefined) continue;
+        const probe = await runSupervisorSession({
+          sandboxRootPath: probeRoot,
+          platform,
+          shell: resolved,
+          command: 'echo shell-ok',
+          timeoutMs: SUPPORT_PROBE_TIMEOUT_MS,
+        });
+        if (probe.protocolError === undefined && probe.exitCode === 0 && probe.stdoutText.includes('shell-ok')) {
+          shell = resolved;
+          break;
+        }
+      }
+      if (shell === undefined) {
+        return {
+          supported: false,
+          reason: 'No usable shell in sandbox (bash or sh via command -v)',
+        };
+      }
+
+      let python: string | undefined;
+      for (const name of PYTHON_CANDIDATES) {
+        const resolved = await resolveCommandOnHost({ platform, name });
+        if (resolved === undefined) continue;
+        const probe = await runSupervisorSession({
+          sandboxRootPath: probeRoot,
+          platform,
+          shell,
+          command: `${shellEscape(resolved)} -c ${shellEscape(
+            'import sys; raise SystemExit(0 if sys.version_info[0] == 3 else 1)',
+          )}`,
+          timeoutMs: SUPPORT_PROBE_TIMEOUT_MS,
+        });
+        if (probe.protocolError === undefined && probe.exitCode === 0) {
+          python = resolved;
+          break;
+        }
+      }
+      if (python === undefined) {
+        return {
+          supported: false,
+          reason: 'No usable Python 3 interpreter in sandbox (python3 or python via command -v)',
+        };
+      }
+
+      return { supported: true, platform, shell, python };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { supported: false, reason: message };
+    } finally {
+      if (probeRoot !== undefined) {
+        await removeSandbox(probeRoot);
+      }
+      if (!alreadyInitialized) {
+        await resetSrt();
+      }
+    }
+  }
+
   constructor(options: LocalSandboxProviderOptions) {
+    if (!options.support.supported) {
+      throw new Error(`LocalSandboxProvider is not supported: ${options.support.reason}`);
+    }
     if (!isAbsolute(options.sandboxRootPathParent)) {
       throw new Error('sandboxRootPathParent must be an absolute path');
     }
@@ -87,8 +179,32 @@ export class LocalSandboxProvider implements SandboxProvider {
     this.sandboxRootPathParent = resolve(options.sandboxRootPathParent);
     // Same validation as CodeModeUdsTransport (absolute, exists, ≤60 bytes, realpath).
     this.codeModeSocketParentPath = assertCodeModeSocketParentPath(options.codeModeSocketParentPath);
+    this.support = options.support;
     this.fileMaxBytesForDownload = options.fileMaxBytesForDownload ?? DEFAULT_FILE_MAX_BYTES;
     this.defaultExecTimeoutSeconds = options.defaultExecTimeoutSeconds ?? DEFAULT_EXEC_TIMEOUT_SECONDS;
+  }
+
+  private pythonC(code: string, relPath: string): string {
+    return `${this.support.python} -c ${shellEscape(code)} ${shellEscape(relPath)}`;
+  }
+
+  private statCommand(relPath: string): string {
+    const code = [
+      'import json, os, sys',
+      'p = sys.argv[1]',
+      'st = os.stat(p)',
+      'print(json.dumps({"size": st.st_size, "isDir": os.path.isdir(p)}))',
+    ].join('\n');
+    return this.pythonC(code, relPath);
+  }
+
+  private base64EncodeCommand(relPath: string): string {
+    const code = [
+      'import base64, sys',
+      'p = sys.argv[1]',
+      'sys.stdout.write(base64.b64encode(open(p, "rb").read()).decode("ascii"))',
+    ].join('\n');
+    return this.pythonC(code, relPath);
   }
 
   buildImage(): Promise<SandboxBuild> {
@@ -101,10 +217,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 
   private async ensureSrt(): Promise<void> {
     if (this.srtInitialized) return;
-    if (process.platform !== 'darwin' && process.platform !== 'linux') {
-      throw new Error('LocalSandboxProvider supports macOS and Linux only');
-    }
-    await initSrt();
+    await initSrt({ platform: this.support.platform });
     this.srtInitialized = true;
   }
 
@@ -125,6 +238,8 @@ export class LocalSandboxProvider implements SandboxProvider {
   }): Promise<{ exitCode: number; stdoutText: string; stderrText: string }> {
     const session = await runSupervisorSession({
       sandboxRootPath: params.sandboxRootPath,
+      platform: this.support.platform,
+      shell: this.support.shell,
       command: params.command,
       ...(params.stdin === undefined ? {} : { stdin: params.stdin }),
       timeoutMs: this.defaultExecTimeoutSeconds * 1000,
@@ -146,7 +261,7 @@ export class LocalSandboxProvider implements SandboxProvider {
   }): Promise<XferFileInfo> {
     const result = await this.runSandboxCommand({
       sandboxRootPath: params.sandboxRootPath,
-      command: statCommand(params.relPath),
+      command: this.statCommand(params.relPath),
     });
     if (result.exitCode !== 0) {
       throw new SandboxFileNotFoundError(params.userPath);
@@ -173,6 +288,8 @@ export class LocalSandboxProvider implements SandboxProvider {
       const timeoutSeconds = params.timeoutSeconds ?? this.defaultExecTimeoutSeconds;
       const session = await runSupervisorSession({
         sandboxRootPath,
+        platform: this.support.platform,
+        shell: this.support.shell,
         command: params.command,
         cwd,
         ...(params.env === undefined ? {} : { env: params.env }),
@@ -195,6 +312,9 @@ export class LocalSandboxProvider implements SandboxProvider {
   getAdditionalInstructions(): string {
     return [
       'SANDBOX RULES:',
+      `- Platform: ${this.support.platform}.`,
+      `- Commands run under the sandbox shell: ${this.support.shell}.`,
+      `- Python 3 is available as: ${this.support.python}. Prefer this binary for Python scripts.`,
       "- The Agent's first sandbox command should be `pwd` to discover the working directory.",
       '- ALL file creation and writes MUST stay within that working directory.',
       '- The Agent must NOT write outside the working directory (including host home and /tmp).',
@@ -223,7 +343,7 @@ export class LocalSandboxProvider implements SandboxProvider {
     }
     const result = await this.runSandboxCommand({
       sandboxRootPath,
-      command: base64EncodeCommand(relPath),
+      command: this.base64EncodeCommand(relPath),
     });
     if (result.exitCode !== 0) {
       throw new SandboxFileNotFoundError(params.path);

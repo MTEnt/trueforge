@@ -2,15 +2,21 @@
  * Host-side sandboxed exec (in-process supervisor).
  * Only the untrusted command argv is SRT-wrapped. Code Mode UDS is owned by
  * {@link CodeModeUdsTransport} (handle-scoped); pass TFY_MCP_SOCK via `env` when needed.
+ *
+ * Platform policy (allowRead / AF_UNIX / PATH) uses {@link LocalSandboxPlatform} from
+ * {@link initSrt} — the same platform captured by LocalSandboxProvider.isSupported.
  */
 import { getDefaultWritePaths, SandboxManager } from '@anthropic-ai/sandbox-runtime';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** Package root from src/ or dist/src/ (Jest runs TypeScript source). */
@@ -42,13 +48,57 @@ const SRT_VENDOR = join(
  */
 export const MAX_OUTPUT_BYTES = 14 * 1024 * 1024;
 
+/** Platforms LocalSandboxProvider / hostRun can run on. */
+export type LocalSandboxPlatform = 'darwin' | 'linux';
+
+/** Set by {@link initSrt}; cleared by {@link resetSrt}. Source of truth for policy helpers. */
+let activePlatform: LocalSandboxPlatform | undefined;
+
+function requireActivePlatform(): LocalSandboxPlatform {
+  if (activePlatform === undefined) {
+    throw new Error('SRT platform is not set; call initSrt({ platform }) first');
+  }
+  return activePlatform;
+}
+
+/** PATH for sandboxed commands — must stay aligned with allowRead exec roots. */
+const COMMAND_PATH_BY_PLATFORM = {
+  // On macOS, prefer Homebrew ahead of `/usr/bin` shims (those need Xcode select
+  // paths that we intentionally do not allow-read).
+  darwin: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+  linux: '/usr/bin:/bin:/usr/sbin:/sbin',
+} as const satisfies Record<LocalSandboxPlatform, string>;
+
+export function commandPath(platform: LocalSandboxPlatform): string {
+  return COMMAND_PATH_BY_PLATFORM[platform];
+}
+
 /**
- * PATH for sandboxed commands — must stay aligned with allowRead exec roots.
- * On macOS, prefer Homebrew ahead of `/usr/bin` shims (those need Xcode select
- * paths that we intentionally do not allow-read).
+ * Resolve a command name to an absolute path on the host using the sandbox PATH.
+ * Uses `/bin/sh` only as a host bootstrap for `command -v` (not the sandboxed wrap shell).
  */
-export const COMMAND_PATH =
-  process.platform === 'darwin' ? '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin' : '/usr/bin:/bin:/usr/sbin:/sbin';
+export async function resolveCommandOnHost(params: {
+  platform: LocalSandboxPlatform;
+  name: string;
+}): Promise<string | undefined> {
+  if (!/^[A-Za-z0-9._+-]+$/.test(params.name)) {
+    throw new Error(`invalid command name for resolveCommandOnHost: ${params.name}`);
+  }
+  const pathEnv = commandPath(params.platform);
+  try {
+    const { stdout } = await execFileAsync('/bin/sh', ['-c', `command -v -- ${params.name}`], {
+      env: { PATH: pathEnv },
+      encoding: 'utf8',
+    });
+    const resolved = stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
+    if (resolved === undefined || resolved.length === 0 || !isAbsolute(resolved)) {
+      return undefined;
+    }
+    return resolved;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface SessionResult {
   stdoutText: string;
@@ -69,88 +119,90 @@ function denySharedDefaultWritePaths(): string[] {
   return getDefaultWritePaths().filter(path => !path.startsWith('/dev/'));
 }
 
-function platformAllowRead(): string[] {
-  switch (process.platform) {
-    case 'darwin':
-      return [
-        '/opt/homebrew/bin',
-        '/usr/bin',
-        '/bin',
-        '/usr/sbin',
-        '/sbin',
-        '/usr/lib',
-        '/System/Library',
-        '/Library',
-        '/private/var/db/dyld',
-        '/private/var/select',
-        '/opt/homebrew',
-        '/dev',
-      ];
-    case 'linux':
-      return [
-        '/usr/bin',
-        '/bin',
-        '/usr/sbin',
-        '/sbin',
-        '/lib',
-        '/lib64',
-        '/usr/lib',
-        '/usr/lib64',
-        '/usr/local',
-        '/etc',
-        '/dev',
-        '/proc',
-        '/sys',
-        '/tmp',
-        SRT_VENDOR,
-      ];
-    default:
-      throw new Error(`unsupported platform for filesystemPolicy: ${process.platform}`);
-  }
+const ALLOW_READ_BY_PLATFORM = {
+  darwin: [
+    '/opt/homebrew/bin',
+    '/usr/bin',
+    '/bin',
+    '/usr/sbin',
+    '/sbin',
+    '/usr/lib',
+    '/System/Library',
+    '/Library',
+    '/private/var/db/dyld',
+    '/private/var/select',
+    '/opt/homebrew',
+    '/dev',
+  ],
+  linux: [
+    '/usr/bin',
+    '/bin',
+    '/usr/sbin',
+    '/sbin',
+    '/lib',
+    '/lib64',
+    '/usr/lib',
+    '/usr/lib64',
+    '/usr/local',
+    '/etc',
+    '/dev',
+    '/proc',
+    '/sys',
+    '/tmp',
+    SRT_VENDOR,
+  ],
+} as const satisfies Record<LocalSandboxPlatform, readonly string[]>;
+
+export function platformAllowRead(platform: LocalSandboxPlatform): string[] {
+  return [...ALLOW_READ_BY_PLATFORM[platform]];
 }
 
 /**
  * Policy for the untrusted command only (deny-by-default reads).
  * The host (in-process supervisor) is never placed under this policy.
  */
-function filesystemPolicy(sandboxRootPath: string): {
+function filesystemPolicy(params: { sandboxRootPath: string; platform: LocalSandboxPlatform }): {
   allowWrite: string[];
   denyWrite: string[];
   denyRead: string[];
   allowRead: string[];
 } {
   return {
-    allowWrite: [sandboxRootPath],
+    allowWrite: [params.sandboxRootPath],
     denyWrite: denySharedDefaultWritePaths(),
     denyRead: ['/'],
-    allowRead: [sandboxRootPath, ...codeModeSocketPaths, ...platformAllowRead()],
+    allowRead: [params.sandboxRootPath, ...codeModeSocketPaths, ...platformAllowRead(params.platform)],
   };
 }
 
 /** Curated env for the sandboxed command — never the full host process.env. */
-function commandEnv(sandboxRootPath: string, extra?: Record<string, string>): Record<string, string> {
-  const tmp = join(sandboxRootPath, '.tmp');
-  const home = join(sandboxRootPath, '.home');
+function commandEnv(params: {
+  sandboxRootPath: string;
+  platform: LocalSandboxPlatform;
+  extra?: Record<string, string>;
+}): Record<string, string> {
+  const tmp = join(params.sandboxRootPath, '.tmp');
+  const home = join(params.sandboxRootPath, '.home');
   const locked = {
     HOME: home,
     TMPDIR: tmp,
     TMP: tmp,
     TEMP: tmp,
-    PATH: COMMAND_PATH,
+    PATH: commandPath(params.platform),
   };
   return {
-    ...extra,
+    ...params.extra,
     ...locked,
   };
 }
 
 /** Session filesystem floor (per-exec customConfig still tightens allowWrite/allowRead). */
-function sessionFilesystem() {
+function sessionFilesystem(platform: LocalSandboxPlatform) {
   return {
     allowWrite: [] as string[],
     denyWrite: denySharedDefaultWritePaths(),
     denyRead: ['/'],
-    allowRead: platformAllowRead(),
+    allowRead: platformAllowRead(platform),
   };
 }
 
@@ -160,19 +212,21 @@ function sessionFilesystem() {
  * - macOS: allowAllUnixSockets does NOT consult allowRead for connect — use
  *   allowUnixSockets subpath, synced at sandbox create/remove.
  */
-function sessionNetwork(unixSockets?: string[]) {
-  if (process.platform === 'linux') {
+function sessionNetwork(params: { platform: LocalSandboxPlatform; unixSockets?: string[] }) {
+  const emptyDomains = {
+    allowedDomains: [] as string[],
+    deniedDomains: [] as string[],
+  };
+  if (params.platform === 'linux') {
     return {
-      allowedDomains: [] as string[],
-      deniedDomains: [] as string[],
-      allowAllUnixSockets: true,
+      ...emptyDomains,
+      allowAllUnixSockets: true as const,
     };
   }
   return {
-    allowedDomains: [] as string[],
-    deniedDomains: [] as string[],
-    allowAllUnixSockets: false,
-    allowUnixSockets: unixSockets ?? [],
+    ...emptyDomains,
+    allowAllUnixSockets: false as const,
+    allowUnixSockets: params.unixSockets ?? [],
   };
 }
 
@@ -186,19 +240,20 @@ function darwinUnixSocketPaths(): string[] {
 }
 
 function syncDarwinUnixSockets(): void {
-  if (process.platform !== 'darwin') return;
+  const platform = requireActivePlatform();
+  if (platform !== 'darwin') return;
   if (SandboxManager.getConfig() === undefined) return;
-  SandboxManager.updateConfig(buildSessionConfig());
+  SandboxManager.updateConfig(buildSessionConfig(platform));
 }
 
 /** Single source for process-scoped SRT session config (init + sock register/unregister). */
-function buildSessionConfig(): {
+function buildSessionConfig(platform: LocalSandboxPlatform): {
   network: ReturnType<typeof sessionNetwork>;
   filesystem: ReturnType<typeof sessionFilesystem>;
 } {
   return {
-    network: sessionNetwork(darwinUnixSocketPaths()),
-    filesystem: sessionFilesystem(),
+    network: sessionNetwork({ platform, unixSockets: darwinUnixSocketPaths() }),
+    filesystem: sessionFilesystem(platform),
   };
 }
 
@@ -233,17 +288,20 @@ export async function removeSandbox(sandboxRootPath: string): Promise<void> {
  * Process-scoped SRT init. Per-exec filesystem policy is applied in
  * {@link runSupervisorSession} via wrapWithSandboxArgv customConfig.
  */
-export async function initSrt(): Promise<void> {
-  if (process.platform !== 'darwin' && process.platform !== 'linux') {
-    throw new Error('LocalSandboxProvider supports macOS and Linux only');
-  }
-
-  await SandboxManager.initialize(buildSessionConfig());
+export async function initSrt(params: { platform: LocalSandboxPlatform }): Promise<void> {
+  activePlatform = params.platform;
+  await SandboxManager.initialize(buildSessionConfig(params.platform));
 }
 
 export async function resetSrt(): Promise<void> {
   codeModeSocketPaths.clear();
+  activePlatform = undefined;
   await SandboxManager.reset();
+}
+
+/** Whether process-scoped SRT session config is already initialized. */
+export function isSrtInitialized(): boolean {
+  return SandboxManager.getConfig() !== undefined;
 }
 
 /**
@@ -273,21 +331,36 @@ export function killExecTree(child: ChildProcess | undefined): void {
 export async function runSupervisorSession(params: {
   sandboxRootPath: string;
   command: string;
+  /** Absolute shell path used to wrap the command string (from isSupported). */
+  shell: string;
+  /** Platform policy for allowRead / PATH (from isSupported). */
+  platform: LocalSandboxPlatform;
   cwd?: string;
   env?: Record<string, string>;
   /** Optional stdin bytes for the sandboxed command (e.g. upload payload). */
   stdin?: Buffer;
   /** Host-visible pid of the sandboxed process-group leader (after spawn). */
   onChildSpawn?: (pid: number) => void;
-  timeoutMs?: number;
+  /** Hard wall-clock limit for the sandboxed command; caller must choose deliberately. */
+  timeoutMs: number;
 }): Promise<SessionResult> {
-  const { sandboxRootPath, command, cwd = sandboxRootPath, env, stdin, onChildSpawn, timeoutMs = 15_000 } = params;
+  const {
+    sandboxRootPath,
+    command,
+    shell,
+    platform,
+    cwd = sandboxRootPath,
+    env,
+    stdin,
+    onChildSpawn,
+    timeoutMs,
+  } = params;
 
   const wrap = await SandboxManager.wrapWithSandboxArgv(
     command,
-    '/bin/bash',
+    shell,
     {
-      filesystem: filesystemPolicy(sandboxRootPath),
+      filesystem: filesystemPolicy({ sandboxRootPath, platform }),
       network: {
         allowedDomains: [],
         deniedDomains: [],
@@ -304,9 +377,9 @@ export async function runSupervisorSession(params: {
   }
 
   // Curated env only — do not spread wrap.env (it can carry ambient host secrets).
-  // Code Mode sock path (TFY_MCP_SOCK) is expected in `env` when the caller started a transport.
+  // Code Mode sock path (TFY_MCP_SOCK) is expected in `env` when the caller starts a transport.
   const childEnv: NodeJS.ProcessEnv = {
-    ...commandEnv(sandboxRootPath, env),
+    ...commandEnv({ sandboxRootPath, platform, ...(env === undefined ? {} : { extra: env }) }),
   };
 
   const child = spawn(argv0, argvRest, {

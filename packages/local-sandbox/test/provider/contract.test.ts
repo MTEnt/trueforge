@@ -6,6 +6,10 @@ import { LocalSandboxProvider } from '../../src/provider/LocalSandboxProvider';
 
 describe('LocalSandboxProvider (SandboxProvider contract)', () => {
   runSandboxProviderContractSuite(async () => {
+    const support = await LocalSandboxProvider.isSupported();
+    if (!support.supported) {
+      throw new Error(support.reason);
+    }
     const sandboxRootPathParent = await mkdtemp(join(tmpdir(), 'tfy-local-sandbox-contract-'));
     // Short path: macOS tmpdir ~48 bytes; keep parent ≤60 for Code Mode UDS.
     const codeModeSocketParentPath = join(tmpdir(), 'cm');
@@ -13,6 +17,7 @@ describe('LocalSandboxProvider (SandboxProvider contract)', () => {
     const provider = new LocalSandboxProvider({
       sandboxRootPathParent,
       codeModeSocketParentPath,
+      support,
     });
     return {
       provider,

@@ -16,10 +16,11 @@ import { fileURLToPath } from 'node:url';
 import { ulid } from 'ulid';
 import { CodeModeUdsTransport } from '../src/core/CodeModeUdsTransport.js';
 import {
-  COMMAND_PATH,
+  commandPath,
   createSandbox,
   installMcpFixture,
   MAX_OUTPUT_BYTES,
+  platformAllowRead,
   registerCodeModeSocketPath,
   removeSandbox,
   runSupervisorSession,
@@ -70,6 +71,8 @@ function sleep(ms: number): Promise<void> {
 async function smokeLiveSrtUnixSocketAllowlistUpdate(params: {
   sandboxRootPath: string;
   codeModeSocketParentPath: string;
+  shell: string;
+  platform: 'darwin' | 'linux';
 }): Promise<void> {
   const parent = await realpath(params.codeModeSocketParentPath);
   const sockPath = join(parent, ulid().toLowerCase());
@@ -106,6 +109,8 @@ async function smokeLiveSrtUnixSocketAllowlistUpdate(params: {
   try {
     const before = await runSupervisorSession({
       sandboxRootPath: params.sandboxRootPath,
+      shell: params.shell,
+      platform: params.platform,
       command: connectCmd,
       timeoutMs: 10_000,
     });
@@ -116,6 +121,8 @@ async function smokeLiveSrtUnixSocketAllowlistUpdate(params: {
 
     const afterRegister = await runSupervisorSession({
       sandboxRootPath: params.sandboxRootPath,
+      shell: params.shell,
+      platform: params.platform,
       command: connectCmd,
       timeoutMs: 10_000,
     });
@@ -126,6 +133,8 @@ async function smokeLiveSrtUnixSocketAllowlistUpdate(params: {
 
     const afterUnregister = await runSupervisorSession({
       sandboxRootPath: params.sandboxRootPath,
+      shell: params.shell,
+      platform: params.platform,
       command: connectCmd,
       timeoutMs: 10_000,
     });
@@ -230,7 +239,12 @@ async function withCodeModeTransport(params: {
   }
 }
 
-async function smokeCodeMode(params: { sandboxRootPath: string; codeModeSocketParentPath: string }): Promise<void> {
+async function smokeCodeMode(params: {
+  sandboxRootPath: string;
+  codeModeSocketParentPath: string;
+  shell: string;
+  platform: 'darwin' | 'linux';
+}): Promise<void> {
   await installMcpFixture(params.sandboxRootPath);
   let toolRequests = 0;
 
@@ -242,8 +256,11 @@ async function smokeCodeMode(params: { sandboxRootPath: string; codeModeSocketPa
     run: async env => {
       const list = await runSupervisorSession({
         sandboxRootPath: params.sandboxRootPath,
+        shell: params.shell,
+        platform: params.platform,
         command: 'python3 mcp_pipe_client.py list-tools --server demo',
         env,
+        timeoutMs: 15_000,
       });
       assert.equal(list.protocolError, undefined, list.protocolError);
       assert.equal(list.exitCode, 0, list.stderrText);
@@ -263,6 +280,8 @@ async function smokeCodeMode(params: { sandboxRootPath: string; codeModeSocketPa
     run: async env => {
       const oversize = await runSupervisorSession({
         sandboxRootPath: params.sandboxRootPath,
+        shell: params.shell,
+        platform: params.platform,
         command: [
           "python3 - <<'PY'",
           'import os, socket, time',
@@ -292,6 +311,8 @@ async function smokeCodeMode(params: { sandboxRootPath: string; codeModeSocketPa
     run: async env => {
       const badJson = await runSupervisorSession({
         sandboxRootPath: params.sandboxRootPath,
+        shell: params.shell,
+        platform: params.platform,
         command: [
           "python3 - <<'PY'",
           'import os, socket, time',
@@ -320,6 +341,8 @@ async function smokeCodeMode(params: { sandboxRootPath: string; codeModeSocketPa
     run: async env => {
       const multiplex = await runSupervisorSession({
         sandboxRootPath: params.sandboxRootPath,
+        shell: params.shell,
+        platform: params.platform,
         command: 'python3 mcp_pipe_client.py multiplex --server demo --count 2',
         env,
         timeoutMs: 15_000,
@@ -343,6 +366,8 @@ async function smokeCodeMode(params: { sandboxRootPath: string; codeModeSocketPa
     run: async env => {
       const missingSock = await runSupervisorSession({
         sandboxRootPath: params.sandboxRootPath,
+        shell: params.shell,
+        platform: params.platform,
         command: [
           'set -euo pipefail',
           'unset TFY_MCP_SOCK',
@@ -372,6 +397,8 @@ async function smokeCodeMode(params: { sandboxRootPath: string; codeModeSocketPa
     run: async env => {
       const holdSession = runSupervisorSession({
         sandboxRootPath: params.sandboxRootPath,
+        shell: params.shell,
+        platform: params.platform,
         command: [
           'set -euo pipefail',
           "python3 - <<'PY'",
@@ -680,9 +707,15 @@ async function smokeSameUidEnvironRead(): Promise<void> {
  * Exec timeout must SIGKILL the process group — not only the direct child —
  * so a forked `while True` grandchild dies too.
  */
-async function smokeProcessGroupTimeout(sandboxRootPath: string): Promise<void> {
+async function smokeProcessGroupTimeout(params: {
+  sandboxRootPath: string;
+  shell: string;
+  platform: 'darwin' | 'linux';
+}): Promise<void> {
   const session = await runSupervisorSession({
-    sandboxRootPath,
+    sandboxRootPath: params.sandboxRootPath,
+    shell: params.shell,
+    platform: params.platform,
     command: [
       "python3 - <<'PY'",
       'import os, time',
@@ -698,8 +731,8 @@ async function smokeProcessGroupTimeout(sandboxRootPath: string): Promise<void> 
     timeoutMs: 1500,
   });
   assert.equal(session.timedOut, true, 'session should time out');
-  const leaderPid = Number((await readFile(join(sandboxRootPath, 'leader.pid'), 'utf8')).trim());
-  const grandchildPid = Number((await readFile(join(sandboxRootPath, 'grandchild.pid'), 'utf8')).trim());
+  const leaderPid = Number((await readFile(join(params.sandboxRootPath, 'leader.pid'), 'utf8')).trim());
+  const grandchildPid = Number((await readFile(join(params.sandboxRootPath, 'grandchild.pid'), 'utf8')).trim());
   assert.ok(leaderPid > 0 && grandchildPid > 0);
   // Give the kernel a moment after SIGKILL.
   await sleep(200);
@@ -867,12 +900,18 @@ async function smokeLoopbackDenied(provider: LocalSandboxProvider, sandboxId: st
  * - Linux SRT: PID ns + die-with-parent — escape dies with the sandbox; in-ns
  *   pids are not host-visible, so we watch a heartbeat file instead of kill(pid).
  */
-async function smokeSetsidEscapeSurvivesKillpg(sandboxRootPath: string): Promise<void> {
-  const heartbeatPath = join(sandboxRootPath, 'escaped.heartbeat');
+async function smokeSetsidEscapeSurvivesKillpg(params: {
+  sandboxRootPath: string;
+  shell: string;
+  platform: 'darwin' | 'linux';
+}): Promise<void> {
+  const heartbeatPath = join(params.sandboxRootPath, 'escaped.heartbeat');
   // Escaped child drops stdio so host pipes can close after killpg.
   // Cap wait: SRT wrapper teardown can still lag; do not hang the suite.
   const sessionPromise = runSupervisorSession({
-    sandboxRootPath,
+    sandboxRootPath: params.sandboxRootPath,
+    shell: params.shell,
+    platform: params.platform,
     command: [
       "python3 - <<'PY'",
       'import os, time',
@@ -906,7 +945,7 @@ async function smokeSetsidEscapeSurvivesKillpg(sandboxRootPath: string): Promise
   let escapedRaw = '';
   for (let i = 0; i < 60 && !/^\d+$/.test(escapedRaw); i++) {
     try {
-      escapedRaw = (await readFile(join(sandboxRootPath, 'escaped.pid'), 'utf8')).trim();
+      escapedRaw = (await readFile(join(params.sandboxRootPath, 'escaped.pid'), 'utf8')).trim();
     } catch {
       // not yet
     }
@@ -984,41 +1023,8 @@ async function smokeUnixSocketFsGate(): Promise<void> {
   const hostAbstractName = `\0tfy-abs-${id}`;
   const hostAbstractProcMarker = `@tfy-abs-${id}`;
 
-  const allowRead =
-    process.platform === 'darwin'
-      ? [
-          sandboxRootPath,
-          '/opt/homebrew/bin',
-          '/usr/bin',
-          '/bin',
-          '/usr/sbin',
-          '/sbin',
-          '/usr/lib',
-          '/System/Library',
-          '/Library',
-          '/private/var/db/dyld',
-          '/private/var/select',
-          '/opt/homebrew',
-          '/dev',
-          SRT_VENDOR,
-        ]
-      : [
-          sandboxRootPath,
-          '/usr/bin',
-          '/bin',
-          '/usr/sbin',
-          '/sbin',
-          '/lib',
-          '/lib64',
-          '/usr/lib',
-          '/usr/lib64',
-          '/usr/local',
-          '/etc',
-          '/dev',
-          '/proc',
-          '/sys',
-          SRT_VENDOR,
-        ];
+  const platform = process.platform === 'darwin' ? 'darwin' : 'linux';
+  const allowRead = [sandboxRootPath, ...platformAllowRead(platform)];
 
   const denyWrite = getDefaultWritePaths().filter(path => !path.startsWith('/dev/'));
 
@@ -1066,7 +1072,7 @@ async function smokeUnixSocketFsGate(): Promise<void> {
         env: {
           HOME: join(sandboxRootPath, '.home'),
           TMPDIR: join(sandboxRootPath, '.tmp'),
-          PATH: COMMAND_PATH,
+          PATH: commandPath(platform),
           ...wrap.env,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -1436,10 +1442,21 @@ async function main(): Promise<void> {
 
   process.env[ENV_LEAK_MARKER] = ENV_LEAK_VALUE;
 
+  const support = await LocalSandboxProvider.isSupported();
+  assert.equal(support.supported, true, support.supported ? '' : support.reason);
+  console.log('ok: LocalSandboxProvider.isSupported');
+
   const sandboxRootPathParent = await mkdtemp(join(tmpdir(), 'tfy-local-sandbox-smoke-'));
   const codeModeSocketParentPath = join(tmpdir(), 'cm');
   await mkdir(codeModeSocketParentPath, { recursive: true, mode: 0o700 });
-  const provider = new LocalSandboxProvider({ sandboxRootPathParent, codeModeSocketParentPath });
+  if (!support.supported) {
+    throw new Error(support.reason);
+  }
+  const provider = new LocalSandboxProvider({ sandboxRootPathParent, codeModeSocketParentPath, support });
+  const instructions = provider.getAdditionalInstructions();
+  assert.match(instructions, /sandbox shell: \S+/);
+  assert.match(instructions, /Python 3 is available as: \S+/);
+  console.log('ok: getAdditionalInstructions names shell and python');
   await prepareHostProbeFiles();
   let codeModeSandboxRootPath: string | undefined;
   try {
@@ -1459,6 +1476,8 @@ async function main(): Promise<void> {
     await smokeLiveSrtUnixSocketAllowlistUpdate({
       sandboxRootPath: sandboxId,
       codeModeSocketParentPath,
+      shell: support.shell,
+      platform: support.platform,
     });
 
     const write = await provider.exec({
@@ -1746,11 +1765,21 @@ async function main(): Promise<void> {
     console.log('ok: dump/git credential paths');
 
     codeModeSandboxRootPath = await createSandbox(join(sandboxRootPathParent, `codemode-${Date.now()}`));
-    await smokeProcessGroupTimeout(codeModeSandboxRootPath);
-    await smokeSetsidEscapeSurvivesKillpg(codeModeSandboxRootPath);
+    await smokeProcessGroupTimeout({
+      sandboxRootPath: codeModeSandboxRootPath,
+      shell: support.shell,
+      platform: support.platform,
+    });
+    await smokeSetsidEscapeSurvivesKillpg({
+      sandboxRootPath: codeModeSandboxRootPath,
+      shell: support.shell,
+      platform: support.platform,
+    });
     await smokeCodeMode({
       sandboxRootPath: codeModeSandboxRootPath,
       codeModeSocketParentPath,
+      shell: support.shell,
+      platform: support.platform,
     });
 
     console.log('all LocalSandboxProvider + Code Mode smokes passed');
