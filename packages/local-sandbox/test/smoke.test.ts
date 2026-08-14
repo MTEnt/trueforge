@@ -580,9 +580,10 @@ function assertPeerSecretPresent(label: string, sample: string): void {
 }
 
 /**
- * Same-UID peer env visibility (host processes, not sandbox policy):
- * - Linux: /proc/<pid>/environ exposes it
- * - macOS: no /proc; `ps -E` still exposes same-UID env (KERN_PROCARGS2 / libproc differ)
+ * Same-UID peer env visibility (host processes, not sandbox policy).
+ * Proves the easy leak path on each OS — not that env is protected.
+ * - Linux: `/proc/<pid>/environ` contains the peer secret
+ * - macOS: `ps -E -p <pid>` contains the peer secret; plain `ps -o command=` does not
  */
 async function smokeSameUidEnvironRead(): Promise<void> {
   const holder = spawn(
@@ -613,87 +614,20 @@ async function smokeSameUidEnvironRead(): Promise<void> {
       const environ = await readFile(`/proc/${String(peerPid)}/environ`);
       const decoded = environ.toString('utf8').replaceAll('\0', '\n');
       assertPeerSecretPresent('/proc/<pid>/environ', decoded);
-      console.log('ok: same-UID can read peer process environ via /proc (Linux)');
+      console.log('ok: proved Linux same-UID env leak via /proc/<pid>/environ');
       return;
     }
 
-    // --- macOS-specific probes ---
-    let procEnvironError = '';
-    try {
-      await readFile(`/proc/${String(peerPid)}/environ`);
-    } catch (error) {
-      procEnvironError = error instanceof Error ? error.message : String(error);
-    }
-    assert.ok(procEnvironError.length > 0, 'expected /proc environ to be unavailable on macOS');
-    console.log('ok: macOS has no /proc/<pid>/environ');
+    // Prove macOS same-UID env is easy to read via the common `ps -E` path.
+    const psPlain = await runCapture('ps', ['-p', String(peerPid), '-ww', '-o', 'command=']);
+    assert.equal(psPlain.code, 0, `ps -o command= failed: ${psPlain.out}`);
+    assertPeerSecretAbsent('ps -o command=', psPlain.out);
 
-    // `ps -E` is the macOS flag to include environment; same-UID can see it.
     const psE = await runCapture('ps', ['-E', '-p', String(peerPid), '-ww']);
+    assert.equal(psE.code, 0, `ps -E failed: ${psE.out}`);
     assertPeerSecretPresent('ps -E -p', psE.out);
-    console.log('ok: same-UID can read peer env via macOS ps -E');
-
-    // `ps eww` may or may not be accepted; if it runs, record whether secret appears.
-    const psEww = await runCapture('ps', ['eww', '-p', String(peerPid)]);
-    if (psEww.code === 0 && psEww.out.includes(ENV_PEER_VALUE)) {
-      console.log('ok: macOS ps eww also exposed peer env secret');
-    } else {
-      assertPeerSecretAbsent('ps eww -p', psEww.out);
-      console.log('ok: macOS ps eww did not expose peer env secret');
-    }
-
-    // Plain command column should not include the env block.
-    const psCmd = await runCapture('ps', ['-p', String(peerPid), '-ww', '-o', 'command=']);
-    assertPeerSecretAbsent('ps -o command=', psCmd.out);
-    console.log('ok: macOS ps -o command= does not include env block');
-
-    // sysctl KERN_PROCARGS2 — argv/env region; may include env for same-UID.
-    const kern = await runCapture('python3', [
-      '-c',
-      [
-        'import ctypes, ctypes.util, sys',
-        'pid = int(sys.argv[1])',
-        'libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)',
-        'CTL_KERN, KERN_PROCARGS2 = 1, 49',
-        'mib = (ctypes.c_int * 3)(CTL_KERN, KERN_PROCARGS2, pid)',
-        'size = ctypes.c_size_t(0)',
-        'rc = libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0)',
-        'if rc != 0 or size.value == 0:',
-        '  print(f"kern-procargs2-unavailable errno={ctypes.get_errno()} size={size.value}")',
-        '  raise SystemExit(0)',
-        'buf = ctypes.create_string_buffer(size.value)',
-        'rc = libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0)',
-        'if rc != 0:',
-        '  print(f"kern-procargs2-read-failed errno={ctypes.get_errno()}")',
-        '  raise SystemExit(0)',
-        'data = buf.raw[: size.value]',
-        'print(data.replace(b"\\x00", b"\\n").decode("utf-8", "replace"))',
-      ].join('\n'),
-      String(peerPid),
-    ]);
-    if (kern.out.includes(ENV_PEER_VALUE)) {
-      console.log('ok: same-UID can read peer env via macOS KERN_PROCARGS2');
-    } else {
-      assert.match(kern.out, /kern-procargs2-/);
-      console.log('ok: macOS KERN_PROCARGS2 did not return peer env secret');
-    }
-
-    // libproc has path APIs, not environ.
-    const libproc = await runCapture('python3', [
-      '-c',
-      [
-        'import ctypes, ctypes.util, sys',
-        'pid = int(sys.argv[1])',
-        'lib = ctypes.CDLL(ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib", use_errno=True)',
-        'buf = ctypes.create_string_buffer(4096)',
-        'n = lib.proc_pidpath(pid, buf, ctypes.c_uint32(len(buf)))',
-        'print(f"proc_pidpath n={n} path={buf.value!r}")',
-        'print("no-environ-api")',
-      ].join('\n'),
-      String(peerPid),
-    ]);
-    assertPeerSecretAbsent('libproc proc_pidpath', libproc.out);
-    assert.match(libproc.out, /no-environ-api/);
-    console.log('ok: macOS libproc has no environ API; path-only read hid secret');
+    assert.match(psE.out, new RegExp(`${ENV_PEER_MARKER}=${ENV_PEER_VALUE}`));
+    console.log('ok: proved macOS same-UID env leak via ps -E (plain ps hid it)');
   } finally {
     holder.kill('SIGKILL');
     await new Promise<void>(resolve => {
