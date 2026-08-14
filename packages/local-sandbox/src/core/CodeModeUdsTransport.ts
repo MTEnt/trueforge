@@ -1,6 +1,9 @@
 /**
  * Handle-scoped Code Mode UDS transport. Listen/accept live for the Sandbox handle lifetime;
  * one UTF-8 JSON request/reply per connection (peer write-close); no request_id.
+ *
+ * Sockets live under {@link CodeModeUdsTransportOptions.codeModeSocketParentPath} as ULID names.
+ * The caller owns that parent directory's lifetime; this transport unlinks the sock it creates.
  */
 import type {
   CodeModeDispatcher,
@@ -8,22 +11,51 @@ import type {
   CodeModeRequest,
   CodeModeTransport,
 } from '@truefoundry/trueforge-core/core';
-import { CodeModeRequestSchema } from '@truefoundry/trueforge-core/core';
-import { randomUUID } from 'node:crypto';
+import { CodeModeRequestSchema, validateNoPathTraversal } from '@truefoundry/trueforge-core/core';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
-import { basename, dirname, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
+import { ulid } from 'ulid';
 import { encodeJsonMessage, JsonMessageReader, MAX_MESSAGE_BYTES } from './frame.js';
+import { registerCodeModeSocketPath, unregisterCodeModeSocketPath } from './hostRun.js';
+
+const MAX_CODE_MODE_SOCKET_PARENT_BYTES = 60;
 
 export interface CodeModeUdsTransportOptions {
-  resolveSandboxRootPath: (sandboxId: string) => string;
+  /**
+   * Absolute existing directory for Code Mode UDS files (≤60 bytes).
+   * Socket path is `join(parent, ulid)`.
+   */
+  codeModeSocketParentPath: string;
   maxMessageBytes?: number | undefined;
   /** Optional: observe inbound protocol failures (oversized / malformed). */
   onProtocolError?: ((message: string) => void) | undefined;
 }
 
+/** Validate and normalize parent dir for Code Mode socks. */
+export function assertCodeModeSocketParentPath(path: string): string {
+  if (!isAbsolute(path)) {
+    throw new Error('codeModeSocketParentPath must be an absolute path');
+  }
+  validateNoPathTraversal(path);
+  const resolved = resolve(path);
+  if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
+    throw new Error('codeModeSocketParentPath must be an existing directory');
+  }
+  // Seatbelt / allowUnixSockets match real paths (/private/var/... on macOS).
+  const real = realpathSync(resolved);
+  const bytes = Buffer.byteLength(real);
+  if (bytes > MAX_CODE_MODE_SOCKET_PARENT_BYTES) {
+    throw new Error(
+      `codeModeSocketParentPath must be at most ${String(MAX_CODE_MODE_SOCKET_PARENT_BYTES)} bytes (got ${String(bytes)})`,
+    );
+  }
+  return real;
+}
+
 export class CodeModeUdsTransport implements CodeModeTransport {
-  private readonly resolveSandboxRootPath: (sandboxId: string) => string;
+  private readonly codeModeSocketParentPath: string;
   private readonly maxMessageBytes: number;
   private readonly onProtocolError: ((message: string) => void) | undefined;
 
@@ -34,7 +66,7 @@ export class CodeModeUdsTransport implements CodeModeTransport {
   private cachedEnv: Record<string, string> | undefined;
 
   constructor(options: CodeModeUdsTransportOptions) {
-    this.resolveSandboxRootPath = options.resolveSandboxRootPath;
+    this.codeModeSocketParentPath = assertCodeModeSocketParentPath(options.codeModeSocketParentPath);
     this.maxMessageBytes = options.maxMessageBytes ?? MAX_MESSAGE_BYTES;
     this.onProtocolError = options.onProtocolError;
   }
@@ -69,54 +101,41 @@ export class CodeModeUdsTransport implements CodeModeTransport {
     this.server = undefined;
     this.sockPath = undefined;
     if (server !== undefined) {
-      await new Promise<void>(resolve => {
+      await new Promise<void>(resolveClose => {
         server.close(() => {
-          resolve();
+          resolveClose();
         });
       });
     }
     if (sockPath !== undefined) {
+      unregisterCodeModeSocketPath(sockPath);
       await unlink(sockPath).catch(() => undefined);
     }
   }
 
-  private async listenSession(params: {
-    sandboxId: string;
-    requestTimeoutSeconds: number;
-  }): Promise<{ env: Record<string, string> }> {
+  private async listenSession(params: { requestTimeoutSeconds: number }): Promise<{ env: Record<string, string> }> {
     if (this.server !== undefined && this.cachedEnv !== undefined) {
       return { env: this.cachedEnv };
     }
 
-    const sandboxRootPath = this.resolveSandboxRootPath(params.sandboxId);
-    const sockName = `cm${randomUUID().replaceAll('-', '').slice(0, 8)}.sock`;
-    const sockPath = join(sandboxRootPath, sockName);
-    // macOS sun_path ~104 bytes — absolute sandbox paths often overflow, so we
-    // chdir + listen(basename). process.chdir is process-global: concurrent short-binds
-    // can race. Prefer later: bind under a short absolute path (e.g. /tmp/tfy-cm-…) or
-    // shorten the sandbox root so absolute listen always fits (no chdir).
-    const sockForClient = process.platform === 'darwin' && Buffer.byteLength(sockPath) >= 104 ? sockName : sockPath;
+    // Re-check: caller owns the parent dir and may have removed it after construct.
+    assertCodeModeSocketParentPath(this.codeModeSocketParentPath);
 
+    const sockPath = join(this.codeModeSocketParentPath, ulid().toLowerCase());
     await unlink(sockPath).catch(() => undefined);
+    registerCodeModeSocketPath(sockPath);
     const server = createServer({ allowHalfOpen: true });
-    const shortBind = process.platform === 'darwin' && Buffer.byteLength(sockPath) >= 104;
-    const bindPath = shortBind ? basename(sockPath) : sockPath;
-    const prevCwd = shortBind ? process.cwd() : undefined;
-    if (shortBind) {
-      process.chdir(dirname(sockPath));
-    }
     try {
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolveListen, reject) => {
         server.once('error', reject);
-        server.listen(bindPath, () => {
+        server.listen(sockPath, () => {
           server.off('error', reject);
-          resolve();
+          resolveListen();
         });
       });
-    } finally {
-      if (prevCwd !== undefined) {
-        process.chdir(prevCwd);
-      }
+    } catch (error) {
+      unregisterCodeModeSocketPath(sockPath);
+      throw error;
     }
 
     this.server = server;
@@ -126,7 +145,7 @@ export class CodeModeUdsTransport implements CodeModeTransport {
     });
 
     const env = {
-      TFY_MCP_SOCK: sockForClient,
+      TFY_MCP_SOCK: sockPath,
       TFY_CM_REQUEST_TIMEOUT_SECONDS: String(params.requestTimeoutSeconds),
     };
     this.cachedEnv = env;

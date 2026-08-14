@@ -7,20 +7,23 @@ import { CodeModeDispatcher, type IToolSet } from '@truefoundry/trueforge-core/c
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ulid } from 'ulid';
 import { CodeModeUdsTransport } from '../src/core/CodeModeUdsTransport.js';
 import {
   COMMAND_PATH,
   createSandbox,
   installMcpFixture,
   MAX_OUTPUT_BYTES,
+  registerCodeModeSocketPath,
   removeSandbox,
   runSupervisorSession,
+  unregisterCodeModeSocketPath,
 } from '../src/core/hostRun.js';
 import { LocalSandboxProvider } from '../src/provider/LocalSandboxProvider.js';
 
@@ -58,6 +61,87 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => {
     setTimeout(resolve, ms);
   });
+}
+
+/**
+ * Direct check: after initSrt, registerCodeModeSocketPath → updateConfig must
+ * allow a sandboxed client to connect to that exact sock (and unregister revoke it).
+ */
+async function smokeLiveSrtUnixSocketAllowlistUpdate(params: {
+  sandboxRootPath: string;
+  codeModeSocketParentPath: string;
+}): Promise<void> {
+  const parent = await realpath(params.codeModeSocketParentPath);
+  const sockPath = join(parent, ulid().toLowerCase());
+  await unlink(sockPath).catch(() => undefined);
+
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(sockPath, () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  server.on('connection', socket => {
+    socket.end();
+  });
+
+  const connectCmd = [
+    "python3 - <<'PY'",
+    'import socket, sys',
+    `path = ${JSON.stringify(sockPath)}`,
+    's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+    'try:',
+    '  s.connect(path)',
+    '  print("connected")',
+    'except OSError as e:',
+    '  print(type(e).__name__, e, file=sys.stderr)',
+    '  sys.exit(1)',
+    'finally:',
+    '  s.close()',
+    'PY',
+  ].join('\n');
+
+  try {
+    const before = await runSupervisorSession({
+      sandboxRootPath: params.sandboxRootPath,
+      command: connectCmd,
+      timeoutMs: 10_000,
+    });
+    assert.notEqual(before.exitCode, 0, 'connect must fail before register/updateConfig');
+    assert.ok(!before.stdoutText.includes('connected'));
+
+    registerCodeModeSocketPath(sockPath);
+
+    const afterRegister = await runSupervisorSession({
+      sandboxRootPath: params.sandboxRootPath,
+      command: connectCmd,
+      timeoutMs: 10_000,
+    });
+    assert.equal(afterRegister.exitCode, 0, afterRegister.stderrText);
+    assert.match(afterRegister.stdoutText, /connected/);
+
+    unregisterCodeModeSocketPath(sockPath);
+
+    const afterUnregister = await runSupervisorSession({
+      sandboxRootPath: params.sandboxRootPath,
+      command: connectCmd,
+      timeoutMs: 10_000,
+    });
+    assert.notEqual(afterUnregister.exitCode, 0, 'connect must fail after unregister/updateConfig');
+    assert.ok(!afterUnregister.stdoutText.includes('connected'));
+
+    console.log('ok: live SRT updateConfig allowlists exact Code Mode sock (register/unregister)');
+  } finally {
+    unregisterCodeModeSocketPath(sockPath);
+    await new Promise<void>(resolve => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    await unlink(sockPath).catch(() => undefined);
+  }
 }
 
 function pidAlive(pid: number): boolean {
@@ -118,14 +202,14 @@ function makeDemoToolSet(params: { onRequest?: () => void }): IToolSet {
 }
 
 async function withCodeModeTransport(params: {
-  sandboxRootPath: string;
+  codeModeSocketParentPath: string;
   maxMessageBytes?: number;
   onProtocolError?: (message: string) => void;
   onRequest?: () => void;
   run: (env: Record<string, string>) => Promise<void>;
 }): Promise<void> {
   const transport = new CodeModeUdsTransport({
-    resolveSandboxRootPath: () => params.sandboxRootPath,
+    codeModeSocketParentPath: params.codeModeSocketParentPath,
     ...(params.maxMessageBytes === undefined ? {} : { maxMessageBytes: params.maxMessageBytes }),
     ...(params.onProtocolError === undefined ? {} : { onProtocolError: params.onProtocolError }),
   });
@@ -146,18 +230,18 @@ async function withCodeModeTransport(params: {
   }
 }
 
-async function smokeCodeMode(sandboxRootPath: string): Promise<void> {
-  await installMcpFixture(sandboxRootPath);
+async function smokeCodeMode(params: { sandboxRootPath: string; codeModeSocketParentPath: string }): Promise<void> {
+  await installMcpFixture(params.sandboxRootPath);
   let toolRequests = 0;
 
   await withCodeModeTransport({
-    sandboxRootPath,
+    codeModeSocketParentPath: params.codeModeSocketParentPath,
     onRequest: () => {
       toolRequests += 1;
     },
     run: async env => {
       const list = await runSupervisorSession({
-        sandboxRootPath,
+        sandboxRootPath: params.sandboxRootPath,
         command: 'python3 mcp_pipe_client.py list-tools --server demo',
         env,
       });
@@ -171,14 +255,14 @@ async function smokeCodeMode(sandboxRootPath: string): Promise<void> {
   const oversizeCap = 1024;
   let oversizeError: string | undefined;
   await withCodeModeTransport({
-    sandboxRootPath,
+    codeModeSocketParentPath: params.codeModeSocketParentPath,
     maxMessageBytes: oversizeCap,
     onProtocolError: message => {
       oversizeError = message;
     },
     run: async env => {
       const oversize = await runSupervisorSession({
-        sandboxRootPath,
+        sandboxRootPath: params.sandboxRootPath,
         command: [
           "python3 - <<'PY'",
           'import os, socket, time',
@@ -201,13 +285,13 @@ async function smokeCodeMode(sandboxRootPath: string): Promise<void> {
 
   let badJsonError: string | undefined;
   await withCodeModeTransport({
-    sandboxRootPath,
+    codeModeSocketParentPath: params.codeModeSocketParentPath,
     onProtocolError: message => {
       badJsonError = message;
     },
     run: async env => {
       const badJson = await runSupervisorSession({
-        sandboxRootPath,
+        sandboxRootPath: params.sandboxRootPath,
         command: [
           "python3 - <<'PY'",
           'import os, socket, time',
@@ -229,13 +313,13 @@ async function smokeCodeMode(sandboxRootPath: string): Promise<void> {
   });
 
   await withCodeModeTransport({
-    sandboxRootPath,
+    codeModeSocketParentPath: params.codeModeSocketParentPath,
     onRequest: () => {
       toolRequests += 1;
     },
     run: async env => {
       const multiplex = await runSupervisorSession({
-        sandboxRootPath,
+        sandboxRootPath: params.sandboxRootPath,
         command: 'python3 mcp_pipe_client.py multiplex --server demo --count 2',
         env,
         timeoutMs: 15_000,
@@ -252,13 +336,13 @@ async function smokeCodeMode(sandboxRootPath: string): Promise<void> {
 
   const beforeMissing = toolRequests;
   await withCodeModeTransport({
-    sandboxRootPath,
+    codeModeSocketParentPath: params.codeModeSocketParentPath,
     onRequest: () => {
       toolRequests += 1;
     },
     run: async env => {
       const missingSock = await runSupervisorSession({
-        sandboxRootPath,
+        sandboxRootPath: params.sandboxRootPath,
         command: [
           'set -euo pipefail',
           'unset TFY_MCP_SOCK',
@@ -281,13 +365,13 @@ async function smokeCodeMode(sandboxRootPath: string): Promise<void> {
   let hostInjected = 0;
   let holdPid: number | undefined;
   await withCodeModeTransport({
-    sandboxRootPath,
+    codeModeSocketParentPath: params.codeModeSocketParentPath,
     onRequest: () => {
       hostInjected += 1;
     },
     run: async env => {
       const holdSession = runSupervisorSession({
-        sandboxRootPath,
+        sandboxRootPath: params.sandboxRootPath,
         command: [
           'set -euo pipefail',
           "python3 - <<'PY'",
@@ -305,13 +389,15 @@ async function smokeCodeMode(sandboxRootPath: string): Promise<void> {
       let sockFromSandbox = '';
       for (let i = 0; i < 80 && sockFromSandbox === ''; i++) {
         try {
-          sockFromSandbox = (await readFile(join(sandboxRootPath, '.uds-ready'), 'utf8')).trim();
+          sockFromSandbox = (await readFile(join(params.sandboxRootPath, '.uds-ready'), 'utf8')).trim();
         } catch {
           await sleep(50);
         }
       }
-      assert.match(sockFromSandbox, /\.sock$/, 'sandbox never published TFY_MCP_SOCK');
-      const hostSockPath = sockFromSandbox.startsWith('/') ? sockFromSandbox : join(sandboxRootPath, sockFromSandbox);
+      assert.match(sockFromSandbox, /^\//, 'sandbox never published absolute TFY_MCP_SOCK');
+      const hostSockPath = sockFromSandbox.startsWith('/')
+        ? sockFromSandbox
+        : join(params.sandboxRootPath, sockFromSandbox);
       const hostConnect = await new Promise<{ code: number | null; err: string }>((resolve, reject) => {
         const child = spawn(
           'python3',
@@ -1351,7 +1437,9 @@ async function main(): Promise<void> {
   process.env[ENV_LEAK_MARKER] = ENV_LEAK_VALUE;
 
   const sandboxRootPathParent = await mkdtemp(join(tmpdir(), 'tfy-local-sandbox-smoke-'));
-  const provider = new LocalSandboxProvider({ sandboxRootPathParent });
+  const codeModeSocketParentPath = join(tmpdir(), 'cm');
+  await mkdir(codeModeSocketParentPath, { recursive: true, mode: 0o700 });
+  const provider = new LocalSandboxProvider({ sandboxRootPathParent, codeModeSocketParentPath });
   await prepareHostProbeFiles();
   let codeModeSandboxRootPath: string | undefined;
   try {
@@ -1367,6 +1455,11 @@ async function main(): Promise<void> {
     assert.equal(printf.response.exitCode, 0);
     assert.equal(printf.response.result, 'poc-ok\n');
     console.log('ok: provider exec printf');
+
+    await smokeLiveSrtUnixSocketAllowlistUpdate({
+      sandboxRootPath: sandboxId,
+      codeModeSocketParentPath,
+    });
 
     const write = await provider.exec({
       sandboxId,
@@ -1655,7 +1748,10 @@ async function main(): Promise<void> {
     codeModeSandboxRootPath = await createSandbox(join(sandboxRootPathParent, `codemode-${Date.now()}`));
     await smokeProcessGroupTimeout(codeModeSandboxRootPath);
     await smokeSetsidEscapeSurvivesKillpg(codeModeSandboxRootPath);
-    await smokeCodeMode(codeModeSandboxRootPath);
+    await smokeCodeMode({
+      sandboxRootPath: codeModeSandboxRootPath,
+      codeModeSocketParentPath,
+    });
 
     console.log('all LocalSandboxProvider + Code Mode smokes passed');
   } finally {

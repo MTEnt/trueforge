@@ -18,7 +18,7 @@ import {
 import { mkdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { ulid } from 'ulid';
-import { CodeModeUdsTransport } from '../core/CodeModeUdsTransport.js';
+import { CodeModeUdsTransport, assertCodeModeSocketParentPath } from '../core/CodeModeUdsTransport.js';
 import { createSandbox, initSrt, resetSrt, runSupervisorSession } from '../core/hostRun.js';
 import { XferFileInfoSchema, type XferFileInfo } from '../schemas/xferFileInfo.js';
 
@@ -28,6 +28,11 @@ const DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 export interface LocalSandboxProviderOptions {
   /** Absolute parent directory under which each createSandbox makes a ULID child root. */
   sandboxRootPathParent: string;
+  /**
+   * Absolute existing directory for Code Mode UDS (≤60 bytes). Caller owns its lifetime.
+   * Validated when constructing {@link CodeModeUdsTransport}.
+   */
+  codeModeSocketParentPath: string;
   fileMaxBytesForDownload?: number | undefined;
   defaultExecTimeoutSeconds?: number | undefined;
 }
@@ -62,6 +67,7 @@ function base64EncodeCommand(relPath: string): string {
 
 export class LocalSandboxProvider implements SandboxProvider {
   private readonly sandboxRootPathParent: string;
+  private readonly codeModeSocketParentPath: string;
   private readonly fileMaxBytesForDownload: number;
   private readonly defaultExecTimeoutSeconds: number;
   private srtInitialized = false;
@@ -79,6 +85,8 @@ export class LocalSandboxProvider implements SandboxProvider {
     }
     validateNoPathTraversal(options.sandboxRootPathParent);
     this.sandboxRootPathParent = resolve(options.sandboxRootPathParent);
+    // Same validation as CodeModeUdsTransport (absolute, exists, ≤60 bytes, realpath).
+    this.codeModeSocketParentPath = assertCodeModeSocketParentPath(options.codeModeSocketParentPath);
     this.fileMaxBytesForDownload = options.fileMaxBytesForDownload ?? DEFAULT_FILE_MAX_BYTES;
     this.defaultExecTimeoutSeconds = options.defaultExecTimeoutSeconds ?? DEFAULT_EXEC_TIMEOUT_SECONDS;
   }
@@ -252,14 +260,14 @@ export class LocalSandboxProvider implements SandboxProvider {
 
   createCodeModeTransport(): CodeModeTransport {
     return new CodeModeUdsTransport({
-      resolveSandboxRootPath: (sandboxId: string) => sandboxId,
+      codeModeSocketParentPath: this.codeModeSocketParentPath,
     });
   }
 
   /** Reset process-scoped SRT after tests. */
   async dispose(): Promise<void> {
     if (this.srtInitialized) {
-      await resetSrt().catch(() => undefined);
+      await resetSrt();
       this.srtInitialized = false;
     }
   }

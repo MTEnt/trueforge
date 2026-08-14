@@ -123,7 +123,7 @@ function filesystemPolicy(sandboxRootPath: string): {
     allowWrite: [sandboxRootPath],
     denyWrite: denySharedDefaultWritePaths(),
     denyRead: ['/'],
-    allowRead: [sandboxRootPath, ...platformAllowRead()],
+    allowRead: [sandboxRootPath, ...codeModeSocketPaths, ...platformAllowRead()],
   };
 }
 
@@ -178,14 +178,39 @@ function sessionNetwork(unixSockets?: string[]) {
 
 /** Active sandbox roots allowed for macOS pathname UDS (seatbelt subpath). */
 const darwinUnixSocketSandboxRoots = new Set<string>();
+/** Exact Code Mode UDS paths — macOS allowUnixSockets + Linux allowRead. */
+const codeModeSocketPaths = new Set<string>();
+
+function darwinUnixSocketPaths(): string[] {
+  return [...darwinUnixSocketSandboxRoots, ...codeModeSocketPaths];
+}
 
 function syncDarwinUnixSockets(): void {
   if (process.platform !== 'darwin') return;
   if (SandboxManager.getConfig() === undefined) return;
-  SandboxManager.updateConfig({
-    network: sessionNetwork([...darwinUnixSocketSandboxRoots]),
+  SandboxManager.updateConfig(buildSessionConfig());
+}
+
+/** Single source for process-scoped SRT session config (init + sock register/unregister). */
+function buildSessionConfig(): {
+  network: ReturnType<typeof sessionNetwork>;
+  filesystem: ReturnType<typeof sessionFilesystem>;
+} {
+  return {
+    network: sessionNetwork(darwinUnixSocketPaths()),
     filesystem: sessionFilesystem(),
-  });
+  };
+}
+
+/** Allow sandboxed clients to connect to this exact Code Mode sock path. */
+export function registerCodeModeSocketPath(sockPath: string): void {
+  codeModeSocketPaths.add(sockPath);
+  syncDarwinUnixSockets();
+}
+
+export function unregisterCodeModeSocketPath(sockPath: string): void {
+  codeModeSocketPaths.delete(sockPath);
+  syncDarwinUnixSockets();
 }
 
 /** Create a sandbox directory at `sandboxRootPath` (also the sandbox id). */
@@ -213,13 +238,11 @@ export async function initSrt(): Promise<void> {
     throw new Error('LocalSandboxProvider supports macOS and Linux only');
   }
 
-  await SandboxManager.initialize({
-    network: sessionNetwork([...darwinUnixSocketSandboxRoots]),
-    filesystem: sessionFilesystem(),
-  });
+  await SandboxManager.initialize(buildSessionConfig());
 }
 
 export async function resetSrt(): Promise<void> {
+  codeModeSocketPaths.clear();
   await SandboxManager.reset();
 }
 
