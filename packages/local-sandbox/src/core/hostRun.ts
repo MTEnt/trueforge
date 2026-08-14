@@ -257,9 +257,10 @@ function darwinUnixSocketPaths(): string[] {
 }
 
 function syncDarwinUnixSockets(): void {
+  // No-op until initSrt: register/unregister may run from transport-only tests.
+  if (SandboxManager.getConfig() === undefined) return;
   const platform = requireActivePlatform();
   if (platform !== 'darwin') return;
-  if (SandboxManager.getConfig() === undefined) return;
   SandboxManager.updateConfig(buildSessionConfig(platform));
 }
 
@@ -318,7 +319,7 @@ export async function resetSrt(): Promise<void> {
 
 /** Whether process-scoped SRT session config is already initialized. */
 export function isSrtInitialized(): boolean {
-  return SandboxManager.getConfig() !== undefined;
+  return activePlatform !== undefined && SandboxManager.getConfig() !== undefined;
 }
 
 /**

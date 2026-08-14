@@ -3,6 +3,8 @@
  * one UTF-8 JSON request/reply per connection (peer write-close); no request_id.
  *
  * Sockets live under {@link CodeModeUdsTransportOptions.codeModeSocketParentPath} as ULID names.
+ * Parent must be mode 0700 (enforced) so other accounts cannot replace the sock inode before
+ * connect; after listen the sock is chmod 0600. Same-UID isolation is still SRT path policy.
  * The caller owns that parent directory's lifetime; this transport unlinks the sock it creates.
  */
 import type {
@@ -12,8 +14,8 @@ import type {
   CodeModeTransport,
 } from '@truefoundry/trueforge-core/core';
 import { CodeModeRequestSchema, validateNoPathTraversal } from '@truefoundry/trueforge-core/core';
-import { existsSync, realpathSync, statSync } from 'node:fs';
-import { unlink } from 'node:fs/promises';
+import { chmodSync, existsSync, realpathSync, statSync } from 'node:fs';
+import { chmod, unlink } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
 import { isAbsolute, join, resolve } from 'node:path';
 import { ulid } from 'ulid';
@@ -21,11 +23,13 @@ import { encodeJsonMessage, JsonMessageReader, MAX_MESSAGE_BYTES } from './frame
 import { registerCodeModeSocketPath, unregisterCodeModeSocketPath } from './hostRun.js';
 
 const MAX_CODE_MODE_SOCKET_PARENT_BYTES = 60;
+const CODE_MODE_SOCKET_PARENT_MODE = 0o700;
+const CODE_MODE_SOCKET_MODE = 0o600;
 
 export interface CodeModeUdsTransportOptions {
   /**
-   * Absolute existing directory for Code Mode UDS files (≤60 bytes).
-   * Socket path is `join(parent, ulid)`.
+   * Absolute existing directory for Code Mode UDS files (≤60 bytes, mode 0700).
+   * Socket path is `join(parent, ulid)`; sock is chmod 0600 after listen.
    */
   codeModeSocketParentPath: string;
   maxMessageBytes?: number | undefined;
@@ -33,7 +37,7 @@ export interface CodeModeUdsTransportOptions {
   onProtocolError?: ((message: string) => void) | undefined;
 }
 
-/** Validate and normalize parent dir for Code Mode socks. */
+/** Validate and normalize parent dir for Code Mode socks; enforce mode 0700. */
 export function assertCodeModeSocketParentPath(path: string): string {
   if (!isAbsolute(path)) {
     throw new Error('codeModeSocketParentPath must be an absolute path');
@@ -50,6 +54,12 @@ export function assertCodeModeSocketParentPath(path: string): string {
     throw new Error(
       `codeModeSocketParentPath must be at most ${String(MAX_CODE_MODE_SOCKET_PARENT_BYTES)} bytes (got ${String(bytes)})`,
     );
+  }
+  // Owner-only parent: other accounts cannot rename/replace socks under this dir.
+  chmodSync(real, CODE_MODE_SOCKET_PARENT_MODE);
+  const mode = statSync(real).mode & 0o777;
+  if (mode !== CODE_MODE_SOCKET_PARENT_MODE) {
+    throw new Error(`codeModeSocketParentPath must be mode 0700 after chmod (got 0o${mode.toString(8)})`);
   }
   return real;
 }
@@ -133,8 +143,12 @@ export class CodeModeUdsTransport implements CodeModeTransport {
           resolveListen();
         });
       });
+      // Narrow the listen→chmod window; 0700 parent already blocks other accounts from replace.
+      await chmod(sockPath, CODE_MODE_SOCKET_MODE);
     } catch (error) {
       unregisterCodeModeSocketPath(sockPath);
+      server.close();
+      await unlink(sockPath).catch(() => undefined);
       throw error;
     }
 

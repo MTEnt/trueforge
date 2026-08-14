@@ -53,8 +53,8 @@ export interface LocalSandboxProviderOptions {
   /** Absolute parent directory under which each createSandbox makes a ULID child root. */
   sandboxRootPathParent: string;
   /**
-   * Absolute existing directory for Code Mode UDS (≤60 bytes). Caller owns its lifetime.
-   * Validated when constructing {@link CodeModeUdsTransport}.
+   * Absolute existing directory for Code Mode UDS (≤60 bytes, mode 0700). Caller owns its lifetime.
+   * Transport chmod's the parent to 0700 and each sock to 0600 after listen.
    */
   codeModeSocketParentPath: string;
   /** Result of {@link LocalSandboxProvider.isSupported}; must be `{ supported: true }`. */

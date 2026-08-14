@@ -7,7 +7,7 @@ import { CodeModeDispatcher, type IToolSet } from '@truefoundry/trueforge-core/c
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, realpath, rm, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -254,6 +254,18 @@ async function smokeCodeMode(params: {
       toolRequests += 1;
     },
     run: async env => {
+      const sockPath = env['TFY_MCP_SOCK'];
+      assert.ok(sockPath !== undefined && sockPath.length > 0);
+      const sockStat = await stat(sockPath);
+      assert.equal(sockStat.mode & 0o777, 0o600, `Code Mode sock must be 0600: ${sockPath}`);
+      const parentStat = await stat(params.codeModeSocketParentPath);
+      assert.equal(
+        parentStat.mode & 0o777,
+        0o700,
+        `Code Mode sock parent must be 0700: ${params.codeModeSocketParentPath}`,
+      );
+      console.log('ok: Code Mode UDS parent 0700 + sock 0600');
+
       const list = await runSupervisorSession({
         sandboxRootPath: params.sandboxRootPath,
         shell: params.shell,
@@ -580,6 +592,100 @@ function assertPeerSecretPresent(label: string, sample: string): void {
 }
 
 /**
+ * Prove kernel UDS peer credentials on accept:
+ * - Linux: SO_PEERCRED → peer pid/uid/gid
+ * - macOS: LOCAL_PEERPID + getpeereid → peer pid/uid/gid
+ * Identity comes from the kernel, not from client-supplied fields.
+ */
+async function smokeUdsPeerCredentials(): Promise<void> {
+  const sockPath = join(tmpdir(), `cm-pc-${ulid().toLowerCase().slice(0, 10)}`);
+  await unlink(sockPath).catch(() => undefined);
+
+  const script = [
+    'import ctypes, json, os, platform, socket, struct',
+    `path = ${JSON.stringify(sockPath)}`,
+    'srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+    'try:',
+    '  try: os.unlink(path)',
+    '  except FileNotFoundError: pass',
+    '  srv.bind(path)',
+    '  srv.listen(1)',
+    '  child = os.fork()',
+    '  if child == 0:',
+    '    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+    '    c.connect(path)',
+    '    c.sendall(b"hi")',
+    '    try: c.recv(1)',
+    '    except OSError: pass',
+    '    c.close()',
+    '    os._exit(0)',
+    '  conn, _ = srv.accept()',
+    '  _ = conn.recv(16)',
+    '  if platform.system() == "Linux":',
+    '    SO_PEERCRED = 17',
+    "    raw = conn.getsockopt(socket.SOL_SOCKET, SO_PEERCRED, struct.calcsize('iii'))",
+    "    peer_pid, peer_uid, peer_gid = struct.unpack('iii', raw)",
+    '    method = "SO_PEERCRED"',
+    '  else:',
+    '    SOL_LOCAL, LOCAL_PEERPID = 0, 2',
+    '    raw = conn.getsockopt(SOL_LOCAL, LOCAL_PEERPID, 4)',
+    "    peer_pid = struct.unpack('I', raw)[0]",
+    '    libc = ctypes.CDLL(None)',
+    '    uid = ctypes.c_uint()',
+    '    gid = ctypes.c_uint()',
+    '    rc = libc.getpeereid(ctypes.c_int(conn.fileno()), ctypes.byref(uid), ctypes.byref(gid))',
+    '    if rc != 0:',
+    '      raise SystemExit(f"getpeereid failed rc={rc} errno={ctypes.get_errno()}")',
+    '    peer_uid, peer_gid = uid.value, gid.value',
+    '    method = "LOCAL_PEERPID+getpeereid"',
+    '  conn.close()',
+    '  os.waitpid(child, 0)',
+    '  print(json.dumps({',
+    '    "method": method,',
+    '    "peer_pid": peer_pid,',
+    '    "peer_uid": peer_uid,',
+    '    "peer_gid": peer_gid,',
+    '    "child_pid": child,',
+    '    "self_uid": os.getuid(),',
+    '    "self_gid": os.getgid(),',
+    '  }))',
+    'finally:',
+    '  srv.close()',
+    '  try: os.unlink(path)',
+    '  except FileNotFoundError: pass',
+  ].join('\n');
+
+  try {
+    const probe = await runCapture('python3', ['-c', script]);
+    assert.equal(probe.code, 0, probe.out);
+    const line = probe.out.trim().split(/\r?\n/).filter(Boolean).at(-1);
+    assert.ok(line !== undefined && line.length > 0, `empty peercred probe output: ${probe.out}`);
+    const parsed: unknown = JSON.parse(line);
+    assert.ok(parsed !== null && typeof parsed === 'object');
+    assert.ok('method' in parsed && typeof parsed.method === 'string');
+    assert.ok('peer_pid' in parsed && typeof parsed.peer_pid === 'number');
+    assert.ok('peer_uid' in parsed && typeof parsed.peer_uid === 'number');
+    assert.ok('peer_gid' in parsed && typeof parsed.peer_gid === 'number');
+    assert.ok('child_pid' in parsed && typeof parsed.child_pid === 'number');
+    assert.ok('self_uid' in parsed && typeof parsed.self_uid === 'number');
+    assert.ok('self_gid' in parsed && typeof parsed.self_gid === 'number');
+    assert.equal(parsed.peer_pid, parsed.child_pid, 'peer pid must match connecting child');
+    assert.equal(parsed.peer_uid, parsed.self_uid, 'peer uid must match listener uid (same-UID connect)');
+    assert.equal(parsed.peer_gid, parsed.self_gid, 'peer gid must match listener gid (same-UID connect)');
+    if (process.platform === 'linux') {
+      assert.equal(parsed.method, 'SO_PEERCRED');
+    } else {
+      assert.equal(parsed.method, 'LOCAL_PEERPID+getpeereid');
+    }
+    console.log(
+      `ok: proved UDS peer credentials via ${parsed.method} (pid=${String(parsed.peer_pid)} uid=${String(parsed.peer_uid)} gid=${String(parsed.peer_gid)})`,
+    );
+  } finally {
+    await unlink(sockPath).catch(() => undefined);
+  }
+}
+
+/**
  * Same-UID peer env visibility (host processes, not sandbox policy).
  * Proves the easy leak path on each OS — not that env is protected.
  * - Linux: `/proc/<pid>/environ` contains the peer secret
@@ -635,6 +741,108 @@ async function smokeSameUidEnvironRead(): Promise<void> {
       setTimeout(resolve, 1000);
     });
   }
+}
+
+/**
+ * Same-UID access to another process's pipe / socketpair ends (host, not SRT).
+ * - Linux pipe: `open(/proc/<pid>/fd/N)` duplicates the fd
+ * - Linux socketpair: `open(/proc/...)` fails (ENXIO); `pidfd_getfd` steals it
+ * - macOS: no `/proc/<pid>/fd` (ENOENT)
+ */
+async function smokeSameUidInheritedFdAccess(): Promise<void> {
+  const PIPE_SECRET = 'pipe-secret-marker';
+  const SOCK_SECRET = 'sock-secret-marker';
+  const script = [
+    'import ctypes, json, os, platform, socket, subprocess, sys',
+    `PIPE_SECRET = ${JSON.stringify(PIPE_SECRET)}.encode()`,
+    `SOCK_SECRET = ${JSON.stringify(SOCK_SECRET)}.encode()`,
+    'holder = subprocess.Popen(',
+    '  [sys.executable, "-c",',
+    '   "import os, socket, time\\n"',
+    '   "r, w = os.pipe()\\n"',
+    '   "os.write(w, " + repr(PIPE_SECRET) + ")\\n"',
+    '   "a, b = socket.socketpair()\\n"',
+    '   "b.sendall(" + repr(SOCK_SECRET) + ")\\n"',
+    '   "print(os.getpid(), r, a.fileno(), flush=True)\\n"',
+    '   "time.sleep(60)\\n"],',
+    '  stdout=subprocess.PIPE, text=True,',
+    ')',
+    'try:',
+    '  line = holder.stdout.readline().strip()',
+    '  parts = line.split()',
+    '  if len(parts) != 3:',
+    '    raise SystemExit(f"bad holder line: {line!r}")',
+    '  pid, pipe_fd, sock_fd = map(int, parts)',
+    '  if platform.system() != "Linux":',
+    '    path = f"/proc/{pid}/fd/{pipe_fd}"',
+    '    try:',
+    '      open(path, "rb").close()',
+    '      raise SystemExit(f"unexpected open ok: {path}")',
+    '    except FileNotFoundError:',
+    '      print(json.dumps({"platform": "darwin", "proc_fd": "ENOENT"}))',
+    '      raise SystemExit(0)',
+    '  pipe_path = f"/proc/{pid}/fd/{pipe_fd}"',
+    '  with open(pipe_path, "rb", buffering=0) as f:',
+    '    pipe_data = f.read(64)',
+    '  if pipe_data != PIPE_SECRET:',
+    '    raise SystemExit(f"pipe steal mismatch: {pipe_data!r}")',
+    '  sock_path = f"/proc/{pid}/fd/{sock_fd}"',
+    '  sock_open_err = None',
+    '  try:',
+    '    open(sock_path, "rb", buffering=0).close()',
+    '    raise SystemExit("socketpair open(/proc) unexpectedly succeeded")',
+    '  except OSError as e:',
+    '    sock_open_err = e.errno',
+    '  libc = ctypes.CDLL(None, use_errno=True)',
+    '  libc.pidfd_open.argtypes = [ctypes.c_int, ctypes.c_uint]',
+    '  libc.pidfd_open.restype = ctypes.c_int',
+    '  libc.pidfd_getfd.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint]',
+    '  libc.pidfd_getfd.restype = ctypes.c_int',
+    '  pidfd = libc.pidfd_open(pid, 0)',
+    '  if pidfd < 0:',
+    '    raise SystemExit(f"pidfd_open failed errno={ctypes.get_errno()}")',
+    '  stolen = libc.pidfd_getfd(pidfd, sock_fd, 0)',
+    '  if stolen < 0:',
+    '    raise SystemExit(f"pidfd_getfd failed errno={ctypes.get_errno()}")',
+    '  sock_data = os.read(stolen, 64)',
+    '  os.close(stolen)',
+    '  os.close(pidfd)',
+    '  if sock_data != SOCK_SECRET:',
+    '    raise SystemExit(f"socketpair steal mismatch: {sock_data!r}")',
+    '  print(json.dumps({',
+    '    "platform": "linux",',
+    '    "pipe_via": "open(/proc/pid/fd)",',
+    '    "socketpair_open_errno": sock_open_err,',
+    '    "socketpair_via": "pidfd_getfd",',
+    '    "holder_pid": pid,',
+    '  }))',
+    'finally:',
+    '  holder.kill()',
+    '  try: holder.wait(timeout=2)',
+    '  except Exception: pass',
+  ].join('\n');
+
+  const probe = await runCapture('python3', ['-c', script]);
+  assert.equal(probe.code, 0, probe.out);
+  const line = probe.out.trim().split(/\r?\n/).filter(Boolean).at(-1);
+  assert.ok(line !== undefined && line.length > 0, `empty inherited-fd probe output: ${probe.out}`);
+  const parsed: unknown = JSON.parse(line);
+  assert.ok(parsed !== null && typeof parsed === 'object');
+  assert.ok('platform' in parsed && typeof parsed.platform === 'string');
+  if (process.platform === 'linux') {
+    assert.equal(parsed.platform, 'linux');
+    assert.ok('pipe_via' in parsed && parsed.pipe_via === 'open(/proc/pid/fd)');
+    assert.ok('socketpair_via' in parsed && parsed.socketpair_via === 'pidfd_getfd');
+    console.log(
+      `ok: proved Linux same-UID fd steal (pipe via /proc/pid/fd; socketpair via pidfd_getfd) pid=${String(
+        'holder_pid' in parsed ? parsed.holder_pid : '?',
+      )}`,
+    );
+    return;
+  }
+  assert.equal(parsed.platform, 'darwin');
+  assert.ok('proc_fd' in parsed && parsed.proc_fd === 'ENOENT');
+  console.log('ok: macOS has no /proc/<pid>/fd same-UID steal path (ENOENT)');
 }
 
 /**
@@ -1528,7 +1736,9 @@ async function main(): Promise<void> {
     console.log('ok: host env secret not visible in sandbox');
 
     await smokeEnvInheritance(provider, sandboxId);
+    await smokeUdsPeerCredentials();
     await smokeSameUidEnvironRead();
+    await smokeSameUidInheritedFdAccess();
 
     await assertExecFails(
       provider,
