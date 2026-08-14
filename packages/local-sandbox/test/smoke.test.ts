@@ -1007,8 +1007,8 @@ async function smokeSetsidEscapeSurvivesKillpg(params: {
 }
 
 /**
- * Match initSrt AF_UNIX policy (allowAllUnixSockets on macOS + Linux), then prove
- * pathname connect is still gated by allowRead (FS), not by the Unix-socket toggle.
+ * Match hostRun AF_UNIX policy (Linux allowAllUnixSockets; macOS allowUnixSockets=[sandboxRoot]),
+ * then prove pathname connect is still gated by allowRead (FS) / seatbelt, not by the Unix-socket toggle alone.
  * On Linux, also prove /proc/net/unix is the sandbox netns table (host abstract absent).
  */
 async function smokeUnixSocketFsGate(): Promise<void> {
@@ -1634,7 +1634,7 @@ async function main(): Promise<void> {
     );
     assert.equal(await readFile(DENY_READ_SECRET, 'utf8'), SECRET_CONTENTS);
 
-    // Write follow: macOS SRT fails open; Linux bwrap may exit 0 without persisting — host must stay intact.
+    // Symlink follow write: host target must stay intact regardless of sandbox exit code.
     const writeFollow = await provider.exec({
       sandboxId,
       command: [
@@ -1651,21 +1651,19 @@ async function main(): Promise<void> {
         'PY',
       ].join('\n'),
     });
-    assert.equal(writeFollow.success, true);
+    assert.equal(writeFollow.success, true, JSON.stringify(writeFollow));
     if (!writeFollow.success) throw new Error('unreachable');
     assert.equal(
       await readFile(DENY_READ_SECRET, 'utf8'),
       SECRET_CONTENTS,
       'sandbox symlink follow write must not mutate host secret',
     );
-    if (writeFollow.response.exitCode === 0) {
-      console.log('ok: sandbox open() symlink follow write did not persist (Linux bwrap quirk)');
-    } else {
+    if (writeFollow.response.exitCode !== 0) {
       assert.match(writeFollow.response.result, /open-write-blocked|Permission|Operation not permitted|denied/i);
-      console.log('ok: sandbox open() symlink follow write denied');
     }
+    console.log('ok: sandbox open() symlink follow write left host secret intact');
 
-    // Provider upload/download rely on SRT for symlink follow (no extra test ! -L).
+    // Provider upload/download: SRT must stop symlink follow from leaking or mutating the host.
     const mkDlLink = await provider.exec({
       sandboxId,
       command: `ln -sf ${JSON.stringify(DENY_READ_SECRET)} api-escape-dl && test -L api-escape-dl`,
@@ -1678,7 +1676,7 @@ async function main(): Promise<void> {
       const leaked = await provider.downloadFile({ sandboxId, path: 'api-escape-dl' });
       downloadLeaked = leaked.toString('utf8').includes('host-secret-should-not-leak');
     } catch {
-      // expected: SRT blocks follow-read
+      // deny / throw is fine; host check below still runs
     }
     assert.equal(downloadLeaked, false, 'downloadFile must not return host secret via symlink');
     assert.equal(await readFile(DENY_READ_SECRET, 'utf8'), SECRET_CONTENTS);
@@ -1697,9 +1695,8 @@ async function main(): Promise<void> {
         remotePath: 'api-escape-ul',
         content: Buffer.from('pwned-via-host-api\n'),
       });
-      // Linux may report success without persisting — host check below is the gate.
     } catch {
-      // macOS / strict deny — also fine
+      // deny / throw is fine; host check below is the gate
     }
     assert.equal(
       await readFile(DENY_READ_SECRET, 'utf8'),

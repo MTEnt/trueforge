@@ -384,7 +384,7 @@ export class LocalSandboxProvider implements SandboxProvider {
     });
   }
 
-  /** Reset process-scoped SRT after tests. */
+  /** Reset process-scoped SRT for this provider. */
   async dispose(): Promise<void> {
     if (this.srtInitialized) {
       await resetSrt();

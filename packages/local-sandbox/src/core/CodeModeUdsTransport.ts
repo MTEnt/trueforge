@@ -159,8 +159,7 @@ export class CodeModeUdsTransport implements CodeModeTransport {
     socket.on('error', () => undefined);
 
     // Oversized / malformed frames only tear down this connection (and notify
-    // onProtocolError). Unlike the old per-exec hostRun path, we do not kill the
-    // sandboxed process group — transport lifetime is handle-scoped, not tied to one exec.
+    // onProtocolError). Transport is handle-scoped and does not kill the process group.
     const fail = (message: string): void => {
       if (settled) return;
       settled = true;

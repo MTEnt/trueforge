@@ -51,7 +51,7 @@ export const MAX_OUTPUT_BYTES = 14 * 1024 * 1024;
 /** Platforms LocalSandboxProvider / hostRun can run on. */
 export type LocalSandboxPlatform = 'darwin' | 'linux';
 
-/** Set by {@link initSrt}; cleared by {@link resetSrt}. Source of truth for policy helpers. */
+/** Cached from {@link initSrt}; cleared by {@link resetSrt}. Used by session policy helpers after init. */
 let activePlatform: LocalSandboxPlatform | undefined;
 
 function requireActivePlatform(): LocalSandboxPlatform {
