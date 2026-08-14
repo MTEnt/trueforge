@@ -16,14 +16,14 @@ import { basename, dirname, join } from 'node:path';
 import { encodeJsonMessage, JsonMessageReader, MAX_MESSAGE_BYTES } from './frame.js';
 
 export interface CodeModeUdsTransportOptions {
-  resolveWorkspace: (sandboxId: string) => string;
+  resolveSandboxRootPath: (sandboxId: string) => string;
   maxMessageBytes?: number | undefined;
   /** Optional: observe inbound protocol failures (oversized / malformed). */
   onProtocolError?: ((message: string) => void) | undefined;
 }
 
 export class CodeModeUdsTransport implements CodeModeTransport {
-  private readonly resolveWorkspace: (sandboxId: string) => string;
+  private readonly resolveSandboxRootPath: (sandboxId: string) => string;
   private readonly maxMessageBytes: number;
   private readonly onProtocolError: ((message: string) => void) | undefined;
 
@@ -34,7 +34,7 @@ export class CodeModeUdsTransport implements CodeModeTransport {
   private cachedEnv: Record<string, string> | undefined;
 
   constructor(options: CodeModeUdsTransportOptions) {
-    this.resolveWorkspace = options.resolveWorkspace;
+    this.resolveSandboxRootPath = options.resolveSandboxRootPath;
     this.maxMessageBytes = options.maxMessageBytes ?? MAX_MESSAGE_BYTES;
     this.onProtocolError = options.onProtocolError;
   }
@@ -88,13 +88,13 @@ export class CodeModeUdsTransport implements CodeModeTransport {
       return { env: this.cachedEnv };
     }
 
-    const workspace = this.resolveWorkspace(params.sandboxId);
+    const sandboxRootPath = this.resolveSandboxRootPath(params.sandboxId);
     const sockName = `cm${randomUUID().replaceAll('-', '').slice(0, 8)}.sock`;
-    const sockPath = join(workspace, sockName);
-    // macOS sun_path ~104 bytes — absolute workspace paths often overflow, so we
+    const sockPath = join(sandboxRootPath, sockName);
+    // macOS sun_path ~104 bytes — absolute sandbox paths often overflow, so we
     // chdir + listen(basename). process.chdir is process-global: concurrent short-binds
     // can race. Prefer later: bind under a short absolute path (e.g. /tmp/tfy-cm-…) or
-    // shorten the workspace root so absolute listen always fits (no chdir).
+    // shorten the sandbox root so absolute listen always fits (no chdir).
     const sockForClient = process.platform === 'darwin' && Buffer.byteLength(sockPath) >= 104 ? sockName : sockPath;
 
     await unlink(sockPath).catch(() => undefined);

@@ -11,30 +11,28 @@ import type {
 import {
   SandboxFileNotFoundError,
   SandboxFileTooLargeError,
-  SandboxNotAvailableError,
   SandboxPathIsDirectoryError,
   shellEscape,
   validateNoPathTraversal,
 } from '@truefoundry/trueforge-core/core';
-import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { ulid } from 'ulid';
 import { CodeModeUdsTransport } from '../core/CodeModeUdsTransport.js';
-import { createWorkspace, initSrt, removeWorkspace, resetSrt, runSupervisorSession } from '../core/hostRun.js';
+import { createSandbox, initSrt, resetSrt, runSupervisorSession } from '../core/hostRun.js';
 import { XferFileInfoSchema, type XferFileInfo } from '../schemas/xferFileInfo.js';
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 60;
 const DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 
 export interface LocalSandboxProviderOptions {
-  tenantName: string;
+  /** Absolute parent directory under which each createSandbox makes a ULID child root. */
+  sandboxRootPathParent: string;
   fileMaxBytesForDownload?: number | undefined;
   defaultExecTimeoutSeconds?: number | undefined;
-  /** Root for per-sandbox workspaces; defaults to packages/local-sandbox/workspaces. */
-  workspacesRoot?: string | undefined;
 }
 
-/** Workspace-relative path for sandboxed commands (avoids /var vs /private/var seatbelt mismatches). */
+/** Sandbox-relative path for sandboxed commands (avoids /var vs /private/var seatbelt mismatches). */
 function sandboxRelativePath(userPath: string): string {
   return userPath.replace(/^\.\/+/, '');
 }
@@ -63,11 +61,9 @@ function base64EncodeCommand(relPath: string): string {
 }
 
 export class LocalSandboxProvider implements SandboxProvider {
-  private readonly tenantName: string;
+  private readonly sandboxRootPathParent: string;
   private readonly fileMaxBytesForDownload: number;
   private readonly defaultExecTimeoutSeconds: number;
-  private readonly workspacesRoot: string | undefined;
-  private readonly workspaces = new Map<string, string>();
   private srtInitialized = false;
 
   /** Local SRT has no image build step — always ready. */
@@ -78,10 +74,13 @@ export class LocalSandboxProvider implements SandboxProvider {
   };
 
   constructor(options: LocalSandboxProviderOptions) {
-    this.tenantName = options.tenantName;
+    if (!isAbsolute(options.sandboxRootPathParent)) {
+      throw new Error('sandboxRootPathParent must be an absolute path');
+    }
+    validateNoPathTraversal(options.sandboxRootPathParent);
+    this.sandboxRootPathParent = resolve(options.sandboxRootPathParent);
     this.fileMaxBytesForDownload = options.fileMaxBytesForDownload ?? DEFAULT_FILE_MAX_BYTES;
     this.defaultExecTimeoutSeconds = options.defaultExecTimeoutSeconds ?? DEFAULT_EXEC_TIMEOUT_SECONDS;
-    this.workspacesRoot = options.workspacesRoot;
   }
 
   buildImage(): Promise<SandboxBuild> {
@@ -101,18 +100,10 @@ export class LocalSandboxProvider implements SandboxProvider {
     this.srtInitialized = true;
   }
 
-  private workspaceFor(sandboxId: string): string {
-    const workspace = this.workspaces.get(sandboxId);
-    if (workspace === undefined) {
-      throw new SandboxNotAvailableError(sandboxId);
-    }
-    return workspace;
-  }
-
-  private resolveInWorkspace(workspace: string, userPath: string): string {
+  private resolveInSandboxRoot(sandboxRootPath: string, userPath: string): string {
     validateNoPathTraversal(userPath);
-    const resolved = userPath.startsWith('/') ? resolve(userPath) : resolve(workspace, userPath);
-    const root = resolve(workspace);
+    const resolved = userPath.startsWith('/') ? resolve(userPath) : resolve(sandboxRootPath, userPath);
+    const root = resolve(sandboxRootPath);
     if (resolved !== root && !resolved.startsWith(root + sep)) {
       throw new SandboxFileNotFoundError(userPath);
     }
@@ -120,12 +111,12 @@ export class LocalSandboxProvider implements SandboxProvider {
   }
 
   private async runSandboxCommand(params: {
-    workspace: string;
+    sandboxRootPath: string;
     command: string;
     stdin?: Buffer;
   }): Promise<{ exitCode: number; stdoutText: string; stderrText: string }> {
     const session = await runSupervisorSession({
-      workspace: params.workspace,
+      sandboxRootPath: params.sandboxRootPath,
       command: params.command,
       ...(params.stdin === undefined ? {} : { stdin: params.stdin }),
       timeoutMs: this.defaultExecTimeoutSeconds * 1000,
@@ -140,9 +131,13 @@ export class LocalSandboxProvider implements SandboxProvider {
     };
   }
 
-  private async getFileInfo(params: { workspace: string; relPath: string; userPath: string }): Promise<XferFileInfo> {
+  private async getFileInfo(params: {
+    sandboxRootPath: string;
+    relPath: string;
+    userPath: string;
+  }): Promise<XferFileInfo> {
     const result = await this.runSandboxCommand({
-      workspace: params.workspace,
+      sandboxRootPath: params.sandboxRootPath,
       command: statCommand(params.relPath),
     });
     if (result.exitCode !== 0) {
@@ -153,26 +148,23 @@ export class LocalSandboxProvider implements SandboxProvider {
 
   async createSandbox(): Promise<{ sandboxId: string }> {
     await this.ensureSrt();
-    const sandboxId = `${this.tenantName}.${randomUUID()}`;
-    const workspace = await createWorkspace({
-      sandboxId,
-      ...(this.workspacesRoot === undefined ? {} : { workspacesRoot: this.workspacesRoot }),
-    });
-    this.workspaces.set(sandboxId, workspace);
-    await mkdir(join(workspace, 'tool-results'), { recursive: true, mode: 0o700 });
-    await mkdir(join(workspace, 'uploads'), { recursive: true, mode: 0o700 });
+    const sandboxId = await createSandbox(join(this.sandboxRootPathParent, ulid().toLowerCase()));
+    await mkdir(join(sandboxId, 'tool-results'), { recursive: true, mode: 0o700 });
+    await mkdir(join(sandboxId, 'uploads'), { recursive: true, mode: 0o700 });
     return { sandboxId };
   }
 
   async exec(params: SandboxExecParams): Promise<ExecResult> {
     try {
       await this.ensureSrt();
-      const workspace = this.workspaceFor(params.sandboxId);
+      const sandboxRootPath = params.sandboxId;
       const cwd =
-        params.cwd === undefined || params.cwd === '' ? workspace : this.resolveInWorkspace(workspace, params.cwd);
+        params.cwd === undefined || params.cwd === ''
+          ? sandboxRootPath
+          : this.resolveInSandboxRoot(sandboxRootPath, params.cwd);
       const timeoutSeconds = params.timeoutSeconds ?? this.defaultExecTimeoutSeconds;
       const session = await runSupervisorSession({
-        workspace,
+        sandboxRootPath,
         command: params.command,
         cwd,
         ...(params.env === undefined ? {} : { env: params.env }),
@@ -187,7 +179,6 @@ export class LocalSandboxProvider implements SandboxProvider {
         response: { exitCode: session.exitCode, result },
       };
     } catch (error) {
-      if (error instanceof SandboxNotAvailableError) throw error;
       const message = error instanceof Error ? error.message : String(error);
       return { success: false, error: message };
     }
@@ -203,19 +194,19 @@ export class LocalSandboxProvider implements SandboxProvider {
   }
 
   getToolResultDumpDir(sandboxId: string): string {
-    return join(this.workspaceFor(sandboxId), 'tool-results');
+    return join(sandboxId, 'tool-results');
   }
 
   getGitCredentialsPath(sandboxId: string): string {
-    return join(this.workspaceFor(sandboxId), '.git-credentials');
+    return join(sandboxId, '.git-credentials');
   }
 
   async downloadFile(params: { sandboxId: string; path: string }): Promise<Buffer> {
     await this.ensureSrt();
-    const workspace = this.workspaceFor(params.sandboxId);
-    this.resolveInWorkspace(workspace, params.path);
+    const sandboxRootPath = params.sandboxId;
+    this.resolveInSandboxRoot(sandboxRootPath, params.path);
     const relPath = sandboxRelativePath(params.path);
-    const info = await this.getFileInfo({ workspace, relPath, userPath: params.path });
+    const info = await this.getFileInfo({ sandboxRootPath, relPath, userPath: params.path });
     if (info.isDir) {
       throw new SandboxPathIsDirectoryError(params.path);
     }
@@ -223,7 +214,7 @@ export class LocalSandboxProvider implements SandboxProvider {
       throw new SandboxFileTooLargeError(params.path, info.size, this.fileMaxBytesForDownload);
     }
     const result = await this.runSandboxCommand({
-      workspace,
+      sandboxRootPath,
       command: base64EncodeCommand(relPath),
     });
     if (result.exitCode !== 0) {
@@ -242,15 +233,15 @@ export class LocalSandboxProvider implements SandboxProvider {
     if (params.content.length > this.fileMaxBytesForDownload) {
       throw new SandboxFileTooLargeError(params.remotePath, params.content.length, this.fileMaxBytesForDownload);
     }
-    const workspace = this.workspaceFor(params.sandboxId);
-    // Resolve for traversal checks, but pass workspace-relative paths to the shell.
+    const sandboxRootPath = params.sandboxId;
+    // Resolve for traversal checks, but pass sandbox-relative paths to the shell.
     // Absolute /var/folders/... paths lose quoting under SRT and become mkdir /var.
-    this.resolveInWorkspace(workspace, params.remotePath);
+    this.resolveInSandboxRoot(sandboxRootPath, params.remotePath);
     const remotePath = sandboxRelativePath(params.remotePath);
     const parent = dirname(remotePath);
     const mkdirPart = parent === '.' ? '' : `mkdir -p ${shellEscape(parent)} && `;
     const result = await this.runSandboxCommand({
-      workspace,
+      sandboxRootPath,
       command: `${mkdirPart}cat > ${shellEscape(remotePath)}`,
       stdin: params.content,
     });
@@ -261,23 +252,12 @@ export class LocalSandboxProvider implements SandboxProvider {
 
   createCodeModeTransport(): CodeModeTransport {
     return new CodeModeUdsTransport({
-      resolveWorkspace: (sandboxId: string) => this.workspaceFor(sandboxId),
+      resolveSandboxRootPath: (sandboxId: string) => sandboxId,
     });
   }
 
-  /** PoC helper — not part of SandboxProvider. */
-  async destroySandbox(sandboxId: string): Promise<void> {
-    const workspace = this.workspaces.get(sandboxId);
-    if (workspace === undefined) return;
-    this.workspaces.delete(sandboxId);
-    await removeWorkspace(workspace);
-  }
-
-  /** PoC helper — reset process-scoped SRT after tests. */
+  /** Reset process-scoped SRT after tests. */
   async dispose(): Promise<void> {
-    for (const sandboxId of [...this.workspaces.keys()]) {
-      await this.destroySandbox(sandboxId);
-    }
     if (this.srtInitialized) {
       await resetSrt().catch(() => undefined);
       this.srtInitialized = false;

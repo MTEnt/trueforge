@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PoC Code Mode client: connect to host UDS, one JSON request/response per call."""
+"""Code Mode UDS client: connect to host socket, one JSON request/response per call."""
 
 from __future__ import annotations
 

@@ -7,25 +7,26 @@ import { CodeModeDispatcher, type IToolSet } from '@truefoundry/trueforge-core/c
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodeModeUdsTransport } from '../src/core/CodeModeUdsTransport.js';
 import {
   COMMAND_PATH,
-  createWorkspace,
+  createSandbox,
   installMcpFixture,
   MAX_OUTPUT_BYTES,
-  removeWorkspace,
+  removeSandbox,
   runSupervisorSession,
 } from '../src/core/hostRun.js';
 import { LocalSandboxProvider } from '../src/provider/LocalSandboxProvider.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const WORKSPACES = join(ROOT, 'workspaces');
-const DENY_READ_SECRET = join(WORKSPACES, '.poc-deny-read-secret');
+const SANDBOXES = join(ROOT, 'sandboxes');
+const DENY_READ_SECRET = join(SANDBOXES, '.poc-deny-read-secret');
 const DEFAULT_TMP_CLAUDE = '/tmp/claude';
 const DELETE_TARGET = join(DEFAULT_TMP_CLAUDE, 'poc-delete-target.txt');
 const SECRET_CONTENTS = 'host-secret-should-not-leak\n';
@@ -43,7 +44,7 @@ const SRT_VENDOR = join(
 );
 async function prepareHostProbeFiles(): Promise<void> {
   await mkdir(DEFAULT_TMP_CLAUDE, { recursive: true, mode: 0o700 });
-  await mkdir(WORKSPACES, { recursive: true, mode: 0o700 });
+  await mkdir(SANDBOXES, { recursive: true, mode: 0o700 });
   await writeFile(DELETE_TARGET, 'delete-me\n', { mode: 0o600 });
   await writeFile(DENY_READ_SECRET, SECRET_CONTENTS, { mode: 0o600 });
 }
@@ -117,14 +118,14 @@ function makeDemoToolSet(params: { onRequest?: () => void }): IToolSet {
 }
 
 async function withCodeModeTransport(params: {
-  workspace: string;
+  sandboxRootPath: string;
   maxMessageBytes?: number;
   onProtocolError?: (message: string) => void;
   onRequest?: () => void;
   run: (env: Record<string, string>) => Promise<void>;
 }): Promise<void> {
   const transport = new CodeModeUdsTransport({
-    resolveWorkspace: () => params.workspace,
+    resolveSandboxRootPath: () => params.sandboxRootPath,
     ...(params.maxMessageBytes === undefined ? {} : { maxMessageBytes: params.maxMessageBytes }),
     ...(params.onProtocolError === undefined ? {} : { onProtocolError: params.onProtocolError }),
   });
@@ -145,18 +146,18 @@ async function withCodeModeTransport(params: {
   }
 }
 
-async function smokeCodeMode(workspace: string): Promise<void> {
-  await installMcpFixture(workspace);
+async function smokeCodeMode(sandboxRootPath: string): Promise<void> {
+  await installMcpFixture(sandboxRootPath);
   let toolRequests = 0;
 
   await withCodeModeTransport({
-    workspace,
+    sandboxRootPath,
     onRequest: () => {
       toolRequests += 1;
     },
     run: async env => {
       const list = await runSupervisorSession({
-        workspace,
+        sandboxRootPath,
         command: 'python3 mcp_pipe_client.py list-tools --server demo',
         env,
       });
@@ -170,14 +171,14 @@ async function smokeCodeMode(workspace: string): Promise<void> {
   const oversizeCap = 1024;
   let oversizeError: string | undefined;
   await withCodeModeTransport({
-    workspace,
+    sandboxRootPath,
     maxMessageBytes: oversizeCap,
     onProtocolError: message => {
       oversizeError = message;
     },
     run: async env => {
       const oversize = await runSupervisorSession({
-        workspace,
+        sandboxRootPath,
         command: [
           "python3 - <<'PY'",
           'import os, socket, time',
@@ -200,13 +201,13 @@ async function smokeCodeMode(workspace: string): Promise<void> {
 
   let badJsonError: string | undefined;
   await withCodeModeTransport({
-    workspace,
+    sandboxRootPath,
     onProtocolError: message => {
       badJsonError = message;
     },
     run: async env => {
       const badJson = await runSupervisorSession({
-        workspace,
+        sandboxRootPath,
         command: [
           "python3 - <<'PY'",
           'import os, socket, time',
@@ -228,13 +229,13 @@ async function smokeCodeMode(workspace: string): Promise<void> {
   });
 
   await withCodeModeTransport({
-    workspace,
+    sandboxRootPath,
     onRequest: () => {
       toolRequests += 1;
     },
     run: async env => {
       const multiplex = await runSupervisorSession({
-        workspace,
+        sandboxRootPath,
         command: 'python3 mcp_pipe_client.py multiplex --server demo --count 2',
         env,
         timeoutMs: 15_000,
@@ -251,13 +252,13 @@ async function smokeCodeMode(workspace: string): Promise<void> {
 
   const beforeMissing = toolRequests;
   await withCodeModeTransport({
-    workspace,
+    sandboxRootPath,
     onRequest: () => {
       toolRequests += 1;
     },
     run: async env => {
       const missingSock = await runSupervisorSession({
-        workspace,
+        sandboxRootPath,
         command: [
           'set -euo pipefail',
           'unset TFY_MCP_SOCK',
@@ -280,13 +281,13 @@ async function smokeCodeMode(workspace: string): Promise<void> {
   let hostInjected = 0;
   let holdPid: number | undefined;
   await withCodeModeTransport({
-    workspace,
+    sandboxRootPath,
     onRequest: () => {
       hostInjected += 1;
     },
     run: async env => {
       const holdSession = runSupervisorSession({
-        workspace,
+        sandboxRootPath,
         command: [
           'set -euo pipefail',
           "python3 - <<'PY'",
@@ -304,13 +305,13 @@ async function smokeCodeMode(workspace: string): Promise<void> {
       let sockFromSandbox = '';
       for (let i = 0; i < 80 && sockFromSandbox === ''; i++) {
         try {
-          sockFromSandbox = (await readFile(join(workspace, '.uds-ready'), 'utf8')).trim();
+          sockFromSandbox = (await readFile(join(sandboxRootPath, '.uds-ready'), 'utf8')).trim();
         } catch {
           await sleep(50);
         }
       }
       assert.match(sockFromSandbox, /\.sock$/, 'sandbox never published TFY_MCP_SOCK');
-      const hostSockPath = sockFromSandbox.startsWith('/') ? sockFromSandbox : join(workspace, sockFromSandbox);
+      const hostSockPath = sockFromSandbox.startsWith('/') ? sockFromSandbox : join(sandboxRootPath, sockFromSandbox);
       const hostConnect = await new Promise<{ code: number | null; err: string }>((resolve, reject) => {
         const child = spawn(
           'python3',
@@ -414,7 +415,7 @@ async function smokeEnvInheritance(provider: LocalSandboxProvider, sandboxId: st
     sandboxId,
     env: { [marker]: expected },
     command: [
-      // workspace-local file (mktemp may target a denied host TMPDIR)
+      // sandbox-local file (mktemp may target a denied host TMPDIR)
       'bg_out="./.tfy-smoke-env-bg"',
       // command 1: background — writes marker value then exits
       `( printenv ${marker} > "$bg_out" ) &`,
@@ -593,9 +594,9 @@ async function smokeSameUidEnvironRead(): Promise<void> {
  * Exec timeout must SIGKILL the process group — not only the direct child —
  * so a forked `while True` grandchild dies too.
  */
-async function smokeProcessGroupTimeout(workspace: string): Promise<void> {
+async function smokeProcessGroupTimeout(sandboxRootPath: string): Promise<void> {
   const session = await runSupervisorSession({
-    workspace,
+    sandboxRootPath,
     command: [
       "python3 - <<'PY'",
       'import os, time',
@@ -611,8 +612,8 @@ async function smokeProcessGroupTimeout(workspace: string): Promise<void> {
     timeoutMs: 1500,
   });
   assert.equal(session.timedOut, true, 'session should time out');
-  const leaderPid = Number((await readFile(join(workspace, 'leader.pid'), 'utf8')).trim());
-  const grandchildPid = Number((await readFile(join(workspace, 'grandchild.pid'), 'utf8')).trim());
+  const leaderPid = Number((await readFile(join(sandboxRootPath, 'leader.pid'), 'utf8')).trim());
+  const grandchildPid = Number((await readFile(join(sandboxRootPath, 'grandchild.pid'), 'utf8')).trim());
   assert.ok(leaderPid > 0 && grandchildPid > 0);
   // Give the kernel a moment after SIGKILL.
   await sleep(200);
@@ -780,12 +781,12 @@ async function smokeLoopbackDenied(provider: LocalSandboxProvider, sandboxId: st
  * - Linux SRT: PID ns + die-with-parent — escape dies with the sandbox; in-ns
  *   pids are not host-visible, so we watch a heartbeat file instead of kill(pid).
  */
-async function smokeSetsidEscapeSurvivesKillpg(workspace: string): Promise<void> {
-  const heartbeatPath = join(workspace, 'escaped.heartbeat');
+async function smokeSetsidEscapeSurvivesKillpg(sandboxRootPath: string): Promise<void> {
+  const heartbeatPath = join(sandboxRootPath, 'escaped.heartbeat');
   // Escaped child drops stdio so host pipes can close after killpg.
   // Cap wait: SRT wrapper teardown can still lag; do not hang the suite.
   const sessionPromise = runSupervisorSession({
-    workspace,
+    sandboxRootPath,
     command: [
       "python3 - <<'PY'",
       'import os, time',
@@ -819,7 +820,7 @@ async function smokeSetsidEscapeSurvivesKillpg(workspace: string): Promise<void>
   let escapedRaw = '';
   for (let i = 0; i < 60 && !/^\d+$/.test(escapedRaw); i++) {
     try {
-      escapedRaw = (await readFile(join(workspace, 'escaped.pid'), 'utf8')).trim();
+      escapedRaw = (await readFile(join(sandboxRootPath, 'escaped.pid'), 'utf8')).trim();
     } catch {
       // not yet
     }
@@ -886,13 +887,13 @@ async function smokeSetsidEscapeSurvivesKillpg(workspace: string): Promise<void>
  * On Linux, also prove /proc/net/unix is the sandbox netns table (host abstract absent).
  */
 async function smokeUnixSocketFsGate(): Promise<void> {
-  // Keep paths short: macOS sun_path is ~104 bytes (long workspace UUIDs → EINVAL).
+  // Keep paths short: macOS sun_path is ~104 bytes (long sandbox path UUIDs → EINVAL).
   const id = randomUUID().replaceAll('-', '').slice(0, 8);
-  const workspace = join(WORKSPACES, `u${id}`);
-  const insideSock = join(workspace, 'c.sock');
-  const outsideSock = join(WORKSPACES, `o${id}.sock`);
+  const sandboxRootPath = join(SANDBOXES, `u${id}`);
+  const insideSock = join(sandboxRootPath, 'c.sock');
+  const outsideSock = join(SANDBOXES, `o${id}.sock`);
   // Host-owned fake Docker socket (path shape only) — must not be in allowRead / allowUnixSockets.
-  const emulatedDockerRoot = join(WORKSPACES, `v${id}`);
+  const emulatedDockerRoot = join(SANDBOXES, `v${id}`);
   const emulatedDockerSock = join(emulatedDockerRoot, 'run', 'docker.sock');
   const hostAbstractName = `\0tfy-abs-${id}`;
   const hostAbstractProcMarker = `@tfy-abs-${id}`;
@@ -900,7 +901,7 @@ async function smokeUnixSocketFsGate(): Promise<void> {
   const allowRead =
     process.platform === 'darwin'
       ? [
-          workspace,
+          sandboxRootPath,
           '/opt/homebrew/bin',
           '/usr/bin',
           '/bin',
@@ -916,7 +917,7 @@ async function smokeUnixSocketFsGate(): Promise<void> {
           SRT_VENDOR,
         ]
       : [
-          workspace,
+          sandboxRootPath,
           '/usr/bin',
           '/bin',
           '/usr/sbin',
@@ -960,7 +961,7 @@ async function smokeUnixSocketFsGate(): Promise<void> {
       '/bin/bash',
       {
         filesystem: {
-          allowWrite: [workspace],
+          allowWrite: [sandboxRootPath],
           denyWrite,
           denyRead: ['/'],
           allowRead,
@@ -968,17 +969,17 @@ async function smokeUnixSocketFsGate(): Promise<void> {
         network: { allowedDomains: [], deniedDomains: [] },
       },
       undefined,
-      workspace,
+      sandboxRootPath,
       { commandId: randomUUID(), commandText: command },
     );
     const [argv0, ...argvRest] = wrap.argv;
     if (argv0 === undefined) throw new Error('empty argv');
     return await new Promise((resolve, reject) => {
       const child = spawn(argv0, argvRest, {
-        cwd: workspace,
+        cwd: sandboxRootPath,
         env: {
-          HOME: join(workspace, '.home'),
-          TMPDIR: join(workspace, '.tmp'),
+          HOME: join(sandboxRootPath, '.home'),
+          TMPDIR: join(sandboxRootPath, '.tmp'),
           PATH: COMMAND_PATH,
           ...wrap.env,
         },
@@ -1065,21 +1066,21 @@ async function smokeUnixSocketFsGate(): Promise<void> {
       'PY',
     ].join('\n');
 
-  await mkdir(join(workspace, '.tmp'), { recursive: true, mode: 0o700 });
-  await mkdir(join(workspace, '.home'), { recursive: true, mode: 0o700 });
+  await mkdir(join(sandboxRootPath, '.tmp'), { recursive: true, mode: 0o700 });
+  await mkdir(join(sandboxRootPath, '.home'), { recursive: true, mode: 0o700 });
   await mkdir(dirname(emulatedDockerSock), { recursive: true, mode: 0o700 });
   const inside = await listenUds(insideSock);
   const outside = await listenUds(outsideSock);
   const emulatedDocker = await listenUds(emulatedDockerSock);
 
-  // Match hostRun: Linux allowAll + FS gate; macOS allowUnixSockets=[workspace] (FS does not gate UDS).
+  // Match hostRun: Linux allowAll + FS gate; macOS allowUnixSockets=[sandboxRootPath] (FS does not gate UDS).
   const network =
     process.platform === 'darwin'
       ? {
           allowedDomains: [] as string[],
           deniedDomains: [] as string[],
           allowAllUnixSockets: false,
-          allowUnixSockets: [workspace],
+          allowUnixSockets: [sandboxRootPath],
         }
       : {
           allowedDomains: [] as string[],
@@ -1102,7 +1103,7 @@ async function smokeUnixSocketFsGate(): Promise<void> {
     const ok = await runSandboxed(connectScript(insideSock));
     assert.equal(ok.code, 0, `inside sock should connect:\n${ok.out}`);
     assert.match(ok.out, /CONNECT_OK/);
-    console.log('ok: sandbox can connect to workspace UDS (allowRead)');
+    console.log('ok: sandbox can connect to sandbox UDS (allowRead)');
 
     await access(outsideSock);
     const denied = await runSandboxed(connectScript(outsideSock));
@@ -1111,7 +1112,7 @@ async function smokeUnixSocketFsGate(): Promise<void> {
     console.log(
       process.platform === 'linux'
         ? 'ok: FS-denied path UDS connect fails under allowAllUnixSockets'
-        : 'ok: path outside allowUnixSockets=[workspace] connect fails (macOS seatbelt)',
+        : 'ok: path outside allowUnixSockets=[sandboxRootPath] connect fails (macOS seatbelt)',
     );
 
     // Prove the emulated docker listener is live on the host, then denied from the sandbox.
@@ -1265,7 +1266,7 @@ async function smokeUnixSocketFsGate(): Promise<void> {
     console.log(
       process.platform === 'linux'
         ? 'ok: Linux allowAllUnixSockets + FS allowRead gates pathname UDS'
-        : 'ok: macOS allowUnixSockets=[workspace] gates pathname UDS (not allowRead)',
+        : 'ok: macOS allowUnixSockets=[sandboxRootPath] gates pathname UDS (not allowRead)',
     );
   } finally {
     await hostAbstract?.close().catch(() => undefined);
@@ -1273,7 +1274,7 @@ async function smokeUnixSocketFsGate(): Promise<void> {
     await inside.close().catch(() => undefined);
     await outside.close().catch(() => undefined);
     await SandboxManager.reset().catch(() => undefined);
-    await removeWorkspace(workspace).catch(() => undefined);
+    await removeSandbox(sandboxRootPath).catch(() => undefined);
     await rm(emulatedDockerRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 }
@@ -1349,9 +1350,10 @@ async function main(): Promise<void> {
 
   process.env[ENV_LEAK_MARKER] = ENV_LEAK_VALUE;
 
-  const provider = new LocalSandboxProvider({ tenantName: 'poc' });
+  const sandboxRootPathParent = await mkdtemp(join(tmpdir(), 'tfy-local-sandbox-smoke-'));
+  const provider = new LocalSandboxProvider({ sandboxRootPathParent });
   await prepareHostProbeFiles();
-  let codeModeWorkspace: string | undefined;
+  let codeModeSandboxRootPath: string | undefined;
   try {
     const { sandboxId } = await provider.createSandbox();
     console.log('sandboxId', sandboxId);
@@ -1368,13 +1370,13 @@ async function main(): Promise<void> {
 
     const write = await provider.exec({
       sandboxId,
-      command: "printf 'workspace-ok\\n' > note.txt && cat note.txt",
+      command: "printf 'sandbox-ok\\n' > note.txt && cat note.txt",
     });
     assert.equal(write.success, true);
     if (!write.success) throw new Error('unreachable');
     assert.equal(write.response.exitCode, 0);
-    assert.equal(write.response.result, 'workspace-ok\n');
-    console.log('ok: workspace-local write/read');
+    assert.equal(write.response.result, 'sandbox-ok\n');
+    console.log('ok: sandbox-local write/read');
 
     await provider.uploadFile({
       sandboxId,
@@ -1421,7 +1423,7 @@ async function main(): Promise<void> {
     if (!denyRead.success) throw new Error('unreachable');
     assert.notEqual(denyRead.response.exitCode, 0);
     assert.ok(!denyRead.response.result.includes('host-secret-should-not-leak'));
-    console.log('ok: host secret outside workspace blocked');
+    console.log('ok: host secret outside sandbox blocked');
 
     assert.ok(HOST_HOME && HOST_HOME.length > 0);
     await assertExecFails(provider, sandboxId, `ls ${JSON.stringify(HOST_HOME)}`, 'host home listing denied');
@@ -1496,7 +1498,7 @@ async function main(): Promise<void> {
       'symlink escape read denied',
     );
 
-    // Plain sandboxed open() following a workspace→host symlink must not leak the host file.
+    // Plain sandboxed open() following a sandbox→host symlink must not leak the host file.
     await assertExecFails(
       provider,
       sandboxId,
@@ -1602,7 +1604,7 @@ async function main(): Promise<void> {
     });
     const otherRead = await provider.exec({
       sandboxId: otherId,
-      command: `cat ${JSON.stringify(join(WORKSPACES, sandboxId, 'cross-secret.txt'))}`,
+      command: `cat ${JSON.stringify(join(sandboxId, 'cross-secret.txt'))}`,
     });
     assert.equal(otherRead.success, true);
     if (!otherRead.success) throw new Error('unreachable');
@@ -1612,12 +1614,12 @@ async function main(): Promise<void> {
 
     const otherWrite = await provider.exec({
       sandboxId: otherId,
-      command: `printf 'cross-write\\n' > ${JSON.stringify(join(WORKSPACES, sandboxId, 'cross-write.txt'))}`,
+      command: `printf 'cross-write\\n' > ${JSON.stringify(join(sandboxId, 'cross-write.txt'))}`,
     });
     assert.equal(otherWrite.success, true);
     if (!otherWrite.success) throw new Error('unreachable');
     assert.notEqual(otherWrite.response.exitCode, 0);
-    await assert.rejects(async () => readFile(join(WORKSPACES, sandboxId, 'cross-write.txt')));
+    await assert.rejects(async () => readFile(join(sandboxId, 'cross-write.txt')));
     console.log('ok: cross-sandbox absolute path write denied');
 
     const persist1 = await provider.exec({
@@ -1634,7 +1636,7 @@ async function main(): Promise<void> {
     assert.equal(persist2.success, true);
     if (!persist2.success) throw new Error('unreachable');
     assert.equal(persist2.response.result, 'persist-ok\n');
-    console.log('ok: workspace persists across execs');
+    console.log('ok: sandbox persists across execs');
 
     const flood = await provider.exec({
       sandboxId,
@@ -1650,18 +1652,19 @@ async function main(): Promise<void> {
     assert.match(provider.getGitCredentialsPath(sandboxId), /\.git-credentials$/);
     console.log('ok: dump/git credential paths');
 
-    codeModeWorkspace = await createWorkspace({ sandboxId: `poc-codemode-${Date.now()}` });
-    await smokeProcessGroupTimeout(codeModeWorkspace);
-    await smokeSetsidEscapeSurvivesKillpg(codeModeWorkspace);
-    await smokeCodeMode(codeModeWorkspace);
+    codeModeSandboxRootPath = await createSandbox(join(sandboxRootPathParent, `codemode-${Date.now()}`));
+    await smokeProcessGroupTimeout(codeModeSandboxRootPath);
+    await smokeSetsidEscapeSurvivesKillpg(codeModeSandboxRootPath);
+    await smokeCodeMode(codeModeSandboxRootPath);
 
     console.log('all LocalSandboxProvider + Code Mode smokes passed');
   } finally {
     delete process.env[ENV_LEAK_MARKER];
     await provider.dispose();
-    if (codeModeWorkspace !== undefined) {
-      await removeWorkspace(codeModeWorkspace).catch(() => undefined);
+    if (codeModeSandboxRootPath !== undefined) {
+      await removeSandbox(codeModeSandboxRootPath).catch(() => undefined);
     }
+    await rm(sandboxRootPathParent, { recursive: true, force: true }).catch(() => undefined);
     await cleanupHostProbeFiles().catch(() => undefined);
   }
 

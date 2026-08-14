@@ -1,7 +1,7 @@
 {
   "name": "@truefoundry/local-sandbox",
   "version": "0.0.0",
-  "description": "Local SRT SandboxProvider PoC. Private workspace package — not published to npm.",
+  "description": "Local SRT SandboxProvider. Private package — not published to npm.",
   "author": "TrueFoundry",
   "license": "MIT",
   "private": true,
@@ -35,6 +35,7 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.71",
     "@truefoundry/trueforge-core": "workspace:*",
+    "ulid": "^3.0.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {

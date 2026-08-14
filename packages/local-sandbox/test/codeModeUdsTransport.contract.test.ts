@@ -57,20 +57,20 @@ function makeDemoToolSet(): IToolSet {
   };
 }
 
-function resolveSockPath(params: { workspace: string; env: Record<string, string> }): string {
+function resolveSockPath(params: { sandboxRootPath: string; env: Record<string, string> }): string {
   const sock = params.env['TFY_MCP_SOCK'];
   if (sock === undefined || sock === '') {
     throw new Error('TFY_MCP_SOCK missing from transport env');
   }
-  return sock.startsWith('/') ? sock : join(params.workspace, sock);
+  return sock.startsWith('/') ? sock : join(params.sandboxRootPath, sock);
 }
 
 function sendUdsRequest(params: {
-  workspace: string;
+  sandboxRootPath: string;
   env: Record<string, string>;
   request: CodeModeRequest;
 }): Promise<CodeModeReply> {
-  const path = resolveSockPath({ workspace: params.workspace, env: params.env });
+  const path = resolveSockPath({ sandboxRootPath: params.sandboxRootPath, env: params.env });
   const timeoutSeconds = Number(params.env['TFY_CM_REQUEST_TIMEOUT_SECONDS'] ?? '30');
   const timeoutMs = Number.isFinite(timeoutSeconds) ? timeoutSeconds * 1000 : 30_000;
 
@@ -129,9 +129,9 @@ function sendUdsRequest(params: {
 }
 
 runCodeModeTransportContractSuite(async (): Promise<CodeModeTransportContractFixture> => {
-  const workspace = await mkdtemp(join(tmpdir(), 'cm-uds-contract-'));
+  const sandboxRootPath = await mkdtemp(join(tmpdir(), 'cm-uds-contract-'));
   const transport = new CodeModeUdsTransport({
-    resolveWorkspace: () => workspace,
+    resolveSandboxRootPath: () => sandboxRootPath,
   });
   const dispatcher = new CodeModeDispatcher({
     toolSets: [makeDemoToolSet()],
@@ -143,11 +143,11 @@ runCodeModeTransportContractSuite(async (): Promise<CodeModeTransportContractFix
     dispatcher,
     sandboxId: 'contract-sandbox',
     requestTimeoutSeconds: 30,
-    sendRequest: ({ env, request }) => sendUdsRequest({ workspace, env, request }),
+    sendRequest: ({ env, request }) => sendUdsRequest({ sandboxRootPath, env, request }),
     dispose: async () => {
       dispatcher.close();
       await transport.stop();
-      await rm(workspace, { recursive: true, force: true });
+      await rm(sandboxRootPath, { recursive: true, force: true });
     },
   };
 });

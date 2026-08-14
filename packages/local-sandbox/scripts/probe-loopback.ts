@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(fileURLToPath(import.meta.url), '..', '..');
-const WORKSPACE = join(ROOT, 'workspaces', `probe-loopback-${randomUUID()}`);
+const sandboxRootPath = join(ROOT, 'sandboxes', `probe-loopback-${randomUUID()}`);
 const SRT_VENDOR = join(
   dirname(fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime/package.json'))),
   'vendor',
@@ -22,7 +22,7 @@ function denySharedDefaultWritePaths(): string[] {
 }
 
 function platformAllowRead(): string[] {
-  const common = [WORKSPACE, '/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/lib', '/dev', SRT_VENDOR];
+  const common = [sandboxRootPath, '/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/lib', '/dev', SRT_VENDOR];
   if (process.platform === 'darwin') {
     return [
       ...common,
@@ -70,7 +70,7 @@ async function runSandboxed(params: { label: string; command: string; allowedDom
     '/bin/bash',
     {
       filesystem: {
-        allowWrite: [WORKSPACE],
+        allowWrite: [sandboxRootPath],
         denyWrite: denySharedDefaultWritePaths(),
         denyRead: ['/'],
         allowRead: platformAllowRead(),
@@ -81,7 +81,7 @@ async function runSandboxed(params: { label: string; command: string; allowedDom
       },
     },
     undefined,
-    WORKSPACE,
+    sandboxRootPath,
     { commandId: randomUUID(), commandText: params.command },
   );
   const [argv0, ...argvRest] = wrap.argv;
@@ -89,10 +89,10 @@ async function runSandboxed(params: { label: string; command: string; allowedDom
 
   const result = await new Promise<{ code: number | null; out: string }>((resolve, reject) => {
     const child = spawn(argv0, argvRest, {
-      cwd: WORKSPACE,
+      cwd: sandboxRootPath,
       env: {
-        HOME: join(WORKSPACE, '.home'),
-        TMPDIR: join(WORKSPACE, '.tmp'),
+        HOME: join(sandboxRootPath, '.home'),
+        TMPDIR: join(sandboxRootPath, '.tmp'),
         PATH: process.platform === 'darwin' ? '/opt/homebrew/bin:/usr/bin:/bin' : '/usr/bin:/bin',
         ...wrap.env,
       },
@@ -206,8 +206,8 @@ async function runSuite(params: { allowLocalBinding: boolean; hostPort: number }
 }
 
 async function main(): Promise<void> {
-  await mkdir(join(WORKSPACE, '.tmp'), { recursive: true, mode: 0o700 });
-  await mkdir(join(WORKSPACE, '.home'), { recursive: true, mode: 0o700 });
+  await mkdir(join(sandboxRootPath, '.tmp'), { recursive: true, mode: 0o700 });
+  await mkdir(join(sandboxRootPath, '.home'), { recursive: true, mode: 0o700 });
 
   const host = await listenHost();
   console.log(`[${process.platform}] host listener 127.0.0.1:${String(host.port)}`);

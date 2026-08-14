@@ -1,3 +1,4 @@
+import { basename, isAbsolute, join } from 'node:path';
 import type { SandboxProvider } from '../../../../src/core/sandbox/provider/Provider';
 import { ensureExecSuccess } from '../../../../src/core/sandbox/provider/Provider';
 
@@ -51,14 +52,60 @@ export function runSandboxProviderContractSuite(
       });
       ensureExecSuccess(write);
 
-      const readB = await fixture.provider.exec({
+      const readRelative = await fixture.provider.exec({
         sandboxId: b.sandboxId,
         command: 'cat secret.txt',
       });
-      expect(readB.success).toBe(true);
-      if (!readB.success) throw new Error('unreachable');
-      expect(readB.response.exitCode).not.toBe(0);
-      expect(readB.response.result).not.toMatch(/only-in-a/);
+      expect(readRelative.success).toBe(true);
+      if (!readRelative.success) throw new Error('unreachable');
+      expect(readRelative.response.exitCode).not.toBe(0);
+      expect(readRelative.response.result).not.toMatch(/only-in-a/);
+
+      // Path-id backends (Local): deny sibling escape via ../ and absolute paths.
+      if (isAbsolute(a.sandboxId) && isAbsolute(b.sandboxId)) {
+        const siblingRelative = join('..', basename(a.sandboxId), 'secret.txt');
+        const readSiblingRelative = await fixture.provider.exec({
+          sandboxId: b.sandboxId,
+          command: `cat ${JSON.stringify(siblingRelative)}`,
+        });
+        expect(readSiblingRelative.success).toBe(true);
+        if (!readSiblingRelative.success) throw new Error('unreachable');
+        expect(readSiblingRelative.response.exitCode).not.toBe(0);
+        expect(readSiblingRelative.response.result).not.toMatch(/only-in-a/);
+
+        const readAbsolute = await fixture.provider.exec({
+          sandboxId: b.sandboxId,
+          command: `cat ${JSON.stringify(join(a.sandboxId, 'secret.txt'))}`,
+        });
+        expect(readAbsolute.success).toBe(true);
+        if (!readAbsolute.success) throw new Error('unreachable');
+        expect(readAbsolute.response.exitCode).not.toBe(0);
+        expect(readAbsolute.response.result).not.toMatch(/only-in-a/);
+
+        const writeAbsolute = await fixture.provider.exec({
+          sandboxId: b.sandboxId,
+          command: `printf 'cross-write\\n' > ${JSON.stringify(join(a.sandboxId, 'cross-write.txt'))}`,
+        });
+        expect(writeAbsolute.success).toBe(true);
+        if (!writeAbsolute.success) throw new Error('unreachable');
+        expect(writeAbsolute.response.exitCode).not.toBe(0);
+
+        const writeSiblingRelative = await fixture.provider.exec({
+          sandboxId: b.sandboxId,
+          command: `printf 'cross-write\\n' > ${JSON.stringify(join('..', basename(a.sandboxId), 'cross-write.txt'))}`,
+        });
+        expect(writeSiblingRelative.success).toBe(true);
+        if (!writeSiblingRelative.success) throw new Error('unreachable');
+        expect(writeSiblingRelative.response.exitCode).not.toBe(0);
+
+        const leaked = await fixture.provider.exec({
+          sandboxId: a.sandboxId,
+          command: 'test -e cross-write.txt',
+        });
+        expect(leaked.success).toBe(true);
+        if (!leaked.success) throw new Error('unreachable');
+        expect(leaked.response.exitCode).not.toBe(0);
+      }
     });
 
     it('upload then download round-trips bytes', async () => {

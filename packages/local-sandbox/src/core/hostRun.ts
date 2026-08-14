@@ -113,24 +113,24 @@ function platformAllowRead(): string[] {
  * Policy for the untrusted command only (deny-by-default reads).
  * The host (in-process supervisor) is never placed under this policy.
  */
-function filesystemPolicy(workspace: string): {
+function filesystemPolicy(sandboxRootPath: string): {
   allowWrite: string[];
   denyWrite: string[];
   denyRead: string[];
   allowRead: string[];
 } {
   return {
-    allowWrite: [workspace],
+    allowWrite: [sandboxRootPath],
     denyWrite: denySharedDefaultWritePaths(),
     denyRead: ['/'],
-    allowRead: [workspace, ...platformAllowRead()],
+    allowRead: [sandboxRootPath, ...platformAllowRead()],
   };
 }
 
 /** Curated env for the sandboxed command — never the full host process.env. */
-function commandEnv(workspace: string, extra?: Record<string, string>): Record<string, string> {
-  const tmp = join(workspace, '.tmp');
-  const home = join(workspace, '.home');
+function commandEnv(sandboxRootPath: string, extra?: Record<string, string>): Record<string, string> {
+  const tmp = join(sandboxRootPath, '.tmp');
+  const home = join(sandboxRootPath, '.home');
   const locked = {
     HOME: home,
     TMPDIR: tmp,
@@ -158,7 +158,7 @@ function sessionFilesystem() {
  * AF_UNIX policy is session-scoped only (wrap customConfig cannot set it).
  * - Linux: allowAllUnixSockets; pathname connect still needs FS allowRead (bwrap).
  * - macOS: allowAllUnixSockets does NOT consult allowRead for connect — use
- *   allowUnixSockets subpath, synced at workspace create/remove.
+ *   allowUnixSockets subpath, synced at sandbox create/remove.
  */
 function sessionNetwork(unixSockets?: string[]) {
   if (process.platform === 'linux') {
@@ -176,34 +176,32 @@ function sessionNetwork(unixSockets?: string[]) {
   };
 }
 
-/** Active workspace roots allowed for macOS pathname UDS (seatbelt subpath). */
-const darwinUnixSocketWorkspaces = new Set<string>();
+/** Active sandbox roots allowed for macOS pathname UDS (seatbelt subpath). */
+const darwinUnixSocketSandboxRoots = new Set<string>();
 
 function syncDarwinUnixSockets(): void {
   if (process.platform !== 'darwin') return;
   if (SandboxManager.getConfig() === undefined) return;
   SandboxManager.updateConfig({
-    network: sessionNetwork([...darwinUnixSocketWorkspaces]),
+    network: sessionNetwork([...darwinUnixSocketSandboxRoots]),
     filesystem: sessionFilesystem(),
   });
 }
 
-export async function createWorkspace(params?: { sandboxId?: string; workspacesRoot?: string }): Promise<string> {
-  const root = params?.workspacesRoot ?? join(ROOT, 'workspaces');
-  const name = params?.sandboxId ?? `poc-${randomUUID()}`;
-  const workspace = join(root, name);
-  await mkdir(workspace, { recursive: true, mode: 0o700 });
-  await mkdir(join(workspace, '.tmp'), { recursive: true, mode: 0o700 });
-  await mkdir(join(workspace, '.home'), { recursive: true, mode: 0o700 });
-  darwinUnixSocketWorkspaces.add(workspace);
+/** Create a sandbox directory at `sandboxRootPath` (also the sandbox id). */
+export async function createSandbox(sandboxRootPath: string): Promise<string> {
+  await mkdir(sandboxRootPath, { recursive: true, mode: 0o700 });
+  await mkdir(join(sandboxRootPath, '.tmp'), { recursive: true, mode: 0o700 });
+  await mkdir(join(sandboxRootPath, '.home'), { recursive: true, mode: 0o700 });
+  darwinUnixSocketSandboxRoots.add(sandboxRootPath);
   syncDarwinUnixSockets();
-  return workspace;
+  return sandboxRootPath;
 }
 
-export async function removeWorkspace(workspace: string): Promise<void> {
-  darwinUnixSocketWorkspaces.delete(workspace);
+export async function removeSandbox(sandboxRootPath: string): Promise<void> {
+  darwinUnixSocketSandboxRoots.delete(sandboxRootPath);
   syncDarwinUnixSockets();
-  await rm(workspace, { recursive: true, force: true });
+  await rm(sandboxRootPath, { recursive: true, force: true });
 }
 
 /**
@@ -212,11 +210,11 @@ export async function removeWorkspace(workspace: string): Promise<void> {
  */
 export async function initSrt(): Promise<void> {
   if (process.platform !== 'darwin' && process.platform !== 'linux') {
-    throw new Error('this PoC supports macOS and Linux only');
+    throw new Error('LocalSandboxProvider supports macOS and Linux only');
   }
 
   await SandboxManager.initialize({
-    network: sessionNetwork([...darwinUnixSocketWorkspaces]),
+    network: sessionNetwork([...darwinUnixSocketSandboxRoots]),
     filesystem: sessionFilesystem(),
   });
 }
@@ -250,7 +248,7 @@ export function killExecTree(child: ChildProcess | undefined): void {
  * from {@link CodeModeUdsTransport.start}.
  */
 export async function runSupervisorSession(params: {
-  workspace: string;
+  sandboxRootPath: string;
   command: string;
   cwd?: string;
   env?: Record<string, string>;
@@ -260,20 +258,20 @@ export async function runSupervisorSession(params: {
   onChildSpawn?: (pid: number) => void;
   timeoutMs?: number;
 }): Promise<SessionResult> {
-  const { workspace, command, cwd = workspace, env, stdin, onChildSpawn, timeoutMs = 15_000 } = params;
+  const { sandboxRootPath, command, cwd = sandboxRootPath, env, stdin, onChildSpawn, timeoutMs = 15_000 } = params;
 
   const wrap = await SandboxManager.wrapWithSandboxArgv(
     command,
     '/bin/bash',
     {
-      filesystem: filesystemPolicy(workspace),
+      filesystem: filesystemPolicy(sandboxRootPath),
       network: {
         allowedDomains: [],
         deniedDomains: [],
       },
     },
     undefined,
-    workspace,
+    sandboxRootPath,
     { commandId: randomUUID(), commandText: command },
   );
 
@@ -285,7 +283,7 @@ export async function runSupervisorSession(params: {
   // Curated env only — do not spread wrap.env (it can carry ambient host secrets).
   // Code Mode sock path (TFY_MCP_SOCK) is expected in `env` when the caller started a transport.
   const childEnv: NodeJS.ProcessEnv = {
-    ...commandEnv(workspace, env),
+    ...commandEnv(sandboxRootPath, env),
   };
 
   const child = spawn(argv0, argvRest, {
@@ -385,9 +383,9 @@ export async function runSupervisorSession(params: {
   });
 }
 
-/** Copy the PoC MCP client into the workspace (isolation: only workspace is writable). */
-export async function installMcpFixture(workspace: string): Promise<string> {
-  const dest = join(workspace, 'mcp_pipe_client.py');
+/** Copy the MCP client fixture into the sandbox (isolation: only sandbox root is writable). */
+export async function installMcpFixture(sandboxRootPath: string): Promise<string> {
+  const dest = join(sandboxRootPath, 'mcp_pipe_client.py');
   await copyFile(join(FIXTURES, 'mcp_pipe_client.py'), dest);
   return dest;
 }

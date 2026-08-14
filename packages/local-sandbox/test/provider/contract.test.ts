@@ -6,16 +6,15 @@ import { LocalSandboxProvider } from '../../src/provider/LocalSandboxProvider';
 
 describe('LocalSandboxProvider (SandboxProvider contract)', () => {
   runSandboxProviderContractSuite(async () => {
-    const workspacesRoot = await mkdtemp(join(tmpdir(), 'tfy-local-sandbox-contract-'));
+    const sandboxRootPathParent = await mkdtemp(join(tmpdir(), 'tfy-local-sandbox-contract-'));
     const provider = new LocalSandboxProvider({
-      tenantName: 'contract',
-      workspacesRoot,
+      sandboxRootPathParent,
     });
     return {
       provider,
       dispose: async () => {
         await provider.dispose();
-        await rm(workspacesRoot, { recursive: true, force: true });
+        await rm(sandboxRootPathParent, { recursive: true, force: true });
       },
     };
   });
