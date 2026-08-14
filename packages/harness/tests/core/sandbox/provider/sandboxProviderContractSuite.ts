@@ -1,14 +1,14 @@
 import type { SandboxProvider } from '../../../../src/core/sandbox/provider/Provider';
 import { ensureExecSuccess } from '../../../../src/core/sandbox/provider/Provider';
 
-export type SandboxProviderContractFixture = {
+export interface SandboxProviderContractFixture {
   provider: SandboxProvider;
   dispose: () => Promise<void>;
-};
+}
 
 /**
  * SandboxProvider contract suite — factory-injected so backends can reuse it.
- * Skips `getNatsBridgeUrl` (Daytona-only; local/SRT providers are not required to implement it).
+ * Does not exercise `createCodeModeTransport` (NATS vs UDS is covered by the Code Mode transport suite).
  */
 export function runSandboxProviderContractSuite(
   createFixture: () => SandboxProviderContractFixture | Promise<SandboxProviderContractFixture>,

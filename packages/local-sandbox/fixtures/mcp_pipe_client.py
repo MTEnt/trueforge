@@ -10,7 +10,6 @@ import os
 import socket
 import sys
 import time
-import uuid
 from typing import Any
 
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
@@ -21,6 +20,10 @@ def _sock_path() -> str:
     if not path:
         raise RuntimeError("TFY_MCP_SOCK is not set")
     return path
+
+
+def _request_timeout() -> float:
+    return float(os.environ.get("TFY_CM_REQUEST_TIMEOUT_SECONDS", "60"))
 
 
 def _read_message(sock: socket.socket) -> Any:
@@ -40,23 +43,26 @@ def _write_message(sock: socket.socket, value: Any) -> None:
 
 
 def _request_sync(payload: dict[str, Any]) -> Any:
-    """Connect → JSON request → write-close → JSON reply → close."""
-    request_id = str(uuid.uuid4())
+    """Connect → JSON request → write-close → JSON reply → close (no request_id)."""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        sock.settimeout(60)
+        sock.settimeout(_request_timeout())
         sock.connect(_sock_path())
-        _write_message(sock, {**payload, "request_id": request_id})
+        _write_message(sock, payload)
         sock.shutdown(socket.SHUT_WR)
         reply = _read_message(sock)
     finally:
         sock.close()
     if not isinstance(reply, dict):
         raise RuntimeError(f"Code Mode reply is not an object: {reply!r}")
-    if reply.get("request_id") != request_id:
-        raise RuntimeError("Code Mode reply request_id mismatch")
     if not reply.get("ok"):
-        raise RuntimeError(f"Code Mode request failed: {reply.get('error', 'unknown error')}")
+        source = reply.get("source", "internal")
+        error = reply.get("error", "unknown error")
+        if source == "caller":
+            raise RuntimeError(f"Invalid MCP request: {error}")
+        if source == "transport":
+            raise RuntimeError(f"Code Mode transport error: {error}")
+        raise RuntimeError(f"Internal MCP error: {error}")
     return reply.get("result")
 
 

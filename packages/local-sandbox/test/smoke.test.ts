@@ -3,6 +3,7 @@
  * plus Code Mode UDS and security probes. Run via `pnpm smoke`.
  */
 import { getDefaultWritePaths, SandboxManager } from '@anthropic-ai/sandbox-runtime';
+import { CodeModeDispatcher, type IToolSet } from '@truefoundry/trueforge-core/core';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -11,6 +12,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CodeModeUdsTransport } from '../src/core/CodeModeUdsTransport.js';
 import {
   COMMAND_PATH,
   createWorkspace,
@@ -20,7 +22,6 @@ import {
   runSupervisorSession,
 } from '../src/core/hostRun.js';
 import { LocalSandboxProvider } from '../src/provider/LocalSandboxProvider.js';
-import { ToolRequestViewSchema } from '../src/schemas/codeMode.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const WORKSPACES = join(ROOT, 'workspaces');
@@ -67,206 +68,304 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-async function onToolRequest(request: unknown): Promise<unknown> {
-  const parsed = ToolRequestViewSchema.safeParse(request);
-  if (!parsed.success) {
-    throw new Error(`unsupported tool op: undefined`);
+function makeSilentCodeModeLogger() {
+  const logger = {
+    error: () => undefined,
+    child: () => logger,
+  };
+  return logger;
+}
+
+function makeDemoToolSet(params: { onRequest?: () => void }): IToolSet {
+  return {
+    name: 'demo',
+    id: 'demo',
+    preload: true,
+    hasPreloadedTools: true,
+    listTools: () => {
+      params.onRequest?.();
+      return Promise.resolve({
+        result: {
+          tools: [
+            {
+              name: 'ping',
+              description: 'ping',
+              inputSchema: { type: 'object' as const, properties: {} },
+              preload: true,
+            },
+          ],
+        },
+        wasInitialized: undefined,
+      });
+    },
+    callTool: async request => {
+      params.onRequest?.();
+      const args = request.arguments ?? {};
+      const delayRaw = args['delay_ms'];
+      const delayMs = typeof delayRaw === 'number' && Number.isFinite(delayRaw) ? delayRaw : 0;
+      if (delayMs > 0) await sleep(delayMs);
+      return {
+        result: {
+          content: [{ type: 'text' as const, text: JSON.stringify({ echo: args }) }],
+          isError: false,
+        },
+        wasInitialized: undefined,
+      };
+    },
+    toolCallInfo: () => undefined,
+  };
+}
+
+async function withCodeModeTransport(params: {
+  workspace: string;
+  maxMessageBytes?: number;
+  onProtocolError?: (message: string) => void;
+  onRequest?: () => void;
+  run: (env: Record<string, string>) => Promise<void>;
+}): Promise<void> {
+  const transport = new CodeModeUdsTransport({
+    resolveWorkspace: () => params.workspace,
+    ...(params.maxMessageBytes === undefined ? {} : { maxMessageBytes: params.maxMessageBytes }),
+    ...(params.onProtocolError === undefined ? {} : { onProtocolError: params.onProtocolError }),
+  });
+  const dispatcher = new CodeModeDispatcher({
+    toolSets: [makeDemoToolSet({ onRequest: params.onRequest })],
+    logger: makeSilentCodeModeLogger(),
+  });
+  try {
+    const { env } = await transport.start({
+      codeModeDispatcher: dispatcher,
+      sandboxId: 'smoke',
+      requestTimeoutSeconds: 60,
+    });
+    await params.run(env);
+  } finally {
+    dispatcher.close();
+    await transport.stop();
   }
-  const { op, arguments: args = {} } = parsed.data;
-  if (op === 'list_tools') {
-    return [{ name: 'ping' }];
-  }
-  if (op === 'call_tool') {
-    const delayRaw = args['delay_ms'];
-    const delayMs = typeof delayRaw === 'number' && Number.isFinite(delayRaw) ? delayRaw : 0;
-    if (delayMs > 0) await sleep(delayMs);
-    return { echo: args };
-  }
-  throw new Error(`unsupported tool op: ${op}`);
 }
 
 async function smokeCodeMode(workspace: string): Promise<void> {
   await installMcpFixture(workspace);
   let toolRequests = 0;
-  const countingHandler = async (request: unknown): Promise<unknown> => {
-    toolRequests += 1;
-    return onToolRequest(request);
-  };
 
-  const list = await runSupervisorSession({
+  await withCodeModeTransport({
     workspace,
-    command: 'python3 mcp_pipe_client.py list-tools --server demo',
-    onToolRequest: countingHandler,
+    onRequest: () => {
+      toolRequests += 1;
+    },
+    run: async env => {
+      const list = await runSupervisorSession({
+        workspace,
+        command: 'python3 mcp_pipe_client.py list-tools --server demo',
+        env,
+      });
+      assert.equal(list.protocolError, undefined, list.protocolError);
+      assert.equal(list.exitCode, 0, list.stderrText);
+      assert.match(list.stdoutText, /list-tools-ok/);
+      console.log('ok: Code Mode list-tools (UDS)');
+    },
   });
-  assert.equal(list.protocolError, undefined, list.protocolError);
-  assert.equal(list.exitCode, 0, list.stderrText);
-  assert.match(list.stdoutText, /list-tools-ok/);
-  console.log('ok: Code Mode list-tools (UDS)');
 
-  // Oversized inbound JSON (read-side byte cap) must set protocolError.
   const oversizeCap = 1024;
-  const oversize = await runSupervisorSession({
+  let oversizeError: string | undefined;
+  await withCodeModeTransport({
     workspace,
-    command: [
-      "python3 - <<'PY'",
-      'import os, socket, time',
-      'path = os.environ["TFY_MCP_SOCK"]',
-      's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
-      's.connect(path)',
-      `s.sendall(b"x" * ${String(oversizeCap + 1)})`,
-      's.shutdown(socket.SHUT_WR)',
-      'time.sleep(2)',
-      'PY',
-    ].join('\n'),
-    onToolRequest: countingHandler,
     maxMessageBytes: oversizeCap,
-    timeoutMs: 10_000,
+    onProtocolError: message => {
+      oversizeError = message;
+    },
+    run: async env => {
+      const oversize = await runSupervisorSession({
+        workspace,
+        command: [
+          "python3 - <<'PY'",
+          'import os, socket, time',
+          'path = os.environ["TFY_MCP_SOCK"]',
+          's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+          's.connect(path)',
+          `s.sendall(b"x" * ${String(oversizeCap + 1)})`,
+          's.shutdown(socket.SHUT_WR)',
+          'time.sleep(1)',
+          'PY',
+        ].join('\n'),
+        env,
+        timeoutMs: 10_000,
+      });
+      assert.equal(oversize.exitCode, 0, oversize.stderrText);
+      assert.match(String(oversizeError), /exceeds max/);
+      console.log('ok: Code Mode oversized message is terminal');
+    },
   });
-  assert.match(String(oversize.protocolError), /exceeds max/);
-  console.log('ok: Code Mode oversized message is terminal');
 
-  const badJson = await runSupervisorSession({
+  let badJsonError: string | undefined;
+  await withCodeModeTransport({
     workspace,
-    command: [
-      "python3 - <<'PY'",
-      'import os, socket, time',
-      'path = os.environ["TFY_MCP_SOCK"]',
-      's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
-      's.connect(path)',
-      's.sendall(b"not")',
-      's.shutdown(socket.SHUT_WR)',
-      'time.sleep(2)',
-      'PY',
-    ].join('\n'),
-    onToolRequest: countingHandler,
-    timeoutMs: 10_000,
+    onProtocolError: message => {
+      badJsonError = message;
+    },
+    run: async env => {
+      const badJson = await runSupervisorSession({
+        workspace,
+        command: [
+          "python3 - <<'PY'",
+          'import os, socket, time',
+          'path = os.environ["TFY_MCP_SOCK"]',
+          's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+          's.connect(path)',
+          's.sendall(b"not")',
+          's.shutdown(socket.SHUT_WR)',
+          'time.sleep(1)',
+          'PY',
+        ].join('\n'),
+        env,
+        timeoutMs: 10_000,
+      });
+      assert.equal(badJson.exitCode, 0, badJson.stderrText);
+      assert.match(String(badJsonError), /invalid JSON message/);
+      console.log('ok: Code Mode malformed JSON message is terminal');
+    },
   });
-  assert.match(String(badJson.protocolError), /invalid JSON message/);
-  console.log('ok: Code Mode malformed JSON message is terminal');
 
-  const multiplex = await runSupervisorSession({
+  await withCodeModeTransport({
     workspace,
-    command: 'python3 mcp_pipe_client.py multiplex --server demo --count 2',
-    onToolRequest: countingHandler,
-    timeoutMs: 15_000,
+    onRequest: () => {
+      toolRequests += 1;
+    },
+    run: async env => {
+      const multiplex = await runSupervisorSession({
+        workspace,
+        command: 'python3 mcp_pipe_client.py multiplex --server demo --count 2',
+        env,
+        timeoutMs: 15_000,
+      });
+      assert.equal(multiplex.protocolError, undefined, multiplex.protocolError);
+      assert.equal(multiplex.exitCode, 0, multiplex.stderrText);
+      const multiplexMatch = /multiplex-ok (\d+)/.exec(multiplex.stdoutText);
+      assert.ok(multiplexMatch, multiplex.stdoutText);
+      const multiplexMs = Number(multiplexMatch[1]);
+      assert.ok(multiplexMs < 280, `multiplex looked serial: gather ${String(multiplexMs)}ms (expected < 280ms)`);
+      console.log('ok: Code Mode concurrent UDS multiplex', `${String(multiplexMs)}ms`);
+    },
   });
-  assert.equal(multiplex.protocolError, undefined, multiplex.protocolError);
-  assert.equal(multiplex.exitCode, 0, multiplex.stderrText);
-  const multiplexMatch = /multiplex-ok (\d+)/.exec(multiplex.stdoutText);
-  assert.ok(multiplexMatch, multiplex.stdoutText);
-  const multiplexMs = Number(multiplexMatch[1]);
-  assert.ok(multiplexMs < 280, `multiplex looked serial: gather ${String(multiplexMs)}ms (expected < 280ms)`);
-  console.log('ok: Code Mode concurrent UDS multiplex', `${String(multiplexMs)}ms`);
 
-  // Without TFY_MCP_SOCK, client cannot reach Code Mode.
   const beforeMissing = toolRequests;
-  const missingSock = await runSupervisorSession({
+  await withCodeModeTransport({
     workspace,
-    command: [
-      'set -euo pipefail',
-      'unset TFY_MCP_SOCK',
-      'if python3 mcp_pipe_client.py list-tools --server demo; then',
-      '  echo "expected missing-sock failure" >&2',
-      '  exit 1',
-      'fi',
-      'echo ok-missing-sock',
-    ].join('\n'),
-    onToolRequest: countingHandler,
-    timeoutMs: 10_000,
+    onRequest: () => {
+      toolRequests += 1;
+    },
+    run: async env => {
+      const missingSock = await runSupervisorSession({
+        workspace,
+        command: [
+          'set -euo pipefail',
+          'unset TFY_MCP_SOCK',
+          'if python3 mcp_pipe_client.py list-tools --server demo; then',
+          '  echo "expected missing-sock failure" >&2',
+          '  exit 1',
+          'fi',
+          'echo ok-missing-sock',
+        ].join('\n'),
+        env,
+        timeoutMs: 10_000,
+      });
+      assert.equal(missingSock.exitCode, 0, missingSock.stderrText);
+      assert.match(missingSock.stdoutText, /ok-missing-sock/);
+      assert.equal(toolRequests, beforeMissing, 'missing sock must not deliver tool requests');
+      console.log('ok: Code Mode requires TFY_MCP_SOCK');
+    },
   });
-  assert.equal(missingSock.exitCode, 0, missingSock.stderrText);
-  assert.match(missingSock.stdoutText, /ok-missing-sock/);
-  assert.equal(toolRequests, beforeMissing, 'missing sock must not deliver tool requests');
-  console.log('ok: Code Mode requires TFY_MCP_SOCK');
 
-  // Same-UID host that knows the path can connect (path UDS ambient endpoint).
   let hostInjected = 0;
   let holdPid: number | undefined;
-  const hostHandler = async (request: unknown): Promise<unknown> => {
-    hostInjected += 1;
-    return onToolRequest(request);
-  };
-  const holdSession = runSupervisorSession({
+  await withCodeModeTransport({
     workspace,
-    command: [
-      'set -euo pipefail',
-      "python3 - <<'PY'",
-      'import os, time',
-      'open(".uds-ready", "w").write(os.environ["TFY_MCP_SOCK"] + "\\n")',
-      'time.sleep(60)',
-      'PY',
-    ].join('\n'),
-    onToolRequest: hostHandler,
-    onChildSpawn: pid => {
-      holdPid = pid;
+    onRequest: () => {
+      hostInjected += 1;
     },
-    timeoutMs: 15_000,
-  });
-  let sockFromSandbox = '';
-  for (let i = 0; i < 80 && sockFromSandbox === ''; i++) {
-    try {
-      sockFromSandbox = (await readFile(join(workspace, '.uds-ready'), 'utf8')).trim();
-    } catch {
-      await sleep(50);
-    }
-  }
-  assert.match(sockFromSandbox, /\.sock$/, 'sandbox never published TFY_MCP_SOCK');
-  // TFY_MCP_SOCK may be basename when absolute workspace path exceeds macOS sun_path.
-  const hostSockPath = sockFromSandbox.startsWith('/') ? sockFromSandbox : join(workspace, sockFromSandbox);
-  const hostConnect = await new Promise<{ code: number | null; err: string }>((resolve, reject) => {
-    const child = spawn(
-      'python3',
-      [
-        '-c',
-        [
-          'import os, socket, sys, json',
-          'path = sys.argv[1]',
-          'req = {"request_id":"host-1","op":"list_tools","server":"demo"}',
-          'body = json.dumps(req).encode()',
-          's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
-          // macOS sun_path ~104: connect via basename from the sock directory.
-          'if len(path.encode()) >= 104:',
-          '  os.chdir(os.path.dirname(path))',
-          '  path = os.path.basename(path)',
-          's.connect(path)',
-          's.sendall(body)',
-          's.shutdown(socket.SHUT_WR)',
-          'chunks = []',
-          'while True:',
-          '  c = s.recv(65536)',
-          '  if not c: break',
-          '  chunks.append(c)',
-          'print(b"".join(chunks).decode())',
+    run: async env => {
+      const holdSession = runSupervisorSession({
+        workspace,
+        command: [
+          'set -euo pipefail',
+          "python3 - <<'PY'",
+          'import os, time',
+          'open(".uds-ready", "w").write(os.environ["TFY_MCP_SOCK"] + "\\n")',
+          'time.sleep(60)',
+          'PY',
         ].join('\n'),
-        hostSockPath,
-      ],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-    let err = '';
-    child.stderr?.on('data', (c: Buffer) => {
-      err += c.toString('utf8');
-    });
-    child.on('error', reject);
-    child.on('close', code => resolve({ code, err }));
-  });
-  assert.equal(hostConnect.code, 0, hostConnect.err);
-  for (let i = 0; i < 50 && hostInjected === 0; i++) {
-    await sleep(50);
-  }
-  assert.equal(hostInjected, 1, 'same-UID host connect to Code Mode UDS must work');
-  console.log('ok: same-UID host can connect to Code Mode UDS (expected for path UDS)');
-  if (holdPid !== undefined) {
-    try {
-      process.kill(-holdPid, 'SIGKILL');
-    } catch {
-      try {
-        process.kill(holdPid, 'SIGKILL');
-      } catch {
-        // already gone
+        env,
+        onChildSpawn: pid => {
+          holdPid = pid;
+        },
+        timeoutMs: 15_000,
+      });
+      let sockFromSandbox = '';
+      for (let i = 0; i < 80 && sockFromSandbox === ''; i++) {
+        try {
+          sockFromSandbox = (await readFile(join(workspace, '.uds-ready'), 'utf8')).trim();
+        } catch {
+          await sleep(50);
+        }
       }
-    }
-  }
-  await holdSession;
+      assert.match(sockFromSandbox, /\.sock$/, 'sandbox never published TFY_MCP_SOCK');
+      const hostSockPath = sockFromSandbox.startsWith('/') ? sockFromSandbox : join(workspace, sockFromSandbox);
+      const hostConnect = await new Promise<{ code: number | null; err: string }>((resolve, reject) => {
+        const child = spawn(
+          'python3',
+          [
+            '-c',
+            [
+              'import os, socket, sys, json',
+              'path = sys.argv[1]',
+              'req = {"op":"list_tools","server":"demo"}',
+              'body = json.dumps(req).encode()',
+              's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)',
+              'if len(path.encode()) >= 104:',
+              '  os.chdir(os.path.dirname(path))',
+              '  path = os.path.basename(path)',
+              's.connect(path)',
+              's.sendall(body)',
+              's.shutdown(socket.SHUT_WR)',
+              'chunks = []',
+              'while True:',
+              '  c = s.recv(65536)',
+              '  if not c: break',
+              '  chunks.append(c)',
+              'print(b"".join(chunks).decode())',
+            ].join('\n'),
+            hostSockPath,
+          ],
+          { stdio: ['ignore', 'pipe', 'pipe'] },
+        );
+        let err = '';
+        child.stderr?.on('data', (c: Buffer) => {
+          err += c.toString('utf8');
+        });
+        child.on('error', reject);
+        child.on('close', code => resolve({ code, err }));
+      });
+      assert.equal(hostConnect.code, 0, hostConnect.err);
+      for (let i = 0; i < 50 && hostInjected === 0; i++) {
+        await sleep(50);
+      }
+      assert.equal(hostInjected, 1, 'same-UID host connect to Code Mode UDS must work');
+      console.log('ok: same-UID host can connect to Code Mode UDS (expected for path UDS)');
+      if (holdPid !== undefined) {
+        try {
+          process.kill(-holdPid, 'SIGKILL');
+        } catch {
+          try {
+            process.kill(holdPid, 'SIGKILL');
+          } catch {
+            // already gone
+          }
+        }
+      }
+      await holdSession;
+    },
+  });
 }
 
 /**

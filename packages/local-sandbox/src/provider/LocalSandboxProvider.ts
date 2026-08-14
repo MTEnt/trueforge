@@ -1,8 +1,13 @@
 /**
- * Local SRT SandboxProvider (no Code Mode on provider.exec yet).
- * createSandbox → host workspace; exec / upload / download → SRT-wrapped command.
+ * Local SRT SandboxProvider. Code Mode UDS is handle-scoped via {@link CodeModeUdsTransport}.
  */
-import type { ExecResult, SandboxBuild, SandboxExecParams, SandboxProvider } from '@truefoundry/trueforge-core/core';
+import type {
+  CodeModeTransport,
+  ExecResult,
+  SandboxBuild,
+  SandboxExecParams,
+  SandboxProvider,
+} from '@truefoundry/trueforge-core/core';
 import {
   SandboxFileNotFoundError,
   SandboxFileTooLargeError,
@@ -14,19 +19,20 @@ import {
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
+import { CodeModeUdsTransport } from '../core/CodeModeUdsTransport.js';
 import { createWorkspace, initSrt, removeWorkspace, resetSrt, runSupervisorSession } from '../core/hostRun.js';
 import { XferFileInfoSchema, type XferFileInfo } from '../schemas/xferFileInfo.js';
 
 const DEFAULT_EXEC_TIMEOUT_SECONDS = 60;
 const DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 
-export type LocalSandboxProviderOptions = {
+export interface LocalSandboxProviderOptions {
   tenantName: string;
   fileMaxBytesForDownload?: number | undefined;
   defaultExecTimeoutSeconds?: number | undefined;
   /** Root for per-sandbox workspaces; defaults to packages/local-sandbox/workspaces. */
   workspacesRoot?: string | undefined;
-};
+}
 
 /** Workspace-relative path for sandboxed commands (avoids /var vs /private/var seatbelt mismatches). */
 function sandboxRelativePath(userPath: string): string {
@@ -253,8 +259,10 @@ export class LocalSandboxProvider implements SandboxProvider {
     }
   }
 
-  getNatsBridgeUrl(_sandboxId: string): Promise<string> {
-    return Promise.reject(new Error('Code Mode / NATS bridge is not supported by LocalSandboxProvider'));
+  createCodeModeTransport(): CodeModeTransport {
+    return new CodeModeUdsTransport({
+      resolveWorkspace: (sandboxId: string) => this.workspaceFor(sandboxId),
+    });
   }
 
   /** PoC helper — not part of SandboxProvider. */

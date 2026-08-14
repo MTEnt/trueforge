@@ -137,6 +137,11 @@ export { extractErrorLogFields } from './util/errorLogFields';
 export { PromiseTimeoutError, withTimeout } from './util/promiseUtils';
 
 // Sandbox (concrete implementation; provider details exported for composition)
+export { CodeModeDispatcher } from './sandbox/codeMode/CodeModeDispatcher';
+export type { CodeModeLogger } from './sandbox/codeMode/CodeModeDispatcher';
+export type { CodeModeTransport } from './sandbox/codeMode/CodeModeTransport';
+export { CodeModeErrorSourceSchema, CodeModeReplySchema, CodeModeRequestSchema } from './sandbox/codeMode/types';
+export type { CodeModeErrorSource, CodeModeReply, CodeModeRequest } from './sandbox/codeMode/types';
 export { DaytonaSandboxProvider } from './sandbox/provider/DaytonaProvider';
 export type { DaytonaSandboxProviderOptions } from './sandbox/provider/DaytonaProvider';
 export { ensureExecSuccess, shellEscape } from './sandbox/provider/Provider';

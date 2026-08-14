@@ -44,7 +44,9 @@ async function listenHost(): Promise<{ port: number; close: () => Promise<void> 
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
+    server.listen(0, '127.0.0.1', () => {
+      resolve();
+    });
   });
   const addr = server.address();
   if (addr === null || typeof addr === 'string') {
@@ -54,7 +56,10 @@ async function listenHost(): Promise<{ port: number; close: () => Promise<void> 
     port: addr.port,
     close: () =>
       new Promise((resolve, reject) => {
-        server.close(err => (err ? reject(err) : resolve()));
+        server.close(err => {
+          if (err) reject(err);
+          else resolve();
+        });
       }),
   };
 }
@@ -94,14 +99,16 @@ async function runSandboxed(params: { label: string; command: string; allowedDom
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
-    child.stdout?.on('data', (c: Buffer) => {
+    child.stdout.on('data', (c: Buffer) => {
       out += c.toString('utf8');
     });
-    child.stderr?.on('data', (c: Buffer) => {
+    child.stderr.on('data', (c: Buffer) => {
       out += c.toString('utf8');
     });
     child.on('error', reject);
-    child.on('close', code => resolve({ code, out }));
+    child.on('close', code => {
+      resolve({ code, out });
+    });
   });
 
   const preview = result.out.replace(/\s+/g, ' ').trim().slice(0, 280);
