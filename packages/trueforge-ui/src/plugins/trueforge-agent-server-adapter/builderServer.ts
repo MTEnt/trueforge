@@ -99,7 +99,7 @@ export function createHarnessBuilderServer(
         if (!existing) {
           return {};
         }
-        await client.agents.update(existing.id, { manifest });
+        await client.agents.createOrUpdate({ name: agentName, manifest });
         return { agentId: existing.id };
       }
       const created = await client.agents.create({ name: agentName, manifest });

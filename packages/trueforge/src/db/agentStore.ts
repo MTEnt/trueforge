@@ -35,16 +35,9 @@ export interface CreateAgentInput {
   manifest: AgentSpec;
 }
 
-/** Replace manifest for an existing agent keyed by immutable id. */
-export interface UpdateAgentInput {
-  tenant_id: string;
-  id: string;
-  manifest: AgentSpec;
-}
-
 export interface DeleteAgentInput {
   tenant_id: string;
-  id: string;
+  name: string;
 }
 
 /** Unique `(tenant_id, name)` violation on create. */
@@ -65,8 +58,8 @@ export interface IAgentStore<TTransaction = never> {
   getAgent(input: GetAgentInput, transaction?: TTransaction): Promise<AgentRecord | undefined>;
   /** Inserts a new agent with a generated ULID. Throws AgentNameConflictError on name clash. */
   createAgent(input: CreateAgentInput, transaction?: TTransaction): Promise<AgentRecord>;
-  /** Replaces `manifest` for an existing id. Returns undefined if missing. */
-  updateAgent(input: UpdateAgentInput, transaction?: TTransaction): Promise<AgentRecord | undefined>;
-  /** Deletes by immutable id. Idempotent if already missing. */
+  /** Creates or replaces `manifest`; never overwrites `id` or `created_at`. */
+  upsertAgent(input: CreateAgentInput, transaction?: TTransaction): Promise<AgentRecord>;
+  /** Deletes by unique name. Idempotent if already missing. */
   deleteAgent(input: DeleteAgentInput, transaction?: TTransaction): Promise<void>;
 }

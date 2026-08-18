@@ -10,12 +10,13 @@ import {
   ListAgentsResponseSchema,
   PutAgentRequestSchema,
 } from '../schemas/agent';
+import { NameSchema } from '../schemas/common';
 import { RequestErrorResponseSchema } from '../schemas/errors';
 
 const AGENTS_TAG = 'Agents';
 
-export const AgentIdParamsSchema = z.object({
-  agent_id: z.string().min(1).max(64).describe('Immutable agent identifier.'),
+const AgentNameParamsSchema = z.object({
+  name: NameSchema,
 });
 
 export const listAgentsRoute = createRoute({
@@ -74,16 +75,48 @@ export const createAgentRoute = createRoute({
   },
 });
 
+export const putAgentRoute = createRoute({
+  method: 'put',
+  path: '/',
+  tags: [AGENTS_TAG],
+  summary: 'Create or replace an agent',
+  description:
+    'Create or replace by unique `name`. Allocates an id on create; later writes keep that id. Name cannot be changed.',
+  'x-fern-sdk-group-name': ['agents'],
+  'x-fern-sdk-method-name': 'create_or_update',
+  request: {
+    body: {
+      content: { 'application/json': { schema: PutAgentRequestSchema } },
+      required: true,
+    },
+  },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: GetAgentResponseSchema } },
+      description: 'The saved agent.',
+    },
+    400: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description: 'Invalid request body or unknown model/MCP/skill refs.',
+    },
+    422: {
+      content: { 'application/json': { schema: RequestErrorResponseSchema } },
+      description:
+        'The agent spec is valid but requires a capability this server does not provide (e.g. sandbox or skills).',
+    },
+  },
+});
+
 export const getAgentRoute = createRoute({
   method: 'get',
-  path: '/{agent_id}',
+  path: '/{name}',
   tags: [AGENTS_TAG],
   summary: 'Get an agent',
-  description: 'Fetch a configured agent by immutable id.',
+  description: 'Fetch a configured agent by unique name.',
   'x-fern-sdk-group-name': ['agents'],
   'x-fern-sdk-method-name': 'get',
   request: {
-    params: AgentIdParamsSchema,
+    params: AgentNameParamsSchema,
   },
   responses: {
     200: {
@@ -99,14 +132,14 @@ export const getAgentRoute = createRoute({
 
 export const deleteAgentRoute = createRoute({
   method: 'delete',
-  path: '/{agent_id}',
+  path: '/{name}',
   tags: [AGENTS_TAG],
   summary: 'Delete an agent',
-  description: 'Delete a configured agent by immutable id. Idempotent if already gone.',
+  description: 'Delete a configured agent by unique name. Idempotent if already gone.',
   'x-fern-sdk-group-name': ['agents'],
   'x-fern-sdk-method-name': 'delete',
   request: {
-    params: AgentIdParamsSchema,
+    params: AgentNameParamsSchema,
   },
   responses: {
     200: {
@@ -116,42 +149,6 @@ export const deleteAgentRoute = createRoute({
     401: {
       content: { 'application/json': { schema: RequestErrorResponseSchema } },
       description: 'OIDC is configured and the request has no valid session cookie.',
-    },
-  },
-});
-
-export const putAgentRoute = createRoute({
-  method: 'put',
-  path: '/{agent_id}',
-  tags: [AGENTS_TAG],
-  summary: 'Update an agent',
-  description: 'Replaces the manifest for an existing agent keyed by immutable `agent_id`.',
-  'x-fern-sdk-group-name': ['agents'],
-  'x-fern-sdk-method-name': 'update',
-  request: {
-    params: AgentIdParamsSchema,
-    body: {
-      content: { 'application/json': { schema: PutAgentRequestSchema } },
-      required: true,
-    },
-  },
-  responses: {
-    200: {
-      content: { 'application/json': { schema: GetAgentResponseSchema } },
-      description: 'The saved agent.',
-    },
-    400: {
-      content: { 'application/json': { schema: RequestErrorResponseSchema } },
-      description: 'Invalid request body or unknown model/MCP/skill refs.',
-    },
-    404: {
-      content: { 'application/json': { schema: RequestErrorResponseSchema } },
-      description: 'Agent not found.',
-    },
-    422: {
-      content: { 'application/json': { schema: RequestErrorResponseSchema } },
-      description:
-        'The agent spec is valid but requires a capability this server does not provide (e.g. sandbox or skills).',
     },
   },
 });

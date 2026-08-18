@@ -17,7 +17,7 @@ import {
   putAgentRoute,
 } from '../routes/agentRoutes';
 import { validateAgentSpec } from '../runtime/sessionResources';
-import { type Agent, type CreateAgentRequest } from '../schemas/agent';
+import { type Agent, type CreateAgentRequest, type PutAgentRequest } from '../schemas/agent';
 import { TENANT_ID } from './sessions';
 
 export interface AgentsRouterDeps<TTransaction> {
@@ -80,41 +80,37 @@ export function createAgentsRouter<TTransaction>(deps: AgentsRouterDeps<TTransac
     }
   };
 
+  const putHandler: RouteHandler<typeof putAgentRoute> = async c => {
+    const body: PutAgentRequest = c.req.valid('json');
+    const manifest = await validateManifest({ spec: body.manifest, deps });
+    const record = await deps.agentStore.upsertAgent({
+      tenant_id: TENANT_ID,
+      name: body.name,
+      manifest,
+    });
+    return c.json({ data: toWireAgent(record) }, 200);
+  };
+
   const getHandler: RouteHandler<typeof getAgentRoute> = async c => {
-    const { agent_id: agentId } = c.req.valid('param');
-    const record = await deps.agentStore.getAgent({ tenant_id: TENANT_ID, id: agentId });
+    const { name } = c.req.valid('param');
+    const record = await deps.agentStore.getAgent({ tenant_id: TENANT_ID, name });
     if (record === undefined) {
-      return c.json({ error: { message: `Agent not found: ${agentId}` } }, 404);
+      return c.json({ error: { message: `Agent not found: ${name}` } }, 404);
     }
     return c.json({ data: toWireAgent(record) }, 200);
   };
 
   const deleteHandler: RouteHandler<typeof deleteAgentRoute> = async c => {
-    const { agent_id: agentId } = c.req.valid('param');
-    await deps.agentStore.deleteAgent({ tenant_id: TENANT_ID, id: agentId });
+    const { name } = c.req.valid('param');
+    await deps.agentStore.deleteAgent({ tenant_id: TENANT_ID, name });
     return c.json({}, 200);
-  };
-
-  const putHandler: RouteHandler<typeof putAgentRoute> = async c => {
-    const { agent_id: agentId } = c.req.valid('param');
-    const body = c.req.valid('json');
-    const manifest = await validateManifest({ spec: body.manifest, deps });
-    const record = await deps.agentStore.updateAgent({
-      tenant_id: TENANT_ID,
-      id: agentId,
-      manifest,
-    });
-    if (record === undefined) {
-      return c.json({ error: { message: `Agent not found: ${agentId}` } }, 404);
-    }
-    return c.json({ data: toWireAgent(record) }, 200);
   };
 
   const router = new OpenAPIHono();
   router.openapi(listAgentsRoute, listHandler);
   router.openapi(createAgentRoute, createHandler);
+  router.openapi(putAgentRoute, putHandler);
   router.openapi(getAgentRoute, getHandler);
   router.openapi(deleteAgentRoute, deleteHandler);
-  router.openapi(putAgentRoute, putHandler);
   return router;
 }

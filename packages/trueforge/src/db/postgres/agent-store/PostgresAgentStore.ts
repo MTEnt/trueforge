@@ -8,7 +8,6 @@ import {
   type DeleteAgentInput,
   type GetAgentInput,
   type IAgentStore,
-  type UpdateAgentInput,
 } from '../../agentStore';
 import { isUniqueViolation } from '../client';
 import { json, now } from '../sqlExpressions';
@@ -74,23 +73,31 @@ export class PostgresAgentStore implements IAgentStore<Transaction<Database>> {
     }
   }
 
-  async updateAgent(input: UpdateAgentInput, transaction?: Transaction<Database>): Promise<AgentRecord | undefined> {
+  async upsertAgent(input: CreateAgentInput, transaction?: Transaction<Database>): Promise<AgentRecord> {
     const db = transaction ?? this.#db;
     const row = await db
-      .updateTable('agent')
-      .set({
+      .insertInto('agent')
+      .values({
+        id: ulid().toLowerCase(),
+        tenant_id: input.tenant_id,
+        name: input.name,
         manifest: json(input.manifest),
+        created_at: now(),
         updated_at: now(),
       })
-      .where('tenant_id', '=', input.tenant_id)
-      .where('id', '=', input.id)
+      .onConflict(oc =>
+        oc.columns(['tenant_id', 'name']).doUpdateSet({
+          manifest: json(input.manifest),
+          updated_at: now(),
+        }),
+      )
       .returningAll()
-      .executeTakeFirst();
-    return row === undefined ? undefined : toRecord(row);
+      .executeTakeFirstOrThrow();
+    return toRecord(row);
   }
 
   async deleteAgent(input: DeleteAgentInput, transaction?: Transaction<Database>): Promise<void> {
     const db = transaction ?? this.#db;
-    await db.deleteFrom('agent').where('tenant_id', '=', input.tenant_id).where('id', '=', input.id).execute();
+    await db.deleteFrom('agent').where('tenant_id', '=', input.tenant_id).where('name', '=', input.name).execute();
   }
 }

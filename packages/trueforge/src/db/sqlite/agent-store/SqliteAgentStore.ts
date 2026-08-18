@@ -9,7 +9,6 @@ import {
   type DeleteAgentInput,
   type GetAgentInput,
   type IAgentStore,
-  type UpdateAgentInput,
 } from '../../agentStore';
 import { isUniqueViolation } from '../client';
 import { jsonbBind, jsonText, nowIso } from '../sqlExpressions';
@@ -93,23 +92,32 @@ export class SqliteAgentStore implements IAgentStore<Transaction<Database>> {
     }
   }
 
-  async updateAgent(input: UpdateAgentInput, transaction?: Transaction<Database>): Promise<AgentRecord | undefined> {
+  async upsertAgent(input: CreateAgentInput, transaction?: Transaction<Database>): Promise<AgentRecord> {
     const db = transaction ?? this.#db;
+    const timestamp = nowIso();
     const row = await db
-      .updateTable('agent')
-      .set({
+      .insertInto('agent')
+      .values({
+        id: ulid().toLowerCase(),
+        tenant_id: input.tenant_id,
+        name: input.name,
         manifest: jsonbBind(input.manifest),
-        updated_at: nowIso(),
+        created_at: timestamp,
+        updated_at: timestamp,
       })
-      .where('tenant_id', '=', input.tenant_id)
-      .where('id', '=', input.id)
+      .onConflict(oc =>
+        oc.columns(['tenant_id', 'name']).doUpdateSet({
+          manifest: jsonbBind(input.manifest),
+          updated_at: timestamp,
+        }),
+      )
       .returning(recordColumns)
-      .executeTakeFirst();
-    return row === undefined ? undefined : toRecord(row);
+      .executeTakeFirstOrThrow();
+    return toRecord(row);
   }
 
   async deleteAgent(input: DeleteAgentInput, transaction?: Transaction<Database>): Promise<void> {
     const db = transaction ?? this.#db;
-    await db.deleteFrom('agent').where('tenant_id', '=', input.tenant_id).where('id', '=', input.id).execute();
+    await db.deleteFrom('agent').where('tenant_id', '=', input.tenant_id).where('name', '=', input.name).execute();
   }
 }

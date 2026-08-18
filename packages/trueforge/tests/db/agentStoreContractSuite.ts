@@ -46,7 +46,7 @@ export function runAgentStoreContractSuite(getStore: () => IAgentStore): void {
     expect(await store.getAgent({ tenant_id: TENANT, name: 'missing' })).toBeUndefined();
   });
 
-  it('updateAgent by id replaces manifest but keeps id, name, and created_at', async () => {
+  it('upsertAgent replaces manifest but keeps id, name, and created_at', async () => {
     const store = getStore();
     const created = await store.createAgent({
       tenant_id: TENANT,
@@ -55,9 +55,9 @@ export function runAgentStoreContractSuite(getStore: () => IAgentStore): void {
     });
 
     const replacement = manifest({ instructions: 'Updated instructions.' });
-    const updated = await store.updateAgent({
+    const updated = await store.upsertAgent({
       tenant_id: TENANT,
-      id: created.id,
+      name: 'research',
       manifest: replacement,
     });
 
@@ -69,24 +69,30 @@ export function runAgentStoreContractSuite(getStore: () => IAgentStore): void {
         created_at: created.created_at,
       }),
     );
-    expect(updated).toBeDefined();
-    if (updated === undefined) {
-      throw new Error('expected updateAgent to return a record');
-    }
     expect(Date.parse(updated.updated_at)).toBeGreaterThanOrEqual(Date.parse(created.updated_at));
-
     expect(await store.getAgent({ tenant_id: TENANT, name: 'research' })).toEqual(updated);
   });
 
-  it('updateAgent returns undefined for unknown ids', async () => {
+  it('upsertAgent creates when the name is missing', async () => {
     const store = getStore();
-    expect(
-      await store.updateAgent({
-        tenant_id: TENANT,
-        id: 'missing',
-        manifest: manifest(),
-      }),
-    ).toBeUndefined();
+    const created = await store.upsertAgent({
+      tenant_id: TENANT,
+      name: 'research',
+      manifest: manifest(),
+    });
+
+    expect(created.name).toBe('research');
+    expect(created.id.length).toBeGreaterThan(0);
+    expect(created.manifest).toEqual(manifest());
+    expect(await store.getAgent({ tenant_id: TENANT, name: 'research' })).toEqual(created);
+  });
+
+  it('deleteAgent by name is idempotent', async () => {
+    const store = getStore();
+    await store.createAgent({ tenant_id: TENANT, name: 'research', manifest: manifest() });
+    await store.deleteAgent({ tenant_id: TENANT, name: 'research' });
+    expect(await store.getAgent({ tenant_id: TENANT, name: 'research' })).toBeUndefined();
+    await store.deleteAgent({ tenant_id: TENANT, name: 'research' });
   });
 
   it('createAgent throws AgentNameConflictError on name clash', async () => {

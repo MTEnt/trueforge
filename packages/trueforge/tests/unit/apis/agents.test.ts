@@ -69,7 +69,7 @@ describe('agents router', () => {
     });
   });
 
-  it('POST returns a wrapped Agent; PUT by immutable id keeps the same id', async () => {
+  it('POST returns a wrapped Agent; PUT by name keeps the same id', async () => {
     const created = await router.request('/', jsonInit('POST', writeBody));
     expect(created.status).toBe(201);
     const createdJson = (await created.json()) as { data: WireAgent };
@@ -82,7 +82,7 @@ describe('agents router', () => {
       },
     });
 
-    const updated = await router.request(`/${createdJson.data.id}`, jsonInit('PUT', updateBody));
+    const updated = await router.request('/', jsonInit('PUT', { name: 'research', ...updateBody }));
     expect(updated.status).toBe(200);
     const updatedJson = (await updated.json()) as { data: WireAgent };
     expect(updatedJson.data.id).toBe(createdJson.data.id);
@@ -90,25 +90,32 @@ describe('agents router', () => {
     expect(updatedJson.data.manifest.instructions).toBe('Updated instructions.');
   });
 
-  it('GET and PUT return 404 for unknown ids', async () => {
-    const get = await router.request('/missing-agent-id');
+  it('GET returns 404 for unknown names; PUT creates when missing', async () => {
+    const get = await router.request('/missing-agent');
     expect(get.status).toBe(404);
 
-    const put = await router.request('/missing-agent-id', jsonInit('PUT', updateBody));
-    expect(put.status).toBe(404);
+    const put = await router.request('/', jsonInit('PUT', { name: 'created-by-put', manifest }));
+    expect(put.status).toBe(200);
+    const putJson = (await put.json()) as { data: WireAgent };
+    expect(putJson.data.name).toBe('created-by-put');
+    expect(putJson.data.id.length).toBeGreaterThan(0);
+
+    const fetched = await router.request('/created-by-put');
+    expect(fetched.status).toBe(200);
+    const fetchedJson = (await fetched.json()) as { data: WireAgent };
+    expect(fetchedJson.data.id).toBe(putJson.data.id);
   });
 
-  it('DELETE removes an agent by id and is idempotent', async () => {
+  it('DELETE removes an agent by name and is idempotent', async () => {
     const created = await router.request('/', jsonInit('POST', { ...writeBody, name: 'deletable' }));
     expect(created.status).toBe(201);
-    const { data } = (await created.json()) as { data: { id: string } };
 
-    const deleted = await router.request(`/${data.id}`, { method: 'DELETE' });
+    const deleted = await router.request('/deletable', { method: 'DELETE' });
     expect(deleted.status).toBe(200);
     expect(await deleted.json()).toEqual({});
 
-    expect((await router.request(`/${data.id}`)).status).toBe(404);
-    const deletedAgain = await router.request(`/${data.id}`, { method: 'DELETE' });
+    expect((await router.request('/deletable')).status).toBe(404);
+    const deletedAgain = await router.request('/deletable', { method: 'DELETE' });
     expect(deletedAgain.status).toBe(200);
     expect(await deletedAgain.json()).toEqual({});
   });

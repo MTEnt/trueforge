@@ -265,7 +265,7 @@ describe('harnessBuilderServer', () => {
           data: [{ id: 'agt_1', name: 'writer', manifest: { model: { name: 'test/model' } } }],
         });
       }
-      if (url.endsWith('/api/v1/agents/agt_1') && method === 'PUT' && typeof init?.body === 'string') {
+      if (url.endsWith('/api/v1/agents') && method === 'PUT' && typeof init?.body === 'string') {
         requests.push({ method, url, body: JSON.parse(init.body) });
         return Response.json({
           data: {
@@ -294,6 +294,7 @@ describe('harnessBuilderServer', () => {
     assert.deepEqual(result, { agentId: 'agt_1' });
     assert.equal(requests.length, 1);
     assert.deepEqual(requests[0]?.body, {
+      name: 'writer',
       manifest: {
         model: { name: 'test/model' },
         instructions: 'Write release notes.',
