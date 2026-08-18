@@ -718,7 +718,7 @@ export class SessionsClient {
             async (
                 request: TrueForge.ListEventsSessionsRequest,
             ): Promise<core.WithRawResponse<TrueForge.ListSessionEventsResponse>> => {
-                const { pageToken, lastTurnId, limit = 100 } = request;
+                const { pageToken, lastTurnId, limit = 25 } = request;
                 const _queryParams: Record<string, unknown> = {
                     page_token: pageToken,
                     last_turn_id: lastTurnId,
@@ -1437,7 +1437,7 @@ export class SessionsClient {
             url: core.url.join(
                 (await core.Supplier.get(this._options.baseUrl)) ??
                     (await core.Supplier.get(this._options.environment)),
-                `api/v1/sessions/${core.url.encodePathParam(session_id)}/turns/${core.url.encodePathParam(turn_id)}/download`,
+                `api/v1/sessions/${core.url.encodePathParam(session_id)}/turns/${core.url.encodePathParam(turn_id)}/download-sandbox-file`,
             ),
             method: "GET",
             headers: _headers,
@@ -1549,7 +1549,7 @@ export class SessionsClient {
             _response.error,
             _response.rawResponse,
             "GET",
-            "/api/v1/sessions/{session_id}/turns/{turn_id}/download",
+            "/api/v1/sessions/{session_id}/turns/{turn_id}/download-sandbox-file",
         );
     }
 
