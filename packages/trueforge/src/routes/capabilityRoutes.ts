@@ -27,6 +27,7 @@ export const getCapabilitiesRoute = createRoute({
   summary: 'Get server capabilities',
   'x-fern-sdk-group-name': ['server'],
   'x-fern-sdk-method-name': 'get_capabilities',
+  'x-excluded': true,
   description: 'Report optional runtime capabilities available for this tenant.',
   responses: {
     200: {

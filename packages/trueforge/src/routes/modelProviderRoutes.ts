@@ -20,7 +20,7 @@ export const listModelProvidersRoute = createRoute({
   tags: [MODEL_PROVIDERS_TAG],
   summary: 'List configured model providers',
   description: 'All configured providers with nested manifests.',
-  'x-fern-sdk-group-name': ['settings', 'modelProviders'],
+  'x-fern-sdk-group-name': ['settings', 'model_providers'],
   'x-fern-sdk-method-name': 'list',
   responses: {
     200: {
@@ -46,7 +46,7 @@ export const createModelProviderRoute = createRoute({
   description:
     'Creates a provider (models included). Fails if `name` is already taken. Well-known types use `type` as `name` (one each); ' +
     '`custom` is named by the caller. `auth.api_key`: real value required; redacted with no stored secret returns 400.',
-  'x-fern-sdk-group-name': ['settings', 'modelProviders'],
+  'x-fern-sdk-group-name': ['settings', 'model_providers'],
   'x-fern-sdk-method-name': 'create',
   request: {
     body: {
@@ -78,7 +78,7 @@ export const putModelProviderRoute = createRoute({
   description:
     'Create or replace a provider (models included). Well-known types use `type` as `name` (one each); ' +
     '`custom` is named by the caller. `auth.api_key`: real value sets/rotates; redacted keeps existing (400 if none).',
-  'x-fern-sdk-group-name': ['settings', 'modelProviders'],
+  'x-fern-sdk-group-name': ['settings', 'model_providers'],
   'x-fern-sdk-method-name': 'upsert',
   request: {
     body: {

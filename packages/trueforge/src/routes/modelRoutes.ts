@@ -6,7 +6,7 @@ export const listModelsRoute = createRoute({
   method: 'get',
   path: '/',
   tags: ['Models'],
-  summary: 'List models',
+  summary: 'List models for chat',
   'x-fern-sdk-group-name': ['models'],
   'x-fern-sdk-method-name': 'list',
   description: 'Models across all configured model providers, addressed by fully qualified name `name/model_name`.',

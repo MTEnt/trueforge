@@ -19,8 +19,9 @@ export const listModelProviderCatalogRoute = createRoute({
   description:
     'Shipped model-provider presets (discovery-only). Copy into PUT /settings/model-providers to configure. ' +
     'Includes a `custom` sentinel with `supported_reasoning_efforts`.',
-  'x-fern-sdk-group-name': ['catalog', 'modelProviders'],
+  'x-fern-sdk-group-name': ['catalog', 'model_providers'],
   'x-fern-sdk-method-name': 'list',
+  'x-excluded': true,
   responses: {
     200: {
       content: { 'application/json': { schema: GetModelProviderCatalogResponseSchema } },
@@ -39,8 +40,9 @@ export const listMcpServerCatalogRoute = createRoute({
   tags: [CATALOG_TAG],
   summary: 'Get the MCP catalog',
   description: 'Shipped MCP server presets (discovery-only). Copy into PUT /settings/mcp-servers to configure.',
-  'x-fern-sdk-group-name': ['catalog', 'mcpServers'],
+  'x-fern-sdk-group-name': ['catalog', 'mcp_servers'],
   'x-fern-sdk-method-name': 'list',
+  'x-excluded': true,
   responses: {
     200: {
       content: { 'application/json': { schema: GetMcpServerCatalogResponseSchema } },
@@ -61,6 +63,7 @@ export const listSkillCatalogRoute = createRoute({
   description: 'Shipped skill presets (discovery-only). Copy into PUT /settings/skills to configure.',
   'x-fern-sdk-group-name': ['catalog', 'skills'],
   'x-fern-sdk-method-name': 'list',
+  'x-excluded': true,
   responses: {
     200: {
       content: { 'application/json': { schema: GetSkillCatalogResponseSchema } },
@@ -80,8 +83,9 @@ export const listSandboxProviderCatalogRoute = createRoute({
   summary: 'Get the sandbox provider catalog',
   description:
     'Shipped sandbox-provider presets (discovery-only). Copy into PUT /settings/sandbox-providers to configure.',
-  'x-fern-sdk-group-name': ['catalog', 'sandboxProviders'],
+  'x-fern-sdk-group-name': ['catalog', 'sandbox_providers'],
   'x-fern-sdk-method-name': 'list',
+  'x-excluded': true,
   responses: {
     200: {
       content: { 'application/json': { schema: GetSandboxProviderCatalogResponseSchema } },

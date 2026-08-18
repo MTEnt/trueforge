@@ -20,6 +20,7 @@ export const authLoginRoute = createRoute({
     'Redirects the browser to the configured identity provider. In local/single-binary mode, redirects straight ' +
     'back into the app — there is nothing to log into.',
   'x-fern-ignore': true,
+  'x-excluded': true,
   request: { query: AuthLoginQuerySchema },
   responses: {
     302: { description: 'Redirect to the IdP authorization endpoint.' },
@@ -35,6 +36,7 @@ export const oAuthCallbackRoute = createRoute({
     'Browser-redirect target hit by the identity provider after login, never called directly by SDK consumers. ' +
     'In local/single-binary mode, redirects straight back into the app.',
   'x-fern-ignore': true,
+  'x-excluded': true,
   request: { query: OAuthCallbackQuerySchema },
   responses: {
     302: { description: 'Redirect back into the app on success, or to /?error=<reason> on failure.' },
@@ -51,6 +53,7 @@ export const authLogoutRoute = createRoute({
     'mode, since there is no real session to clear.',
   'x-fern-sdk-group-name': ['auth'],
   'x-fern-sdk-method-name': 'logout',
+  'x-excluded': true,
   responses: {
     204: { description: 'Session cookie cleared.' },
   },
@@ -67,6 +70,7 @@ export const meRoute = createRoute({
     'returns the default identity.',
   'x-fern-sdk-group-name': ['auth'],
   'x-fern-sdk-method-name': 'me',
+  'x-excluded': true,
   responses: {
     200: {
       content: { 'application/json': { schema: MeResponseSchema } },

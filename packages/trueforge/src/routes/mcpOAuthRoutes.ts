@@ -15,6 +15,7 @@ export const mcpOAuthCallbackRoute = createRoute({
     'Not called by the SDK — browsers hit this URL directly.',
   // Browser-redirect target hit directly by the authorization server, never called by SDK.
   'x-fern-ignore': true,
+  'x-excluded': true,
   request: {
     query: OAuthCallbackQuerySchema,
   },

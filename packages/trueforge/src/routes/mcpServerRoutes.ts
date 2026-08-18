@@ -23,7 +23,7 @@ export const listAvailableMcpServersRoute = createRoute({
   tags: [MCP_SERVERS_TAG],
   summary: 'List MCP servers for chat',
   description: 'MCP servers as a slim name/url list for the composer. No auth or auth_status.',
-  'x-fern-sdk-group-name': ['mcpServers'],
+  'x-fern-sdk-group-name': ['mcp_servers'],
   'x-fern-sdk-method-name': 'list',
   responses: {
     200: {
@@ -44,7 +44,7 @@ export const listMcpServersRoute = createRoute({
   summary: 'List MCP servers',
   description:
     'All MCP servers with nested auth_status (settings / admin projection). Header auth values are redacted.',
-  'x-fern-sdk-group-name': ['settings', 'mcpServers'],
+  'x-fern-sdk-group-name': ['settings', 'mcp_servers'],
   'x-fern-sdk-method-name': 'list',
   responses: {
     200: {
@@ -73,7 +73,7 @@ export const getMcpServerRoute = createRoute({
   summary: 'Get a single MCP server by name',
   description:
     'A single MCP server by name, with nested auth_status (settings / admin projection). Header auth values are redacted.',
-  'x-fern-sdk-group-name': ['settings', 'mcpServers'],
+  'x-fern-sdk-group-name': ['settings', 'mcp_servers'],
   'x-fern-sdk-method-name': 'get',
   request: {
     params: McpServerNameParamsSchema,
@@ -98,7 +98,7 @@ export const createMcpServerRoute = createRoute({
   description:
     'Creates an MCP server by `name`. Fails if `name` is already taken. Runs DCR registration when `auth.type` is `dcr`. ' +
     'Header secrets: real value required; redacted with no stored value returns 400.',
-  'x-fern-sdk-group-name': ['settings', 'mcpServers'],
+  'x-fern-sdk-group-name': ['settings', 'mcp_servers'],
   'x-fern-sdk-method-name': 'create',
   request: {
     body: {
@@ -134,7 +134,7 @@ export const putMcpServerRoute = createRoute({
   description:
     'Create or replace by `name`. Does not start DCR or change oauth client columns. ' +
     'Header secrets: real value sets/rotates; redacted keeps existing (400 if none).',
-  'x-fern-sdk-group-name': ['settings', 'mcpServers'],
+  'x-fern-sdk-group-name': ['settings', 'mcp_servers'],
   'x-fern-sdk-method-name': 'upsert',
   request: {
     body: {
@@ -172,8 +172,9 @@ export const listMcpServerToolsRoute = createRoute({
   path: '/{name}/tools',
   tags: [MCP_SERVERS_TAG],
   summary: 'List tools of an MCP server',
-  'x-fern-sdk-group-name': ['settings', 'mcpServers'],
+  'x-fern-sdk-group-name': ['settings', 'mcp_servers'],
   'x-fern-sdk-method-name': 'list_tools',
+  'x-excluded': true,
   description: 'All tools exposed by the given MCP server (non-paginated), as returned by the MCP `tools/list` call.',
   request: {
     params: McpServerNameParamsSchema,
@@ -214,8 +215,9 @@ export const authorizeMcpServerRoute = createRoute({
   path: '/{name}/authorize',
   tags: [MCP_SERVERS_TAG],
   summary: 'Start (or short-circuit) the auth flow for an MCP server',
-  'x-fern-sdk-group-name': ['mcpServers'],
+  'x-fern-sdk-group-name': ['mcp_servers'],
   'x-fern-sdk-method-name': 'authorize',
+  'x-excluded': true,
   description:
     'For servers without auth returns not_required, and for header credentials returns authenticated ' +
     '(no browser flow). For auth.type dcr, returns authenticated when a usable (or refreshable) token ' +
@@ -258,8 +260,9 @@ export const deleteAuthorizeMcpServerRoute = createRoute({
   path: '/{name}/authorize',
   tags: [MCP_SERVERS_TAG],
   summary: 'Disconnect OAuth for an MCP server',
-  'x-fern-sdk-group-name': ['mcpServers'],
+  'x-fern-sdk-group-name': ['mcp_servers'],
   'x-fern-sdk-method-name': 'delete_authorize',
+  'x-excluded': true,
   description:
     'For auth.type dcr, deletes the stored OAuth token and returns the server with auth_status ' +
     'auth_required, keeping the dynamically registered OAuth client so the next authorize can reuse it. ' +
