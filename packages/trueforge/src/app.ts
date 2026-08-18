@@ -188,7 +188,7 @@ export function createServerApp<TTransaction>(deps: ServerDeps<TTransaction>) {
     ),
   );
   app.route(
-    '/api/v1/catalog',
+    '/api/v1/catalogs',
     withAuth(
       createCatalogRouter({
         modelCatalog: deps.modelCatalog,
