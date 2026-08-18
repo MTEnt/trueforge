@@ -4516,6 +4516,7 @@
         "tags": [
           "Auth"
         ],
+        "x-excluded": true,
         "x-fern-ignore": true
       }
     },
@@ -4543,6 +4544,7 @@
         "tags": [
           "Auth"
         ],
+        "x-excluded": true,
         "x-fern-ignore": true
       }
     },
@@ -4558,6 +4560,7 @@
         "tags": [
           "Auth"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
           "auth"
         ],
@@ -4593,6 +4596,7 @@
         "tags": [
           "Auth"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
           "auth"
         ],
@@ -4628,6 +4632,7 @@
         "tags": [
           "Capabilities"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
           "server"
         ],
@@ -4663,9 +4668,10 @@
         "tags": [
           "Catalog"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
           "catalog",
-          "mcpServers"
+          "mcp_servers"
         ],
         "x-fern-sdk-method-name": "list"
       }
@@ -4699,9 +4705,10 @@
         "tags": [
           "Catalog"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
           "catalog",
-          "modelProviders"
+          "model_providers"
         ],
         "x-fern-sdk-method-name": "list"
       }
@@ -4735,9 +4742,10 @@
         "tags": [
           "Catalog"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
           "catalog",
-          "sandboxProviders"
+          "sandbox_providers"
         ],
         "x-fern-sdk-method-name": "list"
       }
@@ -4771,6 +4779,7 @@
         "tags": [
           "Catalog"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
           "catalog",
           "skills"
@@ -4808,7 +4817,7 @@
           "MCP Servers"
         ],
         "x-fern-sdk-group-name": [
-          "mcpServers"
+          "mcp_servers"
         ],
         "x-fern-sdk-method-name": "list"
       }
@@ -4911,6 +4920,7 @@
         "tags": [
           "MCP OAuth"
         ],
+        "x-excluded": true,
         "x-fern-ignore": true
       }
     },
@@ -4956,8 +4966,9 @@
         "tags": [
           "MCP Servers"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
-          "mcpServers"
+          "mcp_servers"
         ],
         "x-fern-sdk-method-name": "delete_authorize"
       },
@@ -5053,8 +5064,9 @@
         "tags": [
           "MCP Servers"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
-          "mcpServers"
+          "mcp_servers"
         ],
         "x-fern-sdk-method-name": "authorize"
       }
@@ -5084,7 +5096,7 @@
             "description": "OIDC is configured and the request has no valid session cookie."
           }
         },
-        "summary": "List models",
+        "summary": "List models for chat",
         "tags": [
           "Models"
         ],
@@ -6325,7 +6337,7 @@
         ],
         "x-fern-sdk-group-name": [
           "settings",
-          "mcpServers"
+          "mcp_servers"
         ],
         "x-fern-sdk-method-name": "list"
       },
@@ -6389,7 +6401,7 @@
         ],
         "x-fern-sdk-group-name": [
           "settings",
-          "mcpServers"
+          "mcp_servers"
         ],
         "x-fern-sdk-method-name": "create"
       },
@@ -6443,7 +6455,7 @@
         ],
         "x-fern-sdk-group-name": [
           "settings",
-          "mcpServers"
+          "mcp_servers"
         ],
         "x-fern-sdk-method-name": "upsert"
       }
@@ -6492,7 +6504,7 @@
         ],
         "x-fern-sdk-group-name": [
           "settings",
-          "mcpServers"
+          "mcp_servers"
         ],
         "x-fern-sdk-method-name": "get"
       }
@@ -6569,9 +6581,10 @@
         "tags": [
           "MCP Servers"
         ],
+        "x-excluded": true,
         "x-fern-sdk-group-name": [
           "settings",
-          "mcpServers"
+          "mcp_servers"
         ],
         "x-fern-sdk-method-name": "list_tools"
       }
@@ -6617,7 +6630,7 @@
         ],
         "x-fern-sdk-group-name": [
           "settings",
-          "modelProviders"
+          "model_providers"
         ],
         "x-fern-sdk-method-name": "list"
       },
@@ -6671,7 +6684,7 @@
         ],
         "x-fern-sdk-group-name": [
           "settings",
-          "modelProviders"
+          "model_providers"
         ],
         "x-fern-sdk-method-name": "create"
       },
@@ -6715,7 +6728,7 @@
         ],
         "x-fern-sdk-group-name": [
           "settings",
-          "modelProviders"
+          "model_providers"
         ],
         "x-fern-sdk-method-name": "upsert"
       }
@@ -6751,7 +6764,7 @@
         ],
         "x-fern-sdk-group-name": [
           "settings",
-          "sandboxProviders"
+          "sandbox_providers"
         ],
         "x-fern-sdk-method-name": "get"
       },
@@ -6805,7 +6818,7 @@
         ],
         "x-fern-sdk-group-name": [
           "settings",
-          "sandboxProviders"
+          "sandbox_providers"
         ],
         "x-fern-sdk-method-name": "upsert"
       }
