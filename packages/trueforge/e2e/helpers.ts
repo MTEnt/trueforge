@@ -303,9 +303,6 @@ function canonicalize(value: unknown): unknown {
         continue;
       }
       const v = value[key];
-      if (v === '' || v === null) {
-        continue;
-      }
       out[key] = canonicalize(v);
     }
     return out;
