@@ -15,6 +15,7 @@ import {
   createInlineSession,
   createNamedAgentSession,
   denyToolCall,
+  gatherEvents,
   httpStatusCode,
   makeNonce,
   requireAction,
@@ -156,9 +157,9 @@ const unresolvedRequiredActionTest: TestCase = {
       throw new Error('expected turn 2 to be rejected for leaving the pending question unresolved, but it succeeded');
     }
     const statusCode = httpStatusCode(thrown);
-    if (statusCode !== 400) {
+    if (statusCode !== 422) {
       throw new Error(
-        `expected turn 2 to be rejected with HTTP 400 for the unresolved required action, ` +
+        `expected turn 2 to be rejected with HTTP 422 (unprocessable send while a question is pending), ` +
           `but got ${statusCode === undefined ? 'a non-HTTP failure' : `HTTP ${String(statusCode)}`}`,
         { cause: thrown },
       );
@@ -361,7 +362,7 @@ const sandboxPersistenceTest: TestCase = {
 };
 
 function usedCodeModeExec(turn: { events: TrueForgeApi.TurnStreamingEvent[] }): boolean {
-  for (const event of turn.events) {
+  for (const event of gatherEvents(turn.events)) {
     if (event.type !== 'model.message' || event.toolCalls === undefined) {
       continue;
     }
