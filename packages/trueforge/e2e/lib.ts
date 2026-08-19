@@ -5,25 +5,14 @@
 import { TrueForge, TrueForgeApi, TrueForgeError, isEventDelta, mergeEventDelta } from '@truefoundry/trueforge-sdk';
 import { randomUUID } from 'node:crypto';
 
-/** Host URL of docker-compose.e2e.yml (API mapped to 8792). Not an attach-to-dev override. */
+/** Host URL of docker-compose.e2e.yml (API mapped to 8792) */
 export const E2E_BASE_URL = 'http://127.0.0.1:8792';
 
 export const MCP_DEEPWIKI = 'deepwiki';
 export const MCP_LINEAR = 'linear';
 export const NAMED_AGENT = 'e2e-memory';
 
-const WELL_KNOWN_PROVIDER_TYPES = [
-  'openai',
-  'anthropic',
-  'google-gemini',
-  'fireworks',
-  'zai',
-  'moonshot',
-  'alibaba',
-  'together',
-] as const;
-
-type WellKnownProviderType = (typeof WELL_KNOWN_PROVIDER_TYPES)[number];
+const WELL_KNOWN_PROVIDER_TYPES = Object.values(TrueForgeApi.CatalogWellKnownModelProviderType);
 
 export function requireEnv(key: string): string {
   const value = process.env[key];
@@ -632,8 +621,8 @@ function parseModelFqn(name: string): { providerType: string; modelName: string 
   return { providerType: name.slice(0, slash), modelName: name.slice(slash + 1) };
 }
 
-function isWellKnownProviderType(value: string): value is WellKnownProviderType {
-  return (WELL_KNOWN_PROVIDER_TYPES as readonly string[]).includes(value);
+function isWellKnownProviderType(value: string): value is TrueForgeApi.CatalogWellKnownModelProviderType {
+  return WELL_KNOWN_PROVIDER_TYPES.some(type => type === value);
 }
 
 function wellKnownProviderManifest({
@@ -641,7 +630,7 @@ function wellKnownProviderManifest({
   apiKey,
   modelName,
 }: {
-  type: WellKnownProviderType;
+  type: TrueForgeApi.CatalogWellKnownModelProviderType;
   apiKey: string;
   modelName: string;
 }): TrueForgeApi.ModelProviderManifest {
