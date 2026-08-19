@@ -1,7 +1,8 @@
 # Full-stack E2E contract. Same topology as docker-compose.yml (smoke); isolated
-# project name, host ports, volumes, and env_file so it does not collide with
-# host-dev (8790/5432/6379) or smoke (8791/5433/6380). Keep image versions and
-# healthchecks in sync with docker-compose.yml / docker-compose.dev.yml.
+# project name, host ports, and env_file so it does not collide with host-dev
+# (8790/5432/6379) or smoke (8791/5433/6380). Postgres has no host bind mount so
+# `scripts/e2e.sh` `down -v` discards the DB. Keep image versions and healthchecks
+# in sync with docker-compose.yml / docker-compose.dev.yml.
 name: trueforge-e2e
 
 services:
@@ -13,8 +14,6 @@ services:
     # Host 5434 avoids conflict with docker-compose.dev.yml on 5432 and smoke on 5433.
     ports:
       - '5434:5432'
-    volumes:
-      - ./data/e2e/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 5s
