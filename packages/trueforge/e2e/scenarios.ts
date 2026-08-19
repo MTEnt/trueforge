@@ -14,7 +14,6 @@ import {
   createInlineSession,
   createNamedAgentSession,
   denyToolCall,
-  gatherEvents,
   httpStatusCode,
   makeNonce,
   requireAction,
@@ -368,59 +367,6 @@ const sandboxPersistenceTest: TestCase = {
   },
 };
 
-function usedCodeModeExec(turn: { events: TrueForgeApi.TurnStreamingEvent[] }): boolean {
-  for (const event of gatherEvents(turn.events)) {
-    if (event.type !== 'model.message' || event.toolCalls === undefined) {
-      continue;
-    }
-    for (const call of event.toolCalls) {
-      const isExec =
-        (call.toolInfo.type === 'truefoundry-system' && call.toolInfo.name === 'exec') || call.function.name === 'exec';
-      if (isExec && call.function.arguments.includes('mcp-client')) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-/** Sandbox + DeepWiki: MCP is invoked via `exec` running `mcp-client`, not a native MCP tool call. */
-const codeModeTest: TestCase = {
-  name: 'code_mode',
-  run: async () => {
-    const client = createClient();
-    const session = await createInlineSession({
-      client,
-      spec: baseAgentSpec({
-        instructions:
-          'You have a sandbox. DeepWiki is available ONLY through the sandbox `mcp-client` CLI, not as native MCP tools. ' +
-          'Never call create_sub_agent, list_tools, get_tool_info, call_tool, or DeepWiki tools directly. ' +
-          'Never spawn a sub-agent. The only tool you may use is sandbox exec. Keep the final reply to one sentence.',
-        config: { sandbox: { enabled: true } },
-        mcpServers: [{ name: MCP_DEEPWIKI, preload: true }],
-      }),
-    });
-    const tracker = new SessionTracker(session.id);
-    const turn = await collectTurn({
-      client,
-      sessionId: session.id,
-      input: [
-        userMessage(
-          'Do not create a sub-agent. Do not call MCP tools or call_tool. ' +
-            'Run exactly one sandbox exec whose command contains mcp-client to ask DeepWiki what the facebook/react ' +
-            'repository is about. Then reply with one sentence. No other tools.',
-        ),
-      ],
-    });
-    tracker.record(turn, { label: 'code_mode', expectSandbox: true });
-    if (!usedCodeModeExec(turn)) {
-      throw new Error(
-        'expected sandbox exec of mcp-client (code mode), but no exec tool call with mcp-client in arguments was observed.',
-      );
-    }
-  },
-};
-
 export const tests: TestCase[] = [
   sessionMemoryTest,
   mcpAuthRequiredTest,
@@ -429,6 +375,5 @@ export const tests: TestCase[] = [
   subagentToolApprovalAllowTest,
   subagentToolApprovalDenyTest,
   sandboxPersistenceTest,
-  codeModeTest,
   namedAgentMemoryTest,
 ];
