@@ -1,5 +1,5 @@
 /**
- * Shared E2E CLI building blocks: SDK client, resource upserts, turn collection,
+ * Shared E2E helpers: SDK client, resource upserts, turn collection,
  * stream-vs-listTurnEvents reconciliation, and the sequential runner.
  */
 import { TrueForge, TrueForgeApi, TrueForgeError, isEventDelta, mergeEventDelta } from '@truefoundry/trueforge-sdk';

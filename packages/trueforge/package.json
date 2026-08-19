@@ -47,7 +47,7 @@
     "test:eventsub": "jest --config jest.eventsub.config.cjs",
     "test:store:postgres": "jest --config jest.store.postgres.config.cjs",
     "test:store:sqlite": "jest --config jest.store.sqlite.config.cjs",
-    "e2e": "tsx e2e/cli.ts",
+    "e2e": "tsx e2e/run.ts",
     "test": "pnpm run build:gen && NODE_OPTIONS='--conditions=trueforge-dev' node --env-file=.env.test ./node_modules/jest/bin/jest.js --config jest.unit.config.cjs",
     "typecheck": "pnpm run build:gen && tsc --noEmit && tsc --noEmit -p tests/db/tsconfig.json && tsc --noEmit -p tests/unit/tsconfig.json && tsc --noEmit -p e2e/tsconfig.json"
   },

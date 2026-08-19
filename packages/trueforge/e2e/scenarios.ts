@@ -1,6 +1,5 @@
 /**
- * Sequential E2E cases. Each proves one v1 flow against the compose stack.
- * Shared stream-vs-listTurnEvents checks live in `collectTurn` (lib.ts).
+ * Sequential E2E scenarios. Each proves one v1 flow against the compose stack.
  */
 import { type TrueForge, type TrueForgeApi } from '@truefoundry/trueforge-sdk';
 import {
@@ -22,7 +21,7 @@ import {
   textFileContent,
   userMessage,
   type TestCase,
-} from './lib';
+} from './helpers';
 
 async function runMemoryRecall({
   client,

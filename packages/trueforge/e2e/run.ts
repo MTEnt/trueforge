@@ -1,13 +1,13 @@
 /**
- * E2E CLI: load `e2e/.env` (real environment variables win), upsert settings,
- * run registered cases (optionally `--only <substring>`), exit non-zero on failure
+ * E2E runner: load `e2e/.env` (real environment variables win), upsert settings,
+ * run registered scenarios (optionally `--only <substring>`), exit non-zero on failure
  * or when the filter matches nothing.
  */
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tests } from './cases';
-import { createClient, errorMessage, runTests, upsertE2eResources } from './lib';
+import { createClient, errorMessage, runTests, upsertE2eResources } from './helpers';
+import { tests } from './scenarios';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
