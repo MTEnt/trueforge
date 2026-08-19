@@ -53,7 +53,7 @@ export function createClient(): TrueForge {
 
 export function baseAgentSpec(overrides: Partial<TrueForgeApi.AgentSpec> = {}): TrueForgeApi.AgentSpec {
   return {
-    model: { name: requireEnv('E2E_MODEL'), params: { temperature: 0 } },
+    model: { name: requireEnv('MODEL'), params: { temperature: 0 } },
     ...overrides,
   };
 }
@@ -314,7 +314,7 @@ function canonicalize(value: unknown): unknown {
         continue;
       }
       const v = value[key];
-      if (v === '') {
+      if (v === '' || !v) {
         continue;
       }
       out[key] = canonicalize(v);
@@ -627,7 +627,7 @@ export async function runTests({ tests, filter }: { tests: TestCase[]; filter?: 
 function parseModelFqn(name: string): { providerType: string; modelName: string } {
   const slash = name.indexOf('/');
   if (slash <= 0 || slash === name.length - 1 || name.includes('/', slash + 1)) {
-    throw new Error(`E2E_MODEL must be a fully qualified "provider/model", got: ${name}`);
+    throw new Error(`MODEL must be a fully qualified "provider/model", got: ${name}`);
   }
   return { providerType: name.slice(0, slash), modelName: name.slice(slash + 1) };
 }
@@ -691,18 +691,18 @@ async function upsertNamedAgent({ client, spec }: { client: TrueForge; spec: Tru
 
 /** Idempotent settings + named agent used by later cases. */
 export async function upsertE2eResources(client: TrueForge): Promise<void> {
-  const fqn = requireEnv('E2E_MODEL');
+  const fqn = requireEnv('MODEL');
   const { providerType, modelName } = parseModelFqn(fqn);
   if (!isWellKnownProviderType(providerType)) {
     throw new Error(
-      `E2E_MODEL provider "${providerType}" is not a well-known type (${WELL_KNOWN_PROVIDER_TYPES.join(', ')})`,
+      `MODEL provider "${providerType}" is not a well-known type (${WELL_KNOWN_PROVIDER_TYPES.join(', ')})`,
     );
   }
 
   await client.settings.modelProviders.upsert({
     manifest: wellKnownProviderManifest({
       type: providerType,
-      apiKey: requireEnv('E2E_MODEL_API_KEY'),
+      apiKey: requireEnv('MODEL_API_KEY'),
       modelName,
     }),
   });
@@ -728,7 +728,7 @@ export async function upsertE2eResources(client: TrueForge): Promise<void> {
   await client.settings.sandboxProviders.upsert({
     manifest: {
       type: 'daytona',
-      auth: { apiKey: requireEnv('E2E_DAYTONA_API_KEY') },
+      auth: { apiKey: requireEnv('DAYTONA_API_KEY') },
       execTimeoutMs: 60_000,
       autoStopIntervalInMinutes: 5,
       autoArchiveIntervalInMinutes: 60,

@@ -71,10 +71,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 # runner: minimal image with prod node_modules + built artifacts.
 # ---------------------------------------------------------------------------
 FROM base AS runner
-# HOST=0.0.0.0 matches the npm Dockerfile: published-port and in-container
-# healthchecks hit 127.0.0.1, while Node's default `localhost` often binds ::1 only.
-ENV NODE_ENV=production \
-    HOST=0.0.0.0
+ENV NODE_ENV=production
 
 # Production dependency tree (pnpm workspace symlinks preserved).
 COPY --from=prod-deps /app/node_modules ./node_modules
