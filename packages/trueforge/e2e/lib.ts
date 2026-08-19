@@ -688,7 +688,7 @@ export async function upsertE2eResources(client: TrueForge): Promise<void> {
     );
   }
 
-  await client.settings.modelProviders.upsert({
+  await client.settings.modelProviders.createOrUpdate({
     manifest: wellKnownProviderManifest({
       type: providerType,
       apiKey: requireEnv('MODEL_API_KEY'),
@@ -696,7 +696,7 @@ export async function upsertE2eResources(client: TrueForge): Promise<void> {
     }),
   });
 
-  await client.settings.mcpServers.upsert({
+  await client.settings.mcpServers.createOrUpdate({
     manifest: {
       type: 'remote',
       name: MCP_DEEPWIKI,
@@ -704,7 +704,7 @@ export async function upsertE2eResources(client: TrueForge): Promise<void> {
       description: 'Read documentation and ask questions about any public GitHub repository.',
     },
   });
-  await client.settings.mcpServers.upsert({
+  await client.settings.mcpServers.createOrUpdate({
     manifest: {
       type: 'remote',
       name: MCP_LINEAR,
@@ -714,7 +714,7 @@ export async function upsertE2eResources(client: TrueForge): Promise<void> {
     },
   });
 
-  await client.settings.sandboxProviders.upsert({
+  await client.settings.sandboxProviders.createOrUpdate({
     manifest: {
       type: 'daytona',
       auth: { apiKey: requireEnv('DAYTONA_API_KEY') },
