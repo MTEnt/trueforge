@@ -5,7 +5,7 @@ const client = new TrueForge({
   timeoutInSeconds: 600,
 });
 
-const modelName = (await client.models.list()).data[0]?.name ?? 'openai/gpt-5-5';
+const modelName = 'openai/gpt-5-6-terra';
 const manifest = {
   model: { name: modelName },
   instructions:

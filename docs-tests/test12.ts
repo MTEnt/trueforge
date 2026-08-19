@@ -17,7 +17,7 @@ if (githubMcp == null) {
 }
 // TODO: verify mcp.auth_required + empty resume with a DCR-based MCP once.
 
-const modelName = (await client.models.list()).data[0]?.name ?? 'openai/gpt-5-5';
+const modelName = 'openai/gpt-5-6-terra';
 const manifest = {
   model: { name: modelName },
   instructions:

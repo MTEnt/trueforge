@@ -10,11 +10,7 @@ async function main() {
   const me = await client.auth.me();
   console.log('auth.me:', me);
 
-  const models = await client.models.list();
-  const modelName = models.data[0]?.name;
-  if (modelName == null) {
-    throw new Error('No models configured on the server');
-  }
+  const modelName = 'openai/gpt-5-6-terra';
   console.log('using model:', modelName);
 
   const { data: session } = await client.sessions.create({
@@ -22,6 +18,13 @@ async function main() {
       spec: {
         model: { name: modelName },
         instructions: 'You are a concise, helpful assistant.',
+        mcpServers: [
+          { name: 'deepwiki', enableTools: ['@all'], requireApprovalForTools: [] },
+          { name: 'linear', enableTools: ['@all'], requireApprovalForTools: [] },
+          { name: 'parallel-web', enableTools: ['@all'], requireApprovalForTools: [] },
+        ],
+        skills: [{ name: 'wiki-qa' }],
+        config: { sandbox: { enabled: true } },
       },
     },
   });
@@ -41,4 +44,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

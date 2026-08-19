@@ -9,7 +9,7 @@ const client = new TrueForge({
 const { data: session } = await client.sessions.create({
   agent: {
     spec: {
-      model: { name: 'openai/gpt-5-5' }, // a model you configured in Settings
+      model: { name: 'openai/gpt-5-6-terra' }, // a model you configured in Settings
       instructions: 'You are a concise, helpful assistant.',
     },
   },

@@ -6,7 +6,7 @@ try {
   await client.agents.create({
     name: 'web-research-brief',
     manifest: {
-      model: { name: (await client.models.list()).data[0]?.name ?? 'openai/gpt-5-5' },
+      model: { name: 'openai/gpt-5-6-terra' },
       instructions:
         'You are a web research assistant. Given a topic or question, use parallel-web to search the web and pull content from the most relevant, recent sources. When the request compares several items, research each one in parallel, then synthesize the findings into a clear one-page brief.',
       mcpServers: [

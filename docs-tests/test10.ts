@@ -9,7 +9,7 @@ try {
   await client.agents.create({
     name: 'ops-bot',
     manifest: {
-      model: { name: (await client.models.list()).data[0]?.name ?? 'openai/gpt-5-5' },
+      model: { name: 'openai/gpt-5-6-terra' },
       instructions:
         'You operate production services. For any restart or ops request, you must call parallel-web to look up the current runbook before doing anything else. Do not answer from memory.',
       mcpServers: [
