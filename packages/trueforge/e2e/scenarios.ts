@@ -57,6 +57,7 @@ async function runMemoryRecall({
   }
 }
 
+/** Inline agent: a later turn recalls a nonce stored in session context. */
 const sessionMemoryTest: TestCase = {
   name: 'session_memory',
   run: async () => {
@@ -71,6 +72,7 @@ const sessionMemoryTest: TestCase = {
   },
 };
 
+/** Named agent (`e2e-memory`): same recall check on a catalog agent, not an inline spec. */
 const namedAgentMemoryTest: TestCase = {
   name: 'named_agent_memory',
   run: async () => {
@@ -80,6 +82,7 @@ const namedAgentMemoryTest: TestCase = {
   },
 };
 
+/** Preloaded Linear DCR MCP: connecting surfaces `mcp.auth_required` with a non-empty auth URL. */
 const mcpAuthRequiredTest: TestCase = {
   name: 'mcp_auth_required',
   run: async () => {
@@ -112,6 +115,7 @@ const mcpAuthRequiredTest: TestCase = {
   },
 };
 
+/** Pending `ask_user_question`: a follow-up user message without an answer is rejected with HTTP 422. */
 const unresolvedRequiredActionTest: TestCase = {
   name: 'unresolved_required_action',
   run: async () => {
@@ -166,6 +170,7 @@ const unresolvedRequiredActionTest: TestCase = {
   },
 };
 
+/** Cancel after `turn.created`: the stream and `getTurn` both report status `cancelled`. */
 const turnCancellationTest: TestCase = {
   name: 'turn_cancellation',
   run: async () => {
@@ -253,6 +258,7 @@ async function startApprovalFlow(scenario: string) {
   return { client, session, tracker, turn1Id, threadId: approval.threadId, toolCallId: toolCall.id };
 }
 
+/** Sub-agent MCP tool with `@all` approval: allowing the call runs the tool and finishes the thread. */
 const subagentToolApprovalAllowTest: TestCase = {
   name: 'subagent_tool_approval_allow',
   run: async () => {
@@ -277,6 +283,7 @@ const subagentToolApprovalAllowTest: TestCase = {
   },
 };
 
+/** Same approval pause: denying the call returns a denial `tool.response` and still closes the thread. */
 const subagentToolApprovalDenyTest: TestCase = {
   name: 'subagent_tool_approval_deny',
   run: async () => {
@@ -305,6 +312,7 @@ const subagentToolApprovalDenyTest: TestCase = {
 const UPLOAD_NAME = 'upload.txt';
 const UPLOAD_MARKER = 'Distinctive marker line: MAGENTA-OTTER-7731-CANYON-BELL';
 
+/** Uploaded sandbox file is unread on turn 1, then read on turn 2 from the same sandbox (not a new one). */
 const sandboxPersistenceTest: TestCase = {
   name: 'sandbox_persistence',
   run: async () => {
@@ -376,6 +384,7 @@ function usedCodeModeExec(turn: { events: TrueForgeApi.TurnStreamingEvent[] }): 
   return false;
 }
 
+/** Sandbox + DeepWiki: MCP is invoked via `exec` running `mcp-client`, not a native MCP tool call. */
 const codeModeTest: TestCase = {
   name: 'code_mode',
   run: async () => {
