@@ -6,7 +6,8 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createClient, errorMessage, runTests, upsertE2eResources, type TestCase } from './lib';
+import { tests } from './cases';
+import { createClient, errorMessage, runTests, upsertE2eResources } from './lib';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -24,9 +25,6 @@ function parseOnlyFilter(argv: string[]): string | undefined {
   const value = idx !== -1 ? argv[idx + 1] : undefined;
   return value !== undefined && value.trim() !== '' ? value : undefined;
 }
-
-/** Cases are registered in `cases.ts` (follow-up). */
-const tests: TestCase[] = [];
 
 async function main(): Promise<void> {
   loadDotEnv(resolve(HERE, '.env'));

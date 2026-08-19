@@ -32,7 +32,8 @@ fi
 
 echo "Starting E2E stack (API ${E2E_BASE_URL})..."
 if ! "${COMPOSE[@]}" up --build --wait; then
-  echo "error: failed to start docker-compose.e2e.yml (are ports 8792/5434/6381 free?)" >&2
+  echo "error: failed to start docker-compose.e2e.yml (server unhealthy, or ports 8792/5434/6381 in use)" >&2
+  "${COMPOSE[@]}" logs --tail=200 server >&2 || true
   STARTED_STACK=1
   exit 1
 fi
