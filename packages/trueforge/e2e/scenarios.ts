@@ -393,8 +393,9 @@ const codeModeTest: TestCase = {
       client,
       spec: baseAgentSpec({
         instructions:
-          'You have a sandbox and a DeepWiki MCP server. Do NOT call MCP tools natively. ' +
-          'You MUST use the sandbox exec tool to run mcp-client against DeepWiki. Keep replies short.',
+          'You have a sandbox. DeepWiki is available ONLY through the sandbox `mcp-client` CLI, not as native MCP tools. ' +
+          'Never call create_sub_agent, list_tools, get_tool_info, call_tool, or DeepWiki tools directly. ' +
+          'Never spawn a sub-agent. The only tool you may use is sandbox exec. Keep the final reply to one sentence.',
         config: { sandbox: { enabled: true } },
         mcpServers: [{ name: MCP_DEEPWIKI, preload: true }],
       }),
@@ -405,8 +406,9 @@ const codeModeTest: TestCase = {
       sessionId: session.id,
       input: [
         userMessage(
-          'Using mcp-client via sandbox exec (not a native MCP tool call), ask DeepWiki what the facebook/react ' +
-            'repository is about. Then reply with a one-sentence summary.',
+          'Do not create a sub-agent. Do not call MCP tools or call_tool. ' +
+            'Run exactly one sandbox exec whose command contains mcp-client to ask DeepWiki what the facebook/react ' +
+            'repository is about. Then reply with one sentence. No other tools.',
         ),
       ],
     });
