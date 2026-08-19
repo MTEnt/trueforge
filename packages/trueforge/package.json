@@ -47,8 +47,9 @@
     "test:eventsub": "jest --config jest.eventsub.config.cjs",
     "test:store:postgres": "jest --config jest.store.postgres.config.cjs",
     "test:store:sqlite": "jest --config jest.store.sqlite.config.cjs",
+    "e2e": "tsx e2e/cli.ts",
     "test": "pnpm run build:gen && NODE_OPTIONS='--conditions=trueforge-dev' node --env-file=.env.test ./node_modules/jest/bin/jest.js --config jest.unit.config.cjs",
-    "typecheck": "pnpm run build:gen && tsc --noEmit && tsc --noEmit -p tests/db/tsconfig.json && tsc --noEmit -p tests/unit/tsconfig.json"
+    "typecheck": "pnpm run build:gen && tsc --noEmit && tsc --noEmit -p tests/db/tsconfig.json && tsc --noEmit -p tests/unit/tsconfig.json && tsc --noEmit -p e2e/tsconfig.json"
   },
   "dependencies": {
     "@daytona/sdk": "^0.204.1",
@@ -73,6 +74,7 @@
   "devDependencies": {
     "@swc/core": "^1.11.0",
     "@swc/jest": "^0.2.37",
+    "@truefoundry/trueforge-sdk": "workspace:*",
     "@types/better-sqlite3": "^7.6.13",
     "@types/jest": "^29.5.14",
     "@types/node": "^24.12.0",
