@@ -41,6 +41,7 @@
     "test:frontend": "pnpm --filter frontend test",
     "test:trueforge-core": "pnpm --filter @truefoundry/trueforge-core test",
     "test:trueforge": "pnpm --filter @truefoundry/trueforge test",
+    "test:e2e": "bash scripts/e2e.sh",
     "test:store:local": "bash scripts/test-store-local.sh",
     "test:store:postgres": "pnpm --filter @truefoundry/trueforge test:store:postgres",
     "test:store:sqlite": "pnpm --filter @truefoundry/trueforge test:store:sqlite",
