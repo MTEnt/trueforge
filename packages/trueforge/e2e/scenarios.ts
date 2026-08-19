@@ -169,7 +169,7 @@ const unresolvedRequiredActionTest: TestCase = {
   },
 };
 
-/** Cancel after `turn.created`: the stream and `getTurn` both report status `cancelled`. */
+/** Cancel as soon as `turn.created` is seen, without blocking the SSE read, then both stream and `getTurn` are `cancelled`. */
 const turnCancellationTest: TestCase = {
   name: 'turn_cancellation',
   run: async () => {
@@ -191,14 +191,18 @@ const turnCancellationTest: TestCase = {
     });
 
     const events: TrueForgeApi.TurnStreamingEvent[] = [];
-    let cancelRequested = false;
+    let cancelInFlight: Promise<unknown> | undefined;
     for await (const event of stream) {
       events.push(event);
-      if (!cancelRequested && event.type === 'turn.created') {
-        cancelRequested = true;
-        await client.sessions.cancel(session.id);
+      if (cancelInFlight === undefined && event.type === 'turn.created') {
+        // Do not await here: blocking the SSE consumer lets a fast turn finish as `done` before cancel is applied.
+        cancelInFlight = client.sessions.cancel(session.id);
       }
     }
+    if (cancelInFlight === undefined) {
+      throw new Error('streamed turn.created is missing; cancel was never requested.');
+    }
+    await cancelInFlight;
 
     const terminal = events.at(-1);
     if (terminal?.type !== 'turn.done') {
